@@ -15,12 +15,12 @@ Kubernetes [Cluster API](https://cluster-api.sigs.k8s.io/) infrastructure provid
 - Go 1.25+
 - Docker
 - kubectl
-- Access to a Kubernetes cluster (kind for development)
+- Access to a Kubernetes cluster ([kind](https://kind.sigs.k8s.io/) for development)
 - cloudscale.ch API token
 
 ## Development
 
-This is a kubebuilder-scaffolded project and for new APIs, Webhooks, etc. kubebuilder
+This is a kubebuilder-scaffolded project. For new APIs, Webhooks, etc. [kubebuilder](https://book.kubebuilder.io/)
 commands should be used.
 
 ```bash
@@ -42,7 +42,11 @@ make test-e2e
 The easiest way to work on this provider is by using the 
 [Tilt setup](https://cluster-api.sigs.k8s.io/developer/core/tilt.html) of Cluster-API.
 
-Refer to the linked documentation on how to set up your local tilt. An example `tilt-settings.yaml` is provided here:
+Refer to the linked documentation on how to set up your local tilt. This requires cloning
+[Cluster-API core](https://github.com/kubernetes-sigs/cluster-api) to your host. The necessary commands need to be executed in the
+Cluster-API core repository (**not** in this repository).
+
+An example `tilt-settings.yaml`, which should also be placed in the Cluster-API core repository, is provided here:
 
 ```yaml
 default_registry: "" # change if you use a remote image registry
