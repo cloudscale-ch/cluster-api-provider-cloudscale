@@ -1,135 +1,67 @@
-# cluster-api-provider-cloudscale
-// TODO(user): Add simple overview of use/purpose
+# Cluster API Provider for cloudscale.ch
 
-## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+Kubernetes [Cluster API](https://cluster-api.sigs.k8s.io/) infrastructure provider for [cloudscale.ch](https://www.cloudscale.ch).
 
-## Getting Started
+**Status**: early development
 
-### Prerequisites
-- go version v1.24.6+
-- docker version 17.03+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
+## Features
 
-### To Deploy on the cluster
-**Build and push your image to the location specified by `IMG`:**
+- **CloudscaleCluster**: Network, Subnet, Load Balancer management
+- **CloudscaleMachine**: Server provisioning with cloud-init
+- **CloudscaleMachineTemplate**: Immutable machine templates for KubeadmControlPlane/MachineDeployment
 
-```sh
-make docker-build docker-push IMG=<some-registry>/cluster-api-provider-cloudscale:tag
+## Prerequisites
+
+- Go 1.25+
+- Docker
+- kubectl
+- Access to a Kubernetes cluster (kind for development)
+- cloudscale.ch API token
+
+## Development
+
+This is a kubebuilder-scaffolded project and for new APIs, Webhooks, etc. kubebuilder
+commands should be used.
+
+```bash
+# Run tests
+make test
+
+# Generate manifests
+make manifests
+
+# Generate code
+make generate
+
+# Run E2E tests (requires CLOUDSCALE_API_TOKEN)
+make test-e2e
 ```
 
-**NOTE:** This image ought to be published in the personal registry you specified.
-And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don’t work.
+### Tilt
 
-**Install the CRDs into the cluster:**
+The easiest way to work on this provider is by using the 
+[Tilt setup](https://cluster-api.sigs.k8s.io/developer/core/tilt.html) of Cluster-API.
 
-```sh
-make install
+Refer to the linked documentation on how to set up your local tilt. An example `tilt-settings.yaml` is provided here:
+
+```yaml
+default_registry: "" # change if you use a remote image registry
+provider_repos:
+  # This refers to your provider directory and loads settings
+  # from `tilt-provider.yaml`
+  - path/to/local/clone/cluster-api-provider-cloudscale
+enable_providers:
+  - cloudscale
+  - kubeadm-bootstrap
+  - kubeadm-control-plane
+deploy_cert_manager: true
+kustomize_substitutions:
+  CLOUDSCALE_API_TOKEN: "INSERT_TOKEN_HERE"
+extra_args:
+  cloudscale:
+    - "--zap-log-level=5"
 ```
-
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
-
-```sh
-make deploy IMG=<some-registry>/cluster-api-provider-cloudscale:tag
-```
-
-> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
-privileges or be logged in as admin.
-
-**Create instances of your solution**
-You can apply the samples (examples) from the config/sample:
-
-```sh
-kubectl apply -k config/samples/
-```
-
->**NOTE**: Ensure that the samples has default values to test it out.
-
-### To Uninstall
-**Delete the instances (CRs) from the cluster:**
-
-```sh
-kubectl delete -k config/samples/
-```
-
-**Delete the APIs(CRDs) from the cluster:**
-
-```sh
-make uninstall
-```
-
-**UnDeploy the controller from the cluster:**
-
-```sh
-make undeploy
-```
-
-## Project Distribution
-
-Following the options to release and provide this solution to the users.
-
-### By providing a bundle with all YAML files
-
-1. Build the installer for the image built and published in the registry:
-
-```sh
-make build-installer IMG=<some-registry>/cluster-api-provider-cloudscale:tag
-```
-
-**NOTE:** The makefile target mentioned above generates an 'install.yaml'
-file in the dist directory. This file contains all the resources built
-with Kustomize, which are necessary to install this project without its
-dependencies.
-
-2. Using the installer
-
-Users can just run 'kubectl apply -f <URL for YAML BUNDLE>' to install
-the project, i.e.:
-
-```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/cluster-api-provider-cloudscale/<tag or branch>/dist/install.yaml
-```
-
-### By providing a Helm Chart
-
-1. Build the chart using the optional helm plugin
-
-```sh
-kubebuilder edit --plugins=helm/v2-alpha
-```
-
-2. See that a chart was generated under 'dist/chart', and users
-can obtain this solution from there.
-
-**NOTE:** If you change the project, you need to update the Helm Chart
-using the same command above to sync the latest changes. Furthermore,
-if you create webhooks, you need to use the above command with
-the '--force' flag and manually ensure that any custom configuration
-previously added to 'dist/chart/values.yaml' or 'dist/chart/manager/manager.yaml'
-is manually re-applied afterwards.
-
-## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
-
-**NOTE:** Run `make help` for more information on all potential `make` targets
-
-More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
 
 ## License
 
-Copyright 2026 cloudscale.ch.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-
+Apache License 2.0

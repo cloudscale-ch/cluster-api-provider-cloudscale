@@ -28,3 +28,9 @@ go.work
 
 # Kubeconfig might contain secrets
 *.kubeconfig
+
+# Tilt
+.tiltbuild/
+
+# e2e
+_artifacts/

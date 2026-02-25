@@ -1,0 +1,6 @@
+name: cloudscale
+config:
+  image: controller:latest # change to remote image name if desired
+  label: CAPCS
+  live_reload_deps: ["cmd", "go.mod", "go.sum", "api", "internal"]
+  go_main: cmd/main.go
