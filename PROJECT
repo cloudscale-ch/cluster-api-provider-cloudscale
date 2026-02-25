@@ -13,4 +13,32 @@ plugins:
   grafana.kubebuilder.io/v1-alpha: {}
 projectName: cluster-api-provider-cloudscale
 repo: github.com/cloudscale-ch/cluster-api-provider-cloudscale
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: cluster.x-k8s.io
+  group: infrastructure
+  kind: CloudscaleCluster
+  path: github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2
+  version: v1beta2
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: cluster.x-k8s.io
+  group: infrastructure
+  kind: CloudscaleMachine
+  path: github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2
+  version: v1beta2
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: cluster.x-k8s.io
+  group: infrastructure
+  kind: CloudscaleMachineTemplate
+  path: github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2
+  version: v1beta2
 version: "3"

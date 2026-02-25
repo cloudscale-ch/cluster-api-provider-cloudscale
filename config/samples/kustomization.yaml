@@ -1,0 +1,6 @@
+## Append samples of your project ##
+resources:
+- infrastructure_v1beta2_cloudscalecluster.yaml
+- infrastructure_v1beta2_cloudscalemachine.yaml
+- infrastructure_v1beta2_cloudscalemachinetemplate.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples
