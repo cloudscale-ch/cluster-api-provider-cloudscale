@@ -8,13 +8,32 @@ metadata:
 spec:
   group: infrastructure.cluster.x-k8s.io
   names:
+    categories:
+    - cluster-api
     kind: CloudscaleMachine
     listKind: CloudscaleMachineList
     plural: cloudscalemachines
     singular: cloudscalemachine
   scope: Namespaced
   versions:
-  - name: v1beta2
+  - additionalPrinterColumns:
+    - description: Cluster
+      jsonPath: .metadata.labels.cluster\.x-k8s\.io/cluster-name
+      name: Cluster
+      type: string
+    - description: Machine provisioned
+      jsonPath: .status.initialization.provisioned
+      name: Provisioned
+      type: string
+    - description: cloudscale.ch server ID
+      jsonPath: .spec.providerID
+      name: ProviderID
+      type: string
+    - description: Machine object
+      jsonPath: .metadata.ownerReferences[?(@.kind=="Machine")].name
+      name: Machine
+      type: string
+    name: v1beta2
     schema:
       openAPIV3Schema:
         description: CloudscaleMachine is the Schema for the cloudscalemachines API
@@ -39,14 +58,62 @@ spec:
           spec:
             description: spec defines the desired state of CloudscaleMachine
             properties:
-              foo:
-                description: foo is an example field of CloudscaleMachine. Edit cloudscalemachine_types.go
-                  to remove/update
+              flavor:
+                description: Flavor is the cloudscale.ch server flavor (e.g., "flex-8-4").
+                minLength: 1
                 type: string
+              image:
+                description: Image is the OS image slug (e.g., "ubuntu-24.04") or
+                  custom image UUID.
+                minLength: 1
+                type: string
+              providerID:
+                description: |-
+                  ProviderID is the unique identifier as specified by the cloud provider.
+                  Format: cloudscale://<server-uuid>
+                type: string
+              rootVolumeSize:
+                description: RootVolumeSize is the root volume size in GB.
+                minimum: 10
+                type: integer
+              tags:
+                additionalProperties:
+                  type: string
+                description: Tags are key-value pairs to apply to the server.
+                type: object
+            required:
+            - flavor
+            - image
             type: object
           status:
             description: status defines the observed state of CloudscaleMachine
             properties:
+              addresses:
+                description: Addresses contains the machine's addresses.
+                items:
+                  description: MachineAddress contains information for the node's
+                    address.
+                  properties:
+                    address:
+                      description: address is the machine address.
+                      maxLength: 256
+                      minLength: 1
+                      type: string
+                    type:
+                      description: type is the machine address type, one of Hostname,
+                        ExternalIP, InternalIP, ExternalDNS or InternalDNS.
+                      enum:
+                      - Hostname
+                      - ExternalIP
+                      - InternalIP
+                      - ExternalDNS
+                      - InternalDNS
+                      type: string
+                  required:
+                  - address
+                  - type
+                  type: object
+                type: array
               conditions:
                 description: |-
                   conditions represent the current state of the CloudscaleMachine resource.
@@ -116,6 +183,22 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              failureDomain:
+                description: FailureDomain is the actual zone where the server is
+                  running.
+                type: string
+              initialization:
+                description: Initialization contains v1beta2 initialization tracking.
+                properties:
+                  provisioned:
+                    description: |-
+                      Provisioned indicates that the machine infrastructure has been provisioned.
+                      True when the server is running and ready.
+                    type: boolean
+                type: object
+              serverID:
+                description: ServerID is the cloudscale.ch server UUID.
+                type: string
             type: object
         required:
         - spec

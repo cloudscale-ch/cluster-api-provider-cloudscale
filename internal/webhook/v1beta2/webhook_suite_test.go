@@ -109,7 +109,7 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).NotTo(HaveOccurred())
 
-	err = SetupCloudscaleClusterWebhookWithManager(mgr)
+	err = SetupCloudscaleClusterWebhookWithManager(mgr, newTestRegionInfo())
 	Expect(err).NotTo(HaveOccurred())
 
 	err = SetupCloudscaleMachineWebhookWithManager(mgr)

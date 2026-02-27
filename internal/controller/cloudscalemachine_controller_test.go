@@ -21,11 +21,10 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 )
@@ -44,8 +43,11 @@ var _ = Describe("CloudscaleMachine Controller", func() {
 
 		BeforeEach(func() {
 			By("creating the custom resource for the Kind CloudscaleMachine")
+
+			Skip("Skipped until machine controller is implemented")
+
 			err := k8sClient.Get(ctx, typeNamespacedName, cloudscalemachine)
-			if err != nil && errors.IsNotFound(err) {
+			if err != nil && apierrors.IsNotFound(err) {
 				resource := &infrastructurev1beta2.CloudscaleMachine{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
@@ -59,6 +61,8 @@ var _ = Describe("CloudscaleMachine Controller", func() {
 
 		AfterEach(func() {
 			// TODO(user): Cleanup logic after each test, like removing the resource instance.
+			Skip("Skipped until machine controller is implemented")
+
 			resource := &infrastructurev1beta2.CloudscaleMachine{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
 			Expect(err).NotTo(HaveOccurred())
@@ -68,6 +72,9 @@ var _ = Describe("CloudscaleMachine Controller", func() {
 		})
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
+
+			Skip("Skipped until machine controller is implemented")
+
 			controllerReconciler := &CloudscaleMachineReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),

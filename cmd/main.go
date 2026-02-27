@@ -17,9 +17,12 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"os"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -28,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -36,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/controller"
 	webhookv1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/webhook/v1beta2"
 	// +kubebuilder:scaffold:imports
@@ -50,6 +55,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(infrastructurev1beta2.AddToScheme(scheme))
+	_ = clusterv1.AddToScheme(scheme)
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -62,6 +68,7 @@ func main() {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
+	var watchFilter string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -80,6 +87,9 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	flag.StringVar(&watchFilter, "watch-filter", "",
+		fmt.Sprintf("Label value that the controller watches to reconcile cluster-api objects. Label key is always %s. "+
+			"If unspecified, the controller watches for all cluster-api objects.", clusterv1.WatchLabel))
 	opts := zap.Options{
 		Development: true,
 	}
@@ -161,7 +171,7 @@ func main() {
 		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "8cec04b5.cluster.x-k8s.io",
+		LeaderElectionID:       "cloudscale.infrastructure.cluster.x-k8s.io",
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
@@ -179,10 +189,21 @@ func main() {
 		os.Exit(1)
 	}
 
+	ctx := ctrl.SetupSignalHandler()
+
+	// Fetch region information for controllers and webhooks
+	regionInfo, err := fetchAPIInfo()
+	if err != nil {
+		setupLog.Error(err, "unable to fetch API information")
+		os.Exit(1)
+	}
+	setupLog.Info("fetched region information", "regions", regionInfo.GetAllRegions())
+
 	if err := (&controller.CloudscaleClusterReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		WatchFilter: watchFilter,
+	}).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "CloudscaleCluster")
 		os.Exit(1)
 	}
@@ -202,7 +223,7 @@ func main() {
 	}
 	// nolint:goconst
 	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
-		if err := webhookv1beta2.SetupCloudscaleClusterWebhookWithManager(mgr); err != nil {
+		if err := webhookv1beta2.SetupCloudscaleClusterWebhookWithManager(mgr, regionInfo); err != nil {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "CloudscaleCluster")
 			os.Exit(1)
 		}
@@ -233,8 +254,29 @@ func main() {
 	}
 
 	setupLog.Info("Starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
 	}
+}
+
+// fetchAPIInfo fetches region information from cloudscale.ch API.
+// Requires CLOUDSCALE_API_TOKEN environment variable.
+func fetchAPIInfo() (*cloudscale.RegionInfo, error) {
+	token := os.Getenv("CLOUDSCALE_API_TOKEN")
+	if token == "" {
+		return nil, fmt.Errorf("CLOUDSCALE_API_TOKEN environment variable is required")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	client := cloudscale.NewClient(token)
+
+	regions, err := client.Regions.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list regions: %w", err)
+	}
+
+	return cloudscale.NewRegionInfo(regions), nil
 }
