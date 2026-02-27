@@ -18,30 +18,61 @@ package v1beta2
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
-
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // CloudscaleMachineSpec defines the desired state of CloudscaleMachine
 type CloudscaleMachineSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
-
-	// foo is an example field of CloudscaleMachine. Edit cloudscalemachine_types.go to remove/update
+	// ProviderID is the unique identifier as specified by the cloud provider.
+	// Format: cloudscale://<server-uuid>
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	ProviderID *string `json:"providerID,omitempty"`
+
+	// Flavor is the cloudscale.ch server flavor (e.g., "flex-8-4").
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Flavor string `json:"flavor"`
+
+	// Image is the OS image slug (e.g., "ubuntu-24.04") or custom image UUID.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Image string `json:"image"`
+
+	// RootVolumeSize is the root volume size in GB.
+	// +kubebuilder:validation:Minimum=10
+	// +optional
+	RootVolumeSize int `json:"rootVolumeSize,omitempty"`
+
+	// Tags are key-value pairs to apply to the server.
+	// +optional
+	Tags map[string]string `json:"tags,omitempty"`
+}
+
+// MachineInitializationStatus contains v1beta2 initialization tracking for CloudscaleMachine.
+type MachineInitializationStatus struct {
+	// Provisioned indicates that the machine infrastructure has been provisioned.
+	// True when the server is running and ready.
+	// +optional
+	Provisioned *bool `json:"provisioned,omitempty"`
 }
 
 // CloudscaleMachineStatus defines the observed state of CloudscaleMachine.
 type CloudscaleMachineStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Initialization contains v1beta2 initialization tracking.
+	// +optional
+	Initialization *MachineInitializationStatus `json:"initialization,omitempty"`
 
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+	// ServerID is the cloudscale.ch server UUID.
+	// +optional
+	ServerID string `json:"serverID,omitempty"`
+
+	// FailureDomain is the actual zone where the server is running.
+	// +optional
+	FailureDomain string `json:"failureDomain,omitempty"`
+
+	// Addresses contains the machine's addresses.
+	// +optional
+	Addresses []clusterv1.MachineAddress `json:"addresses,omitempty"`
 
 	// conditions represent the current state of the CloudscaleMachine resource.
 	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
@@ -60,6 +91,11 @@ type CloudscaleMachineStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:path=cloudscalemachines,scope=Namespaced,categories=cluster-api
+// +kubebuilder:printcolumn:name="Cluster",type="string",JSONPath=".metadata.labels.cluster\\.x-k8s\\.io/cluster-name",description="Cluster"
+// +kubebuilder:printcolumn:name="Provisioned",type="string",JSONPath=".status.initialization.provisioned",description="Machine provisioned"
+// +kubebuilder:printcolumn:name="ProviderID",type="string",JSONPath=".spec.providerID",description="cloudscale.ch server ID"
+// +kubebuilder:printcolumn:name="Machine",type="string",JSONPath=".metadata.ownerReferences[?(@.kind==\"Machine\")].name",description="Machine object"
 
 // CloudscaleMachine is the Schema for the cloudscalemachines API
 type CloudscaleMachine struct {
@@ -88,5 +124,8 @@ type CloudscaleMachineList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&CloudscaleMachine{}, &CloudscaleMachineList{})
+	objectTypes = append(objectTypes,
+		&CloudscaleMachine{},
+		&CloudscaleMachineList{},
+	)
 }

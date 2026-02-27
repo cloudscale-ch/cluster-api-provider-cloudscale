@@ -8,13 +8,32 @@ metadata:
 spec:
   group: infrastructure.cluster.x-k8s.io
   names:
+    categories:
+    - cluster-api
     kind: CloudscaleCluster
     listKind: CloudscaleClusterList
     plural: cloudscaleclusters
     singular: cloudscalecluster
   scope: Namespaced
   versions:
-  - name: v1beta2
+  - additionalPrinterColumns:
+    - description: Cluster
+      jsonPath: .metadata.labels.cluster\.x-k8s\.io/cluster-name
+      name: Cluster
+      type: string
+    - description: Infrastructure provisioned
+      jsonPath: .status.initialization.provisioned
+      name: Provisioned
+      type: string
+    - description: cloudscale.ch region
+      jsonPath: .spec.region
+      name: Region
+      type: string
+    - description: Control plane endpoint
+      jsonPath: .spec.controlPlaneEndpoint.host
+      name: Endpoint
+      type: string
+    name: v1beta2
     schema:
       openAPIV3Schema:
         description: CloudscaleCluster is the Schema for the cloudscaleclusters API
@@ -39,14 +58,143 @@ spec:
           spec:
             description: spec defines the desired state of CloudscaleCluster
             properties:
-              foo:
-                description: foo is an example field of CloudscaleCluster. Edit cloudscalecluster_types.go
-                  to remove/update
+              controlPlaneEndpoint:
+                description: |-
+                  ControlPlaneEndpoint represents the endpoint to communicate with the control plane.
+                  This is set automatically from the load balancer's VIP address.
+                minProperties: 1
+                properties:
+                  host:
+                    description: host is the hostname on which the API server is serving.
+                    maxLength: 512
+                    minLength: 1
+                    type: string
+                  port:
+                    description: port is the port on which the API server is serving.
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
+                type: object
+              controlPlaneLoadBalancer:
+                description: ControlPlaneLoadBalancer configures the load balancer
+                  for the control plane.
+                properties:
+                  algorithm:
+                    default: round_robin
+                    description: Algorithm is the load balancing algorithm.
+                    enum:
+                    - round_robin
+                    - least_connections
+                    - source_ip
+                    type: string
+                  apiServerPort:
+                    default: 6443
+                    description: APIServerPort is the port for the Kubernetes API
+                      server.
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
+                  enabled:
+                    default: true
+                    description: |-
+                      Enabled controls whether a load balancer is created for the control plane.
+                      Set to false for external control planes (e.g., hosted control plane) where the endpoint
+                      is provided externally.
+                    type: boolean
+                  flavor:
+                    default: lb-standard
+                    description: Flavor is the load balancer flavor (size).
+                    type: string
+                  healthMonitor:
+                    description: HealthMonitor configures the load balancer health
+                      monitor.
+                    properties:
+                      delayS:
+                        default: 5
+                        description: DelayS is the interval between health checks
+                          in seconds.
+                        maximum: 300
+                        minimum: 1
+                        type: integer
+                      downThreshold:
+                        default: 3
+                        description: DownThreshold is the number of failed checks
+                          to mark unhealthy.
+                        maximum: 10
+                        minimum: 1
+                        type: integer
+                      timeoutS:
+                        default: 3
+                        description: TimeoutS is the health check timeout in seconds.
+                        maximum: 300
+                        minimum: 1
+                        type: integer
+                      upThreshold:
+                        default: 2
+                        description: UpThreshold is the number of successful checks
+                          to mark healthy.
+                        maximum: 10
+                        minimum: 1
+                        type: integer
+                    type: object
+                type: object
+              credentialsRef:
+                description: CredentialsRef references the Secret containing the cloudscale.ch
+                  API token.
+                properties:
+                  name:
+                    description: Name is the name of the Secret.
+                    type: string
+                  namespace:
+                    description: Namespace is the namespace of the Secret. Defaults
+                      to the cluster namespace.
+                    type: string
+                required:
+                - name
+                type: object
+              network:
+                description: Network contains network configuration for the cluster.
+                properties:
+                  cidr:
+                    default: 10.0.0.0/24
+                    description: CIDR is the CIDR block for the private network subnet.
+                    type: string
+                  gatewayAddress:
+                    description: |-
+                      GatewayAddress is the gateway IP address for the subnet.
+                      By default, no gateway is configured on the private network subnet. This ensures
+                      that outbound internet traffic uses the public network interface, which is required
+                      for the Cloud Controller Manager to reach the cloudscale.ch API.
+                      Set this to a specific IP address (e.g., "10.0.0.1") only if you have configured
+                      a NAT gateway or similar infrastructure on the private network.
+                    type: string
+                  zone:
+                    description: |-
+                      Zone is the cloudscale.ch zone for the network (e.g., "rma1", "lpg1").
+                      Defaults to region + "1" if not specified.
+                    type: string
+                type: object
+              region:
+                description: Region is the cloudscale.ch region (e.g., "rma", "lpg").
+                enum:
+                - rma
+                - lpg
                 type: string
+            required:
+            - credentialsRef
+            - region
             type: object
           status:
             description: status defines the observed state of CloudscaleCluster
             properties:
+              LoadBalancerMemberIDs:
+                description: LoadBalancerMemberIDs are the list of nodes attached
+                  to the loadBalancer.
+                items:
+                  type: string
+                type: array
               conditions:
                 description: |-
                   conditions represent the current state of the CloudscaleCluster resource.
@@ -116,6 +264,36 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              initialization:
+                description: Initialization contains v1beta2 initialization tracking.
+                properties:
+                  provisioned:
+                    description: |-
+                      Provisioned indicates that all cluster infrastructure has been provisioned.
+                      True when Network, Subnet, Load Balancer, and Control Plane Endpoint are ready.
+                    type: boolean
+                type: object
+              loadBalancerHealthMonitorID:
+                description: LoadBalancerHealthMonitorID is the cloudscale.ch load
+                  balancer health monitor UUID.
+                type: string
+              loadBalancerID:
+                description: LoadBalancerID is the cloudscale.ch load balancer UUID.
+                type: string
+              loadBalancerListenerID:
+                description: LoadBalancerListenerID is the cloudscale.ch load balancer
+                  listener UUID for the API server.
+                type: string
+              loadBalancerPoolID:
+                description: LoadBalancerPoolID is the cloudscale.ch load balancer
+                  pool UUID for the API server.
+                type: string
+              networkID:
+                description: NetworkID is the cloudscale.ch network UUID.
+                type: string
+              subnetID:
+                description: SubnetID is the cloudscale.ch subnet UUID.
+                type: string
             type: object
         required:
         - spec

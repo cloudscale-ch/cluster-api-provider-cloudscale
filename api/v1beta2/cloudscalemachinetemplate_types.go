@@ -88,5 +88,8 @@ type CloudscaleMachineTemplateList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&CloudscaleMachineTemplate{}, &CloudscaleMachineTemplateList{})
+	objectTypes = append(objectTypes,
+		&CloudscaleMachineTemplate{},
+		&CloudscaleMachineTemplateList{},
+	)
 }
