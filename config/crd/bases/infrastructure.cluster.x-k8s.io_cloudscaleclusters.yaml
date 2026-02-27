@@ -189,12 +189,6 @@ spec:
           status:
             description: status defines the observed state of CloudscaleCluster
             properties:
-              LoadBalancerMemberIDs:
-                description: LoadBalancerMemberIDs are the list of nodes attached
-                  to the loadBalancer.
-                items:
-                  type: string
-                type: array
               conditions:
                 description: |-
                   conditions represent the current state of the CloudscaleCluster resource.
@@ -284,6 +278,12 @@ spec:
                 description: LoadBalancerListenerID is the cloudscale.ch load balancer
                   listener UUID for the API server.
                 type: string
+              loadBalancerMemberIDs:
+                description: LoadBalancerMemberIDs are the list of nodes attached
+                  to the loadBalancer.
+                items:
+                  type: string
+                type: array
               loadBalancerPoolID:
                 description: LoadBalancerPoolID is the cloudscale.ch load balancer
                   pool UUID for the API server.

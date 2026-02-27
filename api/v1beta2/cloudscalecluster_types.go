@@ -181,7 +181,7 @@ type CloudscaleClusterStatus struct {
 
 	// LoadBalancerMemberIDs are the list of nodes attached to the loadBalancer.
 	// +optional
-	LoadBalancerMemberIDs []string `json:"LoadBalancerMemberIDs,omitempty"`
+	LoadBalancerMemberIDs []string `json:"loadBalancerMemberIDs,omitempty"`
 
 	// conditions represent the current state of the CloudscaleCluster resource.
 	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
