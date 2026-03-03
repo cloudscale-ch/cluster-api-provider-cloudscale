@@ -1,0 +1,143 @@
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: "${CLUSTER_NAME}"
+  namespace: "${NAMESPACE}"
+  labels:
+    ccm: cloudscale
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks: ["192.168.0.0/16"]
+    services:
+      cidrBlocks: ["10.96.0.0/12"]
+    serviceDomain: "cluster.local"
+  infrastructureRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: CloudscaleCluster
+    name: "${CLUSTER_NAME}"
+  controlPlaneRef:
+    apiGroup: controlplane.cluster.x-k8s.io
+    kind: KubeadmControlPlane
+    name: "${CLUSTER_NAME}-control-plane"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+kind: CloudscaleCluster
+metadata:
+  name: "${CLUSTER_NAME}"
+  namespace: "${NAMESPACE}"
+spec:
+  region: "${CLOUDSCALE_REGION}"
+  network:
+    cidr: "10.100.0.0/24"
+    gatewayAddress: "" # disable gateway, use public interface for internet access
+  # Control plane endpoint will be discovered from first CP node's public IP
+  credentialsRef:
+    name: "cloudscale-credentials"
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1beta2
+kind: KubeadmControlPlane
+metadata:
+  name: "${CLUSTER_NAME}-control-plane"
+  namespace: "${NAMESPACE}"
+spec:
+  replicas: ${CONTROL_PLANE_MACHINE_COUNT:=1}
+  version: "${KUBERNETES_VERSION}"
+  machineTemplate:
+    spec:
+      infrastructureRef:
+        apiGroup: infrastructure.cluster.x-k8s.io
+        kind: CloudscaleMachineTemplate
+        name: "${CLUSTER_NAME}-control-plane"
+  kubeadmConfigSpec:
+    initConfiguration:
+      nodeRegistration:
+        kubeletExtraArgs:
+          - name: cloud-provider
+            value: external
+    joinConfiguration:
+      nodeRegistration:
+        kubeletExtraArgs:
+          - name: cloud-provider
+            value: external
+    users:
+      - name: capi
+        groups: "adm, sudo"
+        shell: "/bin/bash"
+        sudo: "ALL=(ALL) NOPASSWD:ALL"
+        sshAuthorizedKeys:
+          - "${CLOUDSCALE_SSH_PUBLIC_KEY}"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+kind: CloudscaleMachineTemplate
+metadata:
+  name: "${CLUSTER_NAME}-control-plane"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      flavor: "${CLOUDSCALE_CONTROL_PLANE_MACHINE_FLAVOR}"
+      image: "${CLOUDSCALE_MACHINE_IMAGE}"
+      rootVolumeSize: ${CLOUDSCALE_ROOT_VOLUME_SIZE}
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: MachineDeployment
+metadata:
+  name: "${CLUSTER_NAME}-md-0"
+  namespace: "${NAMESPACE}"
+spec:
+  clusterName: "${CLUSTER_NAME}"
+  replicas: ${WORKER_MACHINE_COUNT:=2}
+  selector:
+    matchLabels:
+  template:
+    spec:
+      clusterName: "${CLUSTER_NAME}"
+      version: "${KUBERNETES_VERSION}"
+      bootstrap:
+        configRef:
+          name: "${CLUSTER_NAME}-md-0"
+          apiGroup: bootstrap.cluster.x-k8s.io
+          kind: KubeadmConfigTemplate
+      infrastructureRef:
+        name: "${CLUSTER_NAME}-md-0"
+        apiGroup: infrastructure.cluster.x-k8s.io
+        kind: CloudscaleMachineTemplate
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+kind: CloudscaleMachineTemplate
+metadata:
+  name: "${CLUSTER_NAME}-md-0"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      flavor: "${CLOUDSCALE_WORKER_MACHINE_FLAVOR}"
+      image: "${CLOUDSCALE_MACHINE_IMAGE}"
+      rootVolumeSize: ${CLOUDSCALE_ROOT_VOLUME_SIZE}
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
+kind: KubeadmConfigTemplate
+metadata:
+  name: "${CLUSTER_NAME}-md-0"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      initConfiguration:
+        nodeRegistration:
+          kubeletExtraArgs:
+            - name: cloud-provider
+              value: external
+      joinConfiguration:
+        nodeRegistration:
+          kubeletExtraArgs:
+            - name: cloud-provider
+              value: external
+      users:
+        - name: capi
+          groups: "adm, sudo"
+          shell: "/bin/bash"
+          sudo: "ALL=(ALL) NOPASSWD:ALL"
+          sshAuthorizedKeys:
+            - "${CLOUDSCALE_SSH_PUBLIC_KEY}"

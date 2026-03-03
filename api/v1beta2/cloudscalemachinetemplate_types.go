@@ -20,19 +20,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
-// CloudscaleMachineTemplateSpec defines the desired state of CloudscaleMachineTemplate
+// CloudscaleMachineTemplateSpec defines the desired state of CloudscaleMachineTemplate.
 type CloudscaleMachineTemplateSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
+	// Template contains the machine template specification.
+	Template CloudscaleMachineTemplateResource `json:"template"`
+}
 
-	// foo is an example field of CloudscaleMachineTemplate. Edit cloudscalemachinetemplate_types.go to remove/update
-	// +optional
-	Foo *string `json:"foo,omitempty"`
+// CloudscaleMachineTemplateResource describes the data needed to create a CloudscaleMachine from a template.
+type CloudscaleMachineTemplateResource struct {
+	// Spec is the specification of the desired behavior of the machine.
+	Spec CloudscaleMachineSpec `json:"spec"`
 }
 
 // CloudscaleMachineTemplateStatus defines the observed state of CloudscaleMachineTemplate.

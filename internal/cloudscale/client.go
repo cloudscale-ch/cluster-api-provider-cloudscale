@@ -28,6 +28,7 @@ type Client struct {
 	Networks                   NetworkService
 	Subnets                    SubnetService
 	Regions                    RegionService
+	Servers                    ServerService
 	LoadBalancers              LoadBalancerService
 	LoadBalancerPools          LoadBalancerPoolService
 	LoadBalancerPoolMembers    LoadBalancerPoolMemberService
@@ -44,6 +45,7 @@ func NewClient(token string) *Client {
 		Networks:                   sdkClient.Networks,
 		Subnets:                    sdkClient.Subnets,
 		Regions:                    sdkClient.Regions,
+		Servers:                    sdkClient.Servers,
 		LoadBalancers:              sdkClient.LoadBalancers,
 		LoadBalancerPools:          sdkClient.LoadBalancerPools,
 		LoadBalancerPoolMembers:    sdkClient.LoadBalancerPoolMembers,

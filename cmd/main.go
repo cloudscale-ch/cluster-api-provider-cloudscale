@@ -208,9 +208,10 @@ func main() {
 		os.Exit(1)
 	}
 	if err := (&controller.CloudscaleMachineReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		WatchFilter: watchFilter,
+	}).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "CloudscaleMachine")
 		os.Exit(1)
 	}
@@ -221,22 +222,18 @@ func main() {
 		setupLog.Error(err, "Failed to create controller", "controller", "CloudscaleMachineTemplate")
 		os.Exit(1)
 	}
-	// nolint:goconst
-	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
+
+	webhooksEnabled := os.Getenv("ENABLE_WEBHOOKS") != "false"
+
+	if webhooksEnabled {
 		if err := webhookv1beta2.SetupCloudscaleClusterWebhookWithManager(mgr, regionInfo); err != nil {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "CloudscaleCluster")
 			os.Exit(1)
 		}
-	}
-	// nolint:goconst
-	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
 		if err := webhookv1beta2.SetupCloudscaleMachineWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "CloudscaleMachine")
 			os.Exit(1)
 		}
-	}
-	// nolint:goconst
-	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
 		if err := webhookv1beta2.SetupCloudscaleMachineTemplateWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "CloudscaleMachineTemplate")
 			os.Exit(1)

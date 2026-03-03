@@ -40,6 +40,14 @@ type RegionService interface {
 	List(ctx context.Context) ([]cloudscalesdk.Region, error)
 }
 
+type ServerService interface {
+	Create(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error)
+	Get(ctx context.Context, id string) (*cloudscalesdk.Server, error)
+	List(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error)
+	Delete(ctx context.Context, id string) error
+	Update(ctx context.Context, id string, req *cloudscalesdk.ServerUpdateRequest) error
+}
+
 type LoadBalancerService interface {
 	Create(ctx context.Context, req *cloudscalesdk.LoadBalancerRequest) (*cloudscalesdk.LoadBalancer, error)
 	Get(ctx context.Context, id string) (*cloudscalesdk.LoadBalancer, error)

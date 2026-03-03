@@ -19,6 +19,12 @@ package v1beta2
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	"sigs.k8s.io/cluster-api/util/conditions"
+)
+
+const (
+	// MachineFinalizer allows cleanup of resources before removal from the API.
+	MachineFinalizer = "cloudscalemachine.infrastructure.cluster.x-k8s.io"
 )
 
 // CloudscaleMachineSpec defines the desired state of CloudscaleMachine
@@ -33,7 +39,7 @@ type CloudscaleMachineSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	Flavor string `json:"flavor"`
 
-	// Image is the OS image slug (e.g., "ubuntu-24.04") or custom image UUID.
+	// Image is the OS image slug (e.g., "ubuntu-24.04"), custom image slug (e.g., "custom:ubuntu-foo"), or custom image UUID.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Image string `json:"image"`
@@ -65,10 +71,6 @@ type CloudscaleMachineStatus struct {
 	// ServerID is the cloudscale.ch server UUID.
 	// +optional
 	ServerID string `json:"serverID,omitempty"`
-
-	// FailureDomain is the actual zone where the server is running.
-	// +optional
-	FailureDomain string `json:"failureDomain,omitempty"`
 
 	// Addresses contains the machine's addresses.
 	// +optional
@@ -112,6 +114,26 @@ type CloudscaleMachine struct {
 	// status defines the observed state of CloudscaleMachine
 	// +optional
 	Status CloudscaleMachineStatus `json:"status,omitzero"`
+}
+
+// ensures CloudscaleMachine implements conditions.Setter
+var _ conditions.Setter = &CloudscaleMachine{}
+
+// GetConditions returns the conditions for the CloudscaleMachine.
+// This implements the conditions.Getter interface from CAPI util/conditions.
+func (m *CloudscaleMachine) GetConditions() []metav1.Condition {
+	return m.Status.Conditions
+}
+
+// SetConditions sets the conditions for the CloudscaleMachine.
+// This implements the conditions.Setter interface from CAPI util/conditions.
+func (m *CloudscaleMachine) SetConditions(cond []metav1.Condition) {
+	m.Status.Conditions = cond
+}
+
+// MachineTagKey generates the tag key for machines associated with a cluster.
+func (m *CloudscaleMachine) MachineTagKey(clusterName string) string {
+	return NameCloudscaleProviderOwned + clusterName
 }
 
 // +kubebuilder:object:root=true

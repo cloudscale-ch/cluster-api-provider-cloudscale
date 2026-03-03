@@ -35,6 +35,11 @@ type CloudscaleClusterSpec struct {
 	// +kubebuilder:validation:Enum=rma;lpg
 	Region string `json:"region"`
 
+	// Zone is the cloudscale.ch zone (e.g., "rma1", "lpg1").
+	// Defaults to region + "1" if not specified.
+	// +optional
+	Zone string `json:"zone,omitempty"`
+
 	// CredentialsRef references the Secret containing the cloudscale.ch API token.
 	// +kubebuilder:validation:Required
 	CredentialsRef CloudscaleCredentialsReference `json:"credentialsRef"`
@@ -66,11 +71,6 @@ type CloudscaleCredentialsReference struct {
 
 // NetworkSpec defines the network configuration.
 type NetworkSpec struct {
-	// Zone is the cloudscale.ch zone for the network (e.g., "rma1", "lpg1").
-	// Defaults to region + "1" if not specified.
-	// +optional
-	Zone string `json:"zone,omitempty"`
-
 	// CIDR is the CIDR block for the private network subnet.
 	// +kubebuilder:default="10.0.0.0/24"
 	// +optional
