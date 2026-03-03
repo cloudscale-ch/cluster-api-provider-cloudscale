@@ -71,6 +71,11 @@ type CloudscaleCredentialsReference struct {
 
 // NetworkSpec defines the network configuration.
 type NetworkSpec struct {
+	// Zone is the cloudscale.ch zone for the network (e.g., "rma1", "lpg1").
+	// Defaults to region + "1" if not specified.
+	// +optional
+	Zone string `json:"zone,omitempty"`
+
 	// CIDR is the CIDR block for the private network subnet.
 	// +kubebuilder:default="10.0.0.0/24"
 	// +optional
