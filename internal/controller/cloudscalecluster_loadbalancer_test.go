@@ -116,9 +116,7 @@ func newTestClusterScopeWithLB(opts lbTestScopeOptions) *scope.ClusterScope {
 			},
 			Spec: infrastructurev1beta2.CloudscaleClusterSpec{
 				Region: "rma",
-				Network: infrastructurev1beta2.NetworkSpec{
-					Zone: "rma1",
-				},
+				Zone:   "rma1",
 				ControlPlaneLoadBalancer: infrastructurev1beta2.LoadBalancerSpec{
 					Enabled:       &opts.lbEnabled,
 					Algorithm:     opts.algorithm,

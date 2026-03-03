@@ -141,7 +141,7 @@ func (r *CloudscaleClusterReconciler) reconcileLB(ctx context.Context, clusterSc
 	}
 
 	// Create new load balancer
-	zone := clusterScope.CloudscaleCluster.Spec.Network.Zone
+	zone := clusterScope.CloudscaleCluster.Spec.Zone
 	flavor := clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Flavor
 
 	req := &cloudscalesdk.LoadBalancerRequest{

@@ -19,9 +19,9 @@ package v1beta2
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/utils/ptr"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
-	// TODO (user): Add any additional imports if needed
 )
 
 var _ = Describe("CloudscaleMachine Webhook", func() {
@@ -33,54 +33,140 @@ var _ = Describe("CloudscaleMachine Webhook", func() {
 	)
 
 	BeforeEach(func() {
-		obj = &infrastructurev1beta2.CloudscaleMachine{}
-		oldObj = &infrastructurev1beta2.CloudscaleMachine{}
+		obj = &infrastructurev1beta2.CloudscaleMachine{
+			Spec: infrastructurev1beta2.CloudscaleMachineSpec{
+				Flavor:         "flex-8-4",
+				Image:          "ubuntu-24.04",
+				RootVolumeSize: 50,
+			},
+		}
+		oldObj = &infrastructurev1beta2.CloudscaleMachine{
+			Spec: infrastructurev1beta2.CloudscaleMachineSpec{
+				Flavor:         "flex-8-4",
+				Image:          "ubuntu-24.04",
+				RootVolumeSize: 50,
+			},
+		}
 		validator = CloudscaleMachineCustomValidator{}
-		Expect(validator).NotTo(BeNil(), "Expected validator to be initialized")
 		defaulter = CloudscaleMachineCustomDefaulter{}
-		Expect(defaulter).NotTo(BeNil(), "Expected defaulter to be initialized")
-		Expect(oldObj).NotTo(BeNil(), "Expected oldObj to be initialized")
-		Expect(obj).NotTo(BeNil(), "Expected obj to be initialized")
-	})
-
-	AfterEach(func() {
-		// TODO (user): Add any teardown logic common to all tests
 	})
 
 	Context("When creating CloudscaleMachine under Defaulting Webhook", func() {
-		// TODO (user): Add logic for defaulting webhooks
-		// Example:
-		// It("Should apply defaults when a required field is empty", func() {
-		//     By("simulating a scenario where defaults should be applied")
-		//     obj.SomeFieldWithDefault = ""
-		//     By("calling the Default method to apply defaults")
-		//     defaulter.Default(ctx, obj)
-		//     By("checking that the default values are set")
-		//     Expect(obj.SomeFieldWithDefault).To(Equal("default_value"))
-		// })
+		It("Should not modify the spec", func() {
+			original := obj.DeepCopy()
+			Expect(defaulter.Default(ctx, obj)).To(Succeed())
+			Expect(obj.Spec).To(Equal(original.Spec))
+		})
 	})
 
-	Context("When creating or updating CloudscaleMachine under Validating Webhook", func() {
-		// TODO (user): Add logic for validating webhooks
-		// Example:
-		// It("Should deny creation if a required field is missing", func() {
-		//     By("simulating an invalid creation scenario")
-		//     obj.SomeRequiredField = ""
-		//     Expect(validator.ValidateCreate(ctx, obj)).Error().To(HaveOccurred())
-		// })
-		//
-		// It("Should admit creation if all required fields are present", func() {
-		//     By("simulating an invalid creation scenario")
-		//     obj.SomeRequiredField = "valid_value"
-		//     Expect(validator.ValidateCreate(ctx, obj)).To(BeNil())
-		// })
-		//
-		// It("Should validate updates correctly", func() {
-		//     By("simulating a valid update scenario")
-		//     oldObj.SomeRequiredField = "updated_value"
-		//     obj.SomeRequiredField = "updated_value"
-		//     Expect(validator.ValidateUpdate(ctx, oldObj, obj)).To(BeNil())
-		// })
+	Context("When creating CloudscaleMachine under Validating Webhook", func() {
+		It("Should accept a valid spec", func() {
+			_, err := validator.ValidateCreate(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("Should accept valid user tags", func() {
+			obj.Spec.Tags = map[string]string{
+				"env":  "production",
+				"team": "platform",
+			}
+
+			_, err := validator.ValidateCreate(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("Should reject tags with capcs- prefix", func() {
+			obj.Spec.Tags = map[string]string{
+				"capcs-cluster-test": "owned",
+			}
+
+			_, err := validator.ValidateCreate(ctx, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("capcs-"))
+		})
 	})
 
+	Context("When updating CloudscaleMachine under Validating Webhook", func() {
+		It("Should accept no changes", func() {
+			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("Should reject flavor change", func() {
+			obj.Spec.Flavor = "flex-16-8"
+
+			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("spec.flavor"))
+		})
+
+		It("Should allow tag changes", func() {
+			obj.Spec.Tags = map[string]string{
+				"env": "staging",
+			}
+
+			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("Should reject image change", func() {
+			obj.Spec.Image = "ubuntu-22.04"
+
+			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("spec.image"))
+		})
+
+		It("Should reject rootVolumeSize change", func() {
+			obj.Spec.RootVolumeSize = 100
+
+			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("spec.rootVolumeSize"))
+		})
+
+		It("Should reject providerID change once set", func() {
+			oldObj.Spec.ProviderID = ptr.To("cloudscale://aaa")
+			obj.Spec.ProviderID = ptr.To("cloudscale://bbb")
+
+			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("spec.providerID"))
+		})
+
+		It("Should allow providerID to be set when nil", func() {
+			oldObj.Spec.ProviderID = nil
+			obj.Spec.ProviderID = ptr.To("cloudscale://aaa")
+
+			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("Should reject reserved prefix tags on update", func() {
+			obj.Spec.Tags = map[string]string{
+				"capcs-machine": "test",
+			}
+
+			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("capcs-"))
+		})
+
+		It("Should report multiple immutable field errors", func() {
+			obj.Spec.Image = "ubuntu-22.04"
+			obj.Spec.RootVolumeSize = 100
+
+			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("spec.image"))
+			Expect(err.Error()).To(ContainSubstring("spec.rootVolumeSize"))
+		})
+	})
+
+	Context("When deleting CloudscaleMachine under Validating Webhook", func() {
+		It("Should always succeed", func() {
+			_, err := validator.ValidateDelete(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+		})
+	})
 })

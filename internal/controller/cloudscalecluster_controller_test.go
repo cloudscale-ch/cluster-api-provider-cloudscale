@@ -21,7 +21,6 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -35,58 +34,48 @@ import (
 
 var _ = Describe("CloudscaleCluster Controller", func() {
 	Context("When reconciling a resource", func() {
-		const resourceName = "test-resource"
-
 		ctx := context.Background()
 
-		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
-		}
-		cloudscalecluster := &infrastructurev1beta2.CloudscaleCluster{}
-
-		BeforeEach(func() {
-			By("creating the custom resource for the Kind CloudscaleCluster")
-			err := k8sClient.Get(ctx, typeNamespacedName, cloudscalecluster)
-			if err != nil && apierrors.IsNotFound(err) {
-				resource := &infrastructurev1beta2.CloudscaleCluster{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
-					},
-					Spec: infrastructurev1beta2.CloudscaleClusterSpec{
-						Region: "rma",
-						CredentialsRef: infrastructurev1beta2.CloudscaleCredentialsReference{
-							Name: "cloudscale-credentials",
-						},
-					},
-				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
-			}
-		})
-
-		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &infrastructurev1beta2.CloudscaleCluster{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Cleanup the specific resource instance CloudscaleCluster")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-		})
-		It("should successfully reconcile the resource", func() {
-			By("Reconciling the created resource")
+		It("should return no error when resource is not found", func() {
 			controllerReconciler := &CloudscaleClusterReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
+				NamespacedName: types.NamespacedName{Name: "nonexistent", Namespace: "default"},
 			})
 			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+		})
+
+		It("should return no error and no requeue when no owner cluster", func() {
+			resource := &infrastructurev1beta2.CloudscaleCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "no-owner-cluster",
+					Namespace: "default",
+				},
+				Spec: infrastructurev1beta2.CloudscaleClusterSpec{
+					Region: "rma",
+					CredentialsRef: infrastructurev1beta2.CloudscaleCredentialsReference{
+						Name: "cloudscale-credentials",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+			defer func() {
+				Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+			}()
+
+			controllerReconciler := &CloudscaleClusterReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: resource.Name, Namespace: resource.Namespace},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.IsZero()).To(BeTrue())
 		})
 	})
 

@@ -76,7 +76,7 @@ func (r *CloudscaleClusterReconciler) reconcileNetworkResource(ctx context.Conte
 		Name:                 clusterScope.Name(),
 		AutoCreateIPV4Subnet: ptr.To(false),
 		ZonalResourceRequest: cloudscalesdk.ZonalResourceRequest{
-			Zone: clusterScope.CloudscaleCluster.Spec.Network.Zone,
+			Zone: clusterScope.CloudscaleCluster.Spec.Zone,
 		},
 		TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
 			Tags: r.resourceTags(clusterScope),
@@ -89,7 +89,7 @@ func (r *CloudscaleClusterReconciler) reconcileNetworkResource(ctx context.Conte
 	clusterScope.CloudscaleCluster.Status.NetworkID = network.UUID
 	clusterScope.Info("Created network", "networkID", network.UUID)
 	r.recorder.Eventf(clusterScope.CloudscaleCluster, nil, corev1.EventTypeNormal, "NetworkCreated", "CreateNetwork",
-		"Created network %s in zone %s", network.UUID, clusterScope.CloudscaleCluster.Spec.Network.Zone)
+		"Created network %s in zone %s", network.UUID, clusterScope.CloudscaleCluster.Spec.Zone)
 
 	return nil
 }

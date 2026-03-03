@@ -66,8 +66,8 @@ func (d *CloudscaleClusterCustomDefaulter) Default(_ context.Context, cluster *i
 	cloudscaleclusterlog.Info("Defaulting for CloudscaleCluster", "name", cluster.GetName())
 
 	// Default network zone to region's default zone if not set
-	if cluster.Spec.Network.Zone == "" {
-		cluster.Spec.Network.Zone = d.RegionInfo.GetDefaultZoneForRegion(cluster.Spec.Region)
+	if cluster.Spec.Zone == "" {
+		cluster.Spec.Zone = d.RegionInfo.GetDefaultZoneForRegion(cluster.Spec.Region)
 	}
 
 	// Default network CIDR if not set
@@ -133,11 +133,11 @@ func (v *CloudscaleClusterCustomValidator) ValidateCreate(_ context.Context, clu
 	var allErrs field.ErrorList
 
 	// Validate zone belongs to region
-	if cluster.Spec.Network.Zone != "" {
-		if !v.RegionInfo.ZoneBelongsToRegion(cluster.Spec.Network.Zone, cluster.Spec.Region) {
+	if cluster.Spec.Zone != "" {
+		if !v.RegionInfo.ZoneBelongsToRegion(cluster.Spec.Zone, cluster.Spec.Region) {
 			allErrs = append(allErrs, field.Invalid(
-				field.NewPath("spec", "network", "zone"),
-				cluster.Spec.Network.Zone,
+				field.NewPath("spec", "zone"),
+				cluster.Spec.Zone,
 				fmt.Sprintf("zone must belong to region %q", cluster.Spec.Region)))
 		}
 	}
@@ -174,9 +174,9 @@ func (v *CloudscaleClusterCustomValidator) ValidateUpdate(_ context.Context, old
 	}
 
 	// Network zone is immutable
-	if newCluster.Spec.Network.Zone != oldCluster.Spec.Network.Zone {
+	if newCluster.Spec.Zone != oldCluster.Spec.Zone {
 		allErrs = append(allErrs, field.Forbidden(
-			field.NewPath("spec", "network", "zone"),
+			field.NewPath("spec", "zone"),
 			"field is immutable after cluster creation"))
 	}
 

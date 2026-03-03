@@ -21,7 +21,6 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -31,61 +30,46 @@ import (
 
 var _ = Describe("CloudscaleMachine Controller", func() {
 	Context("When reconciling a resource", func() {
-		const resourceName = "test-resource"
-
 		ctx := context.Background()
 
-		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
-		}
-		cloudscalemachine := &infrastructurev1beta2.CloudscaleMachine{}
-
-		BeforeEach(func() {
-			By("creating the custom resource for the Kind CloudscaleMachine")
-
-			Skip("Skipped until machine controller is implemented")
-
-			err := k8sClient.Get(ctx, typeNamespacedName, cloudscalemachine)
-			if err != nil && apierrors.IsNotFound(err) {
-				resource := &infrastructurev1beta2.CloudscaleMachine{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
-					},
-					// TODO(user): Specify other spec details if needed.
-				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
-			}
-		})
-
-		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			Skip("Skipped until machine controller is implemented")
-
-			resource := &infrastructurev1beta2.CloudscaleMachine{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Cleanup the specific resource instance CloudscaleMachine")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-		})
-		It("should successfully reconcile the resource", func() {
-			By("Reconciling the created resource")
-
-			Skip("Skipped until machine controller is implemented")
-
+		It("should return no error when resource is not found", func() {
 			controllerReconciler := &CloudscaleMachineReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
+				NamespacedName: types.NamespacedName{Name: "nonexistent", Namespace: "default"},
 			})
 			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+		})
+
+		It("should return no error and no requeue when no owner machine", func() {
+			resource := &infrastructurev1beta2.CloudscaleMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "no-owner-machine",
+					Namespace: "default",
+				},
+				Spec: infrastructurev1beta2.CloudscaleMachineSpec{
+					Flavor: "flex-8-4",
+					Image:  "ubuntu-24.04",
+				},
+			}
+			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+			defer func() {
+				Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+			}()
+
+			controllerReconciler := &CloudscaleMachineReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: resource.Name, Namespace: resource.Namespace},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.IsZero()).To(BeTrue())
 		})
 	})
 })

@@ -21,7 +21,6 @@ import (
 	. "github.com/onsi/gomega"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
-	// TODO (user): Add any additional imports if needed
 )
 
 var _ = Describe("CloudscaleMachineTemplate Webhook", func() {
@@ -33,54 +32,102 @@ var _ = Describe("CloudscaleMachineTemplate Webhook", func() {
 	)
 
 	BeforeEach(func() {
-		obj = &infrastructurev1beta2.CloudscaleMachineTemplate{}
-		oldObj = &infrastructurev1beta2.CloudscaleMachineTemplate{}
+		obj = &infrastructurev1beta2.CloudscaleMachineTemplate{
+			Spec: infrastructurev1beta2.CloudscaleMachineTemplateSpec{
+				Template: infrastructurev1beta2.CloudscaleMachineTemplateResource{
+					Spec: infrastructurev1beta2.CloudscaleMachineSpec{
+						Flavor:         "flex-8-4",
+						Image:          "ubuntu-24.04",
+						RootVolumeSize: 50,
+					},
+				},
+			},
+		}
+		oldObj = &infrastructurev1beta2.CloudscaleMachineTemplate{
+			Spec: infrastructurev1beta2.CloudscaleMachineTemplateSpec{
+				Template: infrastructurev1beta2.CloudscaleMachineTemplateResource{
+					Spec: infrastructurev1beta2.CloudscaleMachineSpec{
+						Flavor:         "flex-8-4",
+						Image:          "ubuntu-24.04",
+						RootVolumeSize: 50,
+					},
+				},
+			},
+		}
 		validator = CloudscaleMachineTemplateCustomValidator{}
-		Expect(validator).NotTo(BeNil(), "Expected validator to be initialized")
 		defaulter = CloudscaleMachineTemplateCustomDefaulter{}
-		Expect(defaulter).NotTo(BeNil(), "Expected defaulter to be initialized")
-		Expect(oldObj).NotTo(BeNil(), "Expected oldObj to be initialized")
-		Expect(obj).NotTo(BeNil(), "Expected obj to be initialized")
-	})
-
-	AfterEach(func() {
-		// TODO (user): Add any teardown logic common to all tests
 	})
 
 	Context("When creating CloudscaleMachineTemplate under Defaulting Webhook", func() {
-		// TODO (user): Add logic for defaulting webhooks
-		// Example:
-		// It("Should apply defaults when a required field is empty", func() {
-		//     By("simulating a scenario where defaults should be applied")
-		//     obj.SomeFieldWithDefault = ""
-		//     By("calling the Default method to apply defaults")
-		//     defaulter.Default(ctx, obj)
-		//     By("checking that the default values are set")
-		//     Expect(obj.SomeFieldWithDefault).To(Equal("default_value"))
-		// })
+		It("Should not modify the spec", func() {
+			original := obj.DeepCopy()
+			Expect(defaulter.Default(ctx, obj)).To(Succeed())
+			Expect(obj.Spec).To(Equal(original.Spec))
+		})
 	})
 
-	Context("When creating or updating CloudscaleMachineTemplate under Validating Webhook", func() {
-		// TODO (user): Add logic for validating webhooks
-		// Example:
-		// It("Should deny creation if a required field is missing", func() {
-		//     By("simulating an invalid creation scenario")
-		//     obj.SomeRequiredField = ""
-		//     Expect(validator.ValidateCreate(ctx, obj)).Error().To(HaveOccurred())
-		// })
-		//
-		// It("Should admit creation if all required fields are present", func() {
-		//     By("simulating an invalid creation scenario")
-		//     obj.SomeRequiredField = "valid_value"
-		//     Expect(validator.ValidateCreate(ctx, obj)).To(BeNil())
-		// })
-		//
-		// It("Should validate updates correctly", func() {
-		//     By("simulating a valid update scenario")
-		//     oldObj.SomeRequiredField = "updated_value"
-		//     obj.SomeRequiredField = "updated_value"
-		//     Expect(validator.ValidateUpdate(ctx, oldObj, obj)).To(BeNil())
-		// })
+	Context("When creating CloudscaleMachineTemplate under Validating Webhook", func() {
+		It("Should accept a valid template", func() {
+			_, err := validator.ValidateCreate(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("Should reject tags with capcs- prefix", func() {
+			obj.Spec.Template.Spec.Tags = map[string]string{
+				"capcs-cluster-test": "owned",
+			}
+
+			_, err := validator.ValidateCreate(ctx, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("capcs-"))
+		})
 	})
 
+	Context("When updating CloudscaleMachineTemplate under Validating Webhook", func() {
+		It("Should accept no changes", func() {
+			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("Should reject flavor change", func() {
+			obj.Spec.Template.Spec.Flavor = "flex-16-8"
+
+			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("spec.template.spec"))
+		})
+
+		It("Should reject image change", func() {
+			obj.Spec.Template.Spec.Image = "ubuntu-22.04"
+
+			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("spec.template.spec"))
+		})
+
+		It("Should reject rootVolumeSize change", func() {
+			obj.Spec.Template.Spec.RootVolumeSize = 100
+
+			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("spec.template.spec"))
+		})
+
+		It("Should reject tags change", func() {
+			obj.Spec.Template.Spec.Tags = map[string]string{
+				"env": "staging",
+			}
+
+			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("spec.template.spec"))
+		})
+	})
+
+	Context("When deleting CloudscaleMachineTemplate under Validating Webhook", func() {
+		It("Should always succeed", func() {
+			_, err := validator.ValidateDelete(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+		})
+	})
 })
