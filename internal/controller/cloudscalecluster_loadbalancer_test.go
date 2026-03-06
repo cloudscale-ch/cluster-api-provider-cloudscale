@@ -22,8 +22,7 @@ import (
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v6"
 	"github.com/go-logr/logr"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/events"
@@ -140,6 +139,8 @@ func newTestClusterScopeWithLB(opts lbTestScopeOptions) *scope.ClusterScope {
 // ============================================================================
 
 func TestReconcileLB_CreatesLoadBalancer(t *testing.T) {
+	g := NewWithT(t)
+
 	var capturedReq *cloudscalesdk.LoadBalancerRequest
 
 	lbService := &mockLoadBalancerService{
@@ -162,14 +163,16 @@ func TestReconcileLB_CreatesLoadBalancer(t *testing.T) {
 
 	err := r.reconcileLB(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, "lb-uuid-123", clusterScope.CloudscaleCluster.Status.LoadBalancerID)
-	assert.Equal(t, "test-cluster-cp-lb", capturedReq.Name)
-	assert.Equal(t, "rma1", capturedReq.Zone)
-	assert.Equal(t, "lb-standard", capturedReq.Flavor)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerID).To(Equal("lb-uuid-123"))
+	g.Expect(capturedReq.Name).To(Equal("test-cluster-cp-lb"))
+	g.Expect(capturedReq.Zone).To(Equal("rma1"))
+	g.Expect(capturedReq.Flavor).To(Equal("lb-standard"))
 }
 
 func TestReconcileLB_SkipsIfAlreadyExists(t *testing.T) {
+	g := NewWithT(t)
+
 	lbService := &mockLoadBalancerService{
 		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancer, error) {
 			return &cloudscalesdk.LoadBalancer{UUID: id, Status: "running"}, nil
@@ -190,11 +193,13 @@ func TestReconcileLB_SkipsIfAlreadyExists(t *testing.T) {
 
 	err := r.reconcileLB(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, "existing-lb-uuid", clusterScope.CloudscaleCluster.Status.LoadBalancerID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerID).To(Equal("existing-lb-uuid"))
 }
 
 func TestReconcileLB_FindsExistingByTag(t *testing.T) {
+	g := NewWithT(t)
+
 	lbService := &mockLoadBalancerService{
 		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancer, error) {
 			return []cloudscalesdk.LoadBalancer{
@@ -215,11 +220,13 @@ func TestReconcileLB_FindsExistingByTag(t *testing.T) {
 
 	err := r.reconcileLB(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, "found-lb-uuid", clusterScope.CloudscaleCluster.Status.LoadBalancerID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerID).To(Equal("found-lb-uuid"))
 }
 
 func TestReconcileLB_ErrorsOnMultipleByTag(t *testing.T) {
+	g := NewWithT(t)
+
 	lbService := &mockLoadBalancerService{
 		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancer, error) {
 			return []cloudscalesdk.LoadBalancer{
@@ -237,12 +244,14 @@ func TestReconcileLB_ErrorsOnMultipleByTag(t *testing.T) {
 
 	err := r.reconcileLB(context.Background(), clusterScope)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "found 2 load balancers matching tag filter")
-	assert.Empty(t, clusterScope.CloudscaleCluster.Status.LoadBalancerID)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("found 2 load balancers matching tag filter"))
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerID).To(BeEmpty())
 }
 
 func TestReconcileLB_RecreatesIfDeletedExternally(t *testing.T) {
+	g := NewWithT(t)
+
 	var createdLB bool
 
 	lbService := &mockLoadBalancerService{
@@ -268,12 +277,14 @@ func TestReconcileLB_RecreatesIfDeletedExternally(t *testing.T) {
 
 	err := r.reconcileLB(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.True(t, createdLB, "Should create a new LB when old one was deleted")
-	assert.Equal(t, "new-lb-uuid", clusterScope.CloudscaleCluster.Status.LoadBalancerID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(createdLB).To(BeTrue(), "Should create a new LB when old one was deleted")
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerID).To(Equal("new-lb-uuid"))
 }
 
 func TestReconcileLB_UsesCustomFlavor(t *testing.T) {
+	g := NewWithT(t)
+
 	var capturedReq *cloudscalesdk.LoadBalancerRequest
 
 	lbService := &mockLoadBalancerService{
@@ -292,8 +303,8 @@ func TestReconcileLB_UsesCustomFlavor(t *testing.T) {
 
 	err := r.reconcileLB(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, "lb-flex-2", capturedReq.Flavor)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(capturedReq.Flavor).To(Equal("lb-flex-2"))
 }
 
 // ============================================================================
@@ -301,6 +312,8 @@ func TestReconcileLB_UsesCustomFlavor(t *testing.T) {
 // ============================================================================
 
 func TestReconcileLBPool_CreatesPool(t *testing.T) {
+	g := NewWithT(t)
+
 	var capturedReq *cloudscalesdk.LoadBalancerPoolRequest
 
 	poolService := &mockLoadBalancerPoolService{
@@ -324,15 +337,17 @@ func TestReconcileLBPool_CreatesPool(t *testing.T) {
 
 	err := r.reconcileLBPool(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, "pool-uuid-123", clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID)
-	assert.Equal(t, "test-cluster-cp-pool", capturedReq.Name)
-	assert.Equal(t, "lb-uuid", capturedReq.LoadBalancer)
-	assert.Equal(t, "round_robin", capturedReq.Algorithm)
-	assert.Equal(t, "tcp", capturedReq.Protocol)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID).To(Equal("pool-uuid-123"))
+	g.Expect(capturedReq.Name).To(Equal("test-cluster-cp-pool"))
+	g.Expect(capturedReq.LoadBalancer).To(Equal("lb-uuid"))
+	g.Expect(capturedReq.Algorithm).To(Equal("round_robin"))
+	g.Expect(capturedReq.Protocol).To(Equal("tcp"))
 }
 
 func TestReconcileLBPool_SkipsIfAlreadyExists(t *testing.T) {
+	g := NewWithT(t)
+
 	poolService := &mockLoadBalancerPoolService{
 		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancerPool, error) {
 			return &cloudscalesdk.LoadBalancerPool{UUID: id}, nil
@@ -353,11 +368,13 @@ func TestReconcileLBPool_SkipsIfAlreadyExists(t *testing.T) {
 
 	err := r.reconcileLBPool(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, "existing-pool-uuid", clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID).To(Equal("existing-pool-uuid"))
 }
 
 func TestReconcileLBPool_FindsExistingByTag(t *testing.T) {
+	g := NewWithT(t)
+
 	poolService := &mockLoadBalancerPoolService{
 		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancerPool, error) {
 			return []cloudscalesdk.LoadBalancerPool{
@@ -378,11 +395,13 @@ func TestReconcileLBPool_FindsExistingByTag(t *testing.T) {
 
 	err := r.reconcileLBPool(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, "found-pool-uuid", clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID).To(Equal("found-pool-uuid"))
 }
 
 func TestReconcileLBPool_ErrorsOnMultipleByTag(t *testing.T) {
+	g := NewWithT(t)
+
 	poolService := &mockLoadBalancerPoolService{
 		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancerPool, error) {
 			return []cloudscalesdk.LoadBalancerPool{
@@ -400,12 +419,14 @@ func TestReconcileLBPool_ErrorsOnMultipleByTag(t *testing.T) {
 
 	err := r.reconcileLBPool(context.Background(), clusterScope)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "found 2 load balancer pools matching tag filter")
-	assert.Empty(t, clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("found 2 load balancer pools matching tag filter"))
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID).To(BeEmpty())
 }
 
 func TestReconcileLBPool_RecreatesIfDeletedExternally(t *testing.T) {
+	g := NewWithT(t)
+
 	var createdPool bool
 
 	poolService := &mockLoadBalancerPoolService{
@@ -432,12 +453,14 @@ func TestReconcileLBPool_RecreatesIfDeletedExternally(t *testing.T) {
 
 	err := r.reconcileLBPool(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.True(t, createdPool, "Should create a new pool when old one was deleted")
-	assert.Equal(t, "new-pool-uuid", clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(createdPool).To(BeTrue(), "Should create a new pool when old one was deleted")
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID).To(Equal("new-pool-uuid"))
 }
 
 func TestReconcileLBPool_UsesCustomAlgorithm(t *testing.T) {
+	g := NewWithT(t)
+
 	var capturedReq *cloudscalesdk.LoadBalancerPoolRequest
 
 	poolService := &mockLoadBalancerPoolService{
@@ -458,8 +481,8 @@ func TestReconcileLBPool_UsesCustomAlgorithm(t *testing.T) {
 
 	err := r.reconcileLBPool(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, "least_connections", capturedReq.Algorithm)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(capturedReq.Algorithm).To(Equal("least_connections"))
 }
 
 // ============================================================================
@@ -467,6 +490,8 @@ func TestReconcileLBPool_UsesCustomAlgorithm(t *testing.T) {
 // ============================================================================
 
 func TestReconcileLBListener_CreatesListener(t *testing.T) {
+	g := NewWithT(t)
+
 	var capturedReq *cloudscalesdk.LoadBalancerListenerRequest
 
 	listenerService := &mockLoadBalancerListenerService{
@@ -489,15 +514,17 @@ func TestReconcileLBListener_CreatesListener(t *testing.T) {
 
 	err := r.reconcileLBListener(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, "listener-uuid-123", clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID)
-	assert.Equal(t, "test-cluster-cp-listener", capturedReq.Name)
-	assert.Equal(t, testPoolUUID, capturedReq.Pool)
-	assert.Equal(t, "tcp", capturedReq.Protocol)
-	assert.Equal(t, 6443, capturedReq.ProtocolPort)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID).To(Equal("listener-uuid-123"))
+	g.Expect(capturedReq.Name).To(Equal("test-cluster-cp-listener"))
+	g.Expect(capturedReq.Pool).To(Equal(testPoolUUID))
+	g.Expect(capturedReq.Protocol).To(Equal("tcp"))
+	g.Expect(capturedReq.ProtocolPort).To(Equal(6443))
 }
 
 func TestReconcileLBListener_SkipsIfAlreadyExists(t *testing.T) {
+	g := NewWithT(t)
+
 	listenerService := &mockLoadBalancerListenerService{
 		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancerListener, error) {
 			return &cloudscalesdk.LoadBalancerListener{UUID: id}, nil
@@ -518,11 +545,13 @@ func TestReconcileLBListener_SkipsIfAlreadyExists(t *testing.T) {
 
 	err := r.reconcileLBListener(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, "existing-listener-uuid", clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID).To(Equal("existing-listener-uuid"))
 }
 
 func TestReconcileLBListener_FindsExistingByTag(t *testing.T) {
+	g := NewWithT(t)
+
 	listenerService := &mockLoadBalancerListenerService{
 		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancerListener, error) {
 			return []cloudscalesdk.LoadBalancerListener{
@@ -543,11 +572,13 @@ func TestReconcileLBListener_FindsExistingByTag(t *testing.T) {
 
 	err := r.reconcileLBListener(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, "found-listener-uuid", clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID).To(Equal("found-listener-uuid"))
 }
 
 func TestReconcileLBListener_ErrorsOnMultipleByTag(t *testing.T) {
+	g := NewWithT(t)
+
 	listenerService := &mockLoadBalancerListenerService{
 		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancerListener, error) {
 			return []cloudscalesdk.LoadBalancerListener{
@@ -565,12 +596,14 @@ func TestReconcileLBListener_ErrorsOnMultipleByTag(t *testing.T) {
 
 	err := r.reconcileLBListener(context.Background(), clusterScope)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "found 2 load balancer listeners matching tag filter")
-	assert.Empty(t, clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("found 2 load balancer listeners matching tag filter"))
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID).To(BeEmpty())
 }
 
 func TestReconcileLBListener_RecreatesIfDeletedExternally(t *testing.T) {
+	g := NewWithT(t)
+
 	var createdListener bool
 
 	listenerService := &mockLoadBalancerListenerService{
@@ -597,12 +630,14 @@ func TestReconcileLBListener_RecreatesIfDeletedExternally(t *testing.T) {
 
 	err := r.reconcileLBListener(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.True(t, createdListener, "Should create a new listener when old one was deleted")
-	assert.Equal(t, "new-listener-uuid", clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(createdListener).To(BeTrue(), "Should create a new listener when old one was deleted")
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID).To(Equal("new-listener-uuid"))
 }
 
 func TestReconcileLBListener_UsesCustomPort(t *testing.T) {
+	g := NewWithT(t)
+
 	var capturedReq *cloudscalesdk.LoadBalancerListenerRequest
 
 	listenerService := &mockLoadBalancerListenerService{
@@ -623,8 +658,8 @@ func TestReconcileLBListener_UsesCustomPort(t *testing.T) {
 
 	err := r.reconcileLBListener(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, 8443, capturedReq.ProtocolPort)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(capturedReq.ProtocolPort).To(Equal(8443))
 }
 
 // ============================================================================
@@ -632,6 +667,8 @@ func TestReconcileLBListener_UsesCustomPort(t *testing.T) {
 // ============================================================================
 
 func TestReconcileLBHealthMonitor_CreatesMonitor(t *testing.T) {
+	g := NewWithT(t)
+
 	var capturedReq *cloudscalesdk.LoadBalancerHealthMonitorRequest
 
 	healthMonitorService := &mockLoadBalancerHealthMonitorService{
@@ -653,17 +690,19 @@ func TestReconcileLBHealthMonitor_CreatesMonitor(t *testing.T) {
 
 	err := r.reconcileLBHealthMonitor(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, "hm-uuid-123", clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID)
-	assert.Equal(t, testPoolUUID, capturedReq.Pool)
-	assert.Equal(t, "tcp", capturedReq.Type)
-	assert.Equal(t, 5, capturedReq.DelayS)
-	assert.Equal(t, 3, capturedReq.TimeoutS)
-	assert.Equal(t, 2, capturedReq.UpThreshold)
-	assert.Equal(t, 3, capturedReq.DownThreshold)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID).To(Equal("hm-uuid-123"))
+	g.Expect(capturedReq.Pool).To(Equal(testPoolUUID))
+	g.Expect(capturedReq.Type).To(Equal("tcp"))
+	g.Expect(capturedReq.DelayS).To(Equal(5))
+	g.Expect(capturedReq.TimeoutS).To(Equal(3))
+	g.Expect(capturedReq.UpThreshold).To(Equal(2))
+	g.Expect(capturedReq.DownThreshold).To(Equal(3))
 }
 
 func TestReconcileLBHealthMonitor_SkipsIfAlreadyExists(t *testing.T) {
+	g := NewWithT(t)
+
 	healthMonitorService := &mockLoadBalancerHealthMonitorService{
 		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancerHealthMonitor, error) {
 			return &cloudscalesdk.LoadBalancerHealthMonitor{UUID: id}, nil
@@ -684,11 +723,13 @@ func TestReconcileLBHealthMonitor_SkipsIfAlreadyExists(t *testing.T) {
 
 	err := r.reconcileLBHealthMonitor(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, "existing-hm-uuid", clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID).To(Equal("existing-hm-uuid"))
 }
 
 func TestReconcileLBHealthMonitor_FindsExistingByTag(t *testing.T) {
+	g := NewWithT(t)
+
 	healthMonitorService := &mockLoadBalancerHealthMonitorService{
 		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancerHealthMonitor, error) {
 			return []cloudscalesdk.LoadBalancerHealthMonitor{
@@ -709,11 +750,13 @@ func TestReconcileLBHealthMonitor_FindsExistingByTag(t *testing.T) {
 
 	err := r.reconcileLBHealthMonitor(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, "found-hm-uuid", clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID).To(Equal("found-hm-uuid"))
 }
 
 func TestReconcileLBHealthMonitor_ErrorsOnMultipleByTag(t *testing.T) {
+	g := NewWithT(t)
+
 	healthMonitorService := &mockLoadBalancerHealthMonitorService{
 		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancerHealthMonitor, error) {
 			return []cloudscalesdk.LoadBalancerHealthMonitor{
@@ -731,12 +774,14 @@ func TestReconcileLBHealthMonitor_ErrorsOnMultipleByTag(t *testing.T) {
 
 	err := r.reconcileLBHealthMonitor(context.Background(), clusterScope)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "found 2 load balancer health monitors matching tag filter")
-	assert.Empty(t, clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("found 2 load balancer health monitors matching tag filter"))
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID).To(BeEmpty())
 }
 
 func TestReconcileLBHealthMonitor_RecreatesIfDeletedExternally(t *testing.T) {
+	g := NewWithT(t)
+
 	var createdHM bool
 
 	healthMonitorService := &mockLoadBalancerHealthMonitorService{
@@ -763,12 +808,14 @@ func TestReconcileLBHealthMonitor_RecreatesIfDeletedExternally(t *testing.T) {
 
 	err := r.reconcileLBHealthMonitor(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.True(t, createdHM, "Should create a new health monitor when old one was deleted")
-	assert.Equal(t, "new-hm-uuid", clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(createdHM).To(BeTrue(), "Should create a new health monitor when old one was deleted")
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID).To(Equal("new-hm-uuid"))
 }
 
 func TestReconcileLBHealthMonitor_UsesCustomThresholds(t *testing.T) {
+	g := NewWithT(t)
+
 	var capturedReq *cloudscalesdk.LoadBalancerHealthMonitorRequest
 
 	healthMonitorService := &mockLoadBalancerHealthMonitorService{
@@ -792,11 +839,11 @@ func TestReconcileLBHealthMonitor_UsesCustomThresholds(t *testing.T) {
 
 	err := r.reconcileLBHealthMonitor(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, 10, capturedReq.DelayS)
-	assert.Equal(t, 5, capturedReq.TimeoutS)
-	assert.Equal(t, 3, capturedReq.UpThreshold)
-	assert.Equal(t, 5, capturedReq.DownThreshold)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(capturedReq.DelayS).To(Equal(10))
+	g.Expect(capturedReq.TimeoutS).To(Equal(5))
+	g.Expect(capturedReq.UpThreshold).To(Equal(3))
+	g.Expect(capturedReq.DownThreshold).To(Equal(5))
 }
 
 // ============================================================================
@@ -804,6 +851,8 @@ func TestReconcileLBHealthMonitor_UsesCustomThresholds(t *testing.T) {
 // ============================================================================
 
 func TestReconcileLoadBalancer_SkipsWhenDisabled(t *testing.T) {
+	g := NewWithT(t)
+
 	lbService := &mockLoadBalancerService{
 		createFn: func(ctx context.Context, req *cloudscalesdk.LoadBalancerRequest) (*cloudscalesdk.LoadBalancer, error) {
 			t.Fatal("Create should not be called when LB is disabled")
@@ -824,11 +873,13 @@ func TestReconcileLoadBalancer_SkipsWhenDisabled(t *testing.T) {
 
 	result, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Zero(t, result.RequeueAfter)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result.RequeueAfter).To(BeZero())
 }
 
 func TestReconcileLoadBalancer_WaitsForLBRunning(t *testing.T) {
+	g := NewWithT(t)
+
 	lbService := &mockLoadBalancerService{
 		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancer, error) {
 			return &cloudscalesdk.LoadBalancer{
@@ -848,11 +899,13 @@ func TestReconcileLoadBalancer_WaitsForLBRunning(t *testing.T) {
 
 	result, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.NotZero(t, result.RequeueAfter, "Should requeue when LB is not running")
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result.RequeueAfter).ToNot(BeZero(), "Should requeue when LB is not running")
 }
 
 func TestReconcileLoadBalancer_SetsControlPlaneEndpoint(t *testing.T) {
+	g := NewWithT(t)
+
 	lbService := &mockLoadBalancerService{
 		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancer, error) {
 			return &cloudscalesdk.LoadBalancer{
@@ -906,9 +959,9 @@ func TestReconcileLoadBalancer_SetsControlPlaneEndpoint(t *testing.T) {
 
 	_, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, "203.0.113.10", clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host)
-	assert.Equal(t, int32(6443), clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Port)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host).To(Equal("203.0.113.10"))
+	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Port).To(Equal(int32(6443)))
 }
 
 // ============================================================================
@@ -916,6 +969,8 @@ func TestReconcileLoadBalancer_SetsControlPlaneEndpoint(t *testing.T) {
 // ============================================================================
 
 func TestDeleteLoadBalancer_SkipsWhenDisabled(t *testing.T) {
+	g := NewWithT(t)
+
 	lbService := &mockLoadBalancerService{
 		deleteFn: func(ctx context.Context, id string) error {
 			t.Fatal("Delete should not be called when LB is disabled")
@@ -933,12 +988,14 @@ func TestDeleteLoadBalancer_SkipsWhenDisabled(t *testing.T) {
 
 	err := r.deleteLoadBalancer(context.Background(), clusterScope)
 
-	require.NoError(t, err)
+	g.Expect(err).ToNot(HaveOccurred())
 	// Status should not be cleared when LB is disabled
-	assert.Equal(t, testLBUUID, clusterScope.CloudscaleCluster.Status.LoadBalancerID)
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerID).To(Equal(testLBUUID))
 }
 
 func TestDeleteLoadBalancer_OnlyDeletesLB(t *testing.T) {
+	g := NewWithT(t)
+
 	var deletedLBID string
 	poolDeleteCalled := false
 	listenerDeleteCalled := false
@@ -988,16 +1045,18 @@ func TestDeleteLoadBalancer_OnlyDeletesLB(t *testing.T) {
 
 	err := r.deleteLoadBalancer(context.Background(), clusterScope)
 
-	require.NoError(t, err)
+	g.Expect(err).ToNot(HaveOccurred())
 
 	// Only the LB itself should be deleted (child resources are cascade-deleted by the API)
-	assert.Equal(t, testLBUUID, deletedLBID)
-	assert.False(t, poolDeleteCalled, "pool delete should not be called")
-	assert.False(t, listenerDeleteCalled, "listener delete should not be called")
-	assert.False(t, hmDeleteCalled, "health monitor delete should not be called")
+	g.Expect(deletedLBID).To(Equal(testLBUUID))
+	g.Expect(poolDeleteCalled).To(BeFalse(), "pool delete should not be called")
+	g.Expect(listenerDeleteCalled).To(BeFalse(), "listener delete should not be called")
+	g.Expect(hmDeleteCalled).To(BeFalse(), "health monitor delete should not be called")
 }
 
 func TestDeleteLoadBalancer_IgnoresNotFoundErrors(t *testing.T) {
+	g := NewWithT(t)
+
 	lbService := &mockLoadBalancerService{
 		deleteFn: func(ctx context.Context, id string) error {
 			return &cloudscalesdk.ErrorResponse{StatusCode: 404}
@@ -1014,10 +1073,12 @@ func TestDeleteLoadBalancer_IgnoresNotFoundErrors(t *testing.T) {
 
 	err := r.deleteLoadBalancer(context.Background(), clusterScope)
 
-	require.NoError(t, err)
+	g.Expect(err).ToNot(HaveOccurred())
 }
 
 func TestDeleteLoadBalancer_ClearsStatusIDs(t *testing.T) {
+	g := NewWithT(t)
+
 	lbService := &mockLoadBalancerService{
 		deleteFn: func(ctx context.Context, id string) error { return nil },
 	}
@@ -1036,12 +1097,12 @@ func TestDeleteLoadBalancer_ClearsStatusIDs(t *testing.T) {
 
 	err := r.deleteLoadBalancer(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Empty(t, clusterScope.CloudscaleCluster.Status.LoadBalancerID)
-	assert.Empty(t, clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID)
-	assert.Empty(t, clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID)
-	assert.Empty(t, clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID)
-	assert.Nil(t, clusterScope.CloudscaleCluster.Status.LoadBalancerMemberIDs)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerID).To(BeEmpty())
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID).To(BeEmpty())
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID).To(BeEmpty())
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID).To(BeEmpty())
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerMemberIDs).To(BeNil())
 }
 
 // ============================================================================
@@ -1049,6 +1110,8 @@ func TestDeleteLoadBalancer_ClearsStatusIDs(t *testing.T) {
 // ============================================================================
 
 func TestReconcileLBMembers_AddsMissingMember(t *testing.T) {
+	g := NewWithT(t)
+
 	var createdReq *cloudscalesdk.LoadBalancerPoolMemberRequest
 
 	poolMemberService := &mockLoadBalancerPoolMemberService{
@@ -1089,14 +1152,16 @@ func TestReconcileLBMembers_AddsMissingMember(t *testing.T) {
 
 	err := r.reconcileLBMembers(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	require.NotNil(t, createdReq)
-	assert.Equal(t, "cp-machine-1", createdReq.Name)
-	assert.Equal(t, "10.0.0.1", createdReq.Address)
-	assert.Contains(t, clusterScope.CloudscaleCluster.Status.LoadBalancerMemberIDs, "new-member-uuid")
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(createdReq).ToNot(BeNil())
+	g.Expect(createdReq.Name).To(Equal("cp-machine-1"))
+	g.Expect(createdReq.Address).To(Equal("10.0.0.1"))
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerMemberIDs).To(ContainElement("new-member-uuid"))
 }
 
 func TestReconcileLBMembers_RemovesStaleMember(t *testing.T) {
+	g := NewWithT(t)
+
 	var deletedMemberID string
 
 	poolMemberService := &mockLoadBalancerPoolMemberService{
@@ -1124,12 +1189,14 @@ func TestReconcileLBMembers_RemovesStaleMember(t *testing.T) {
 
 	err := r.reconcileLBMembers(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, "stale-member-uuid", deletedMemberID)
-	assert.NotContains(t, clusterScope.CloudscaleCluster.Status.LoadBalancerMemberIDs, "stale-member-uuid")
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(deletedMemberID).To(Equal("stale-member-uuid"))
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerMemberIDs).ToNot(ContainElement("stale-member-uuid"))
 }
 
 func TestReconcileLBMembers_UpdatesChangedAddress(t *testing.T) {
+	g := NewWithT(t)
+
 	var updatedMemberID string
 	var updatedReq *cloudscalesdk.LoadBalancerPoolMemberRequest
 
@@ -1174,13 +1241,15 @@ func TestReconcileLBMembers_UpdatesChangedAddress(t *testing.T) {
 
 	err := r.reconcileLBMembers(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, "member-uuid-1", updatedMemberID)
-	require.NotNil(t, updatedReq)
-	assert.Equal(t, "10.0.0.2", updatedReq.Address)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(updatedMemberID).To(Equal("member-uuid-1"))
+	g.Expect(updatedReq).ToNot(BeNil())
+	g.Expect(updatedReq.Address).To(Equal("10.0.0.2"))
 }
 
 func TestReconcileLBMembers_NoopWhenInSync(t *testing.T) {
+	g := NewWithT(t)
+
 	poolMemberService := &mockLoadBalancerPoolMemberService{
 		listFn: func(ctx context.Context, poolID string, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancerPoolMember, error) {
 			return []cloudscalesdk.LoadBalancerPoolMember{
@@ -1229,7 +1298,7 @@ func TestReconcileLBMembers_NoopWhenInSync(t *testing.T) {
 
 	err := r.reconcileLBMembers(context.Background(), clusterScope)
 
-	require.NoError(t, err)
+	g.Expect(err).ToNot(HaveOccurred())
 }
 
 // ============================================================================
@@ -1237,6 +1306,8 @@ func TestReconcileLBMembers_NoopWhenInSync(t *testing.T) {
 // ============================================================================
 
 func TestGetDesiredLoadBalancerMembers_SkipsMachinesWithoutIP(t *testing.T) {
+	g := NewWithT(t)
+
 	machineWithIP := &infrastructurev1beta2.CloudscaleMachine{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "cp-machine-1",
@@ -1276,13 +1347,15 @@ func TestGetDesiredLoadBalancerMembers_SkipsMachinesWithoutIP(t *testing.T) {
 
 	members, err := r.getDesiredLoadBalancerMembers(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Len(t, members, 1)
-	assert.Equal(t, "cp-machine-1", members[0].Name)
-	assert.Equal(t, "10.0.0.1", members[0].Address)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(members).To(HaveLen(1))
+	g.Expect(members[0].Name).To(Equal("cp-machine-1"))
+	g.Expect(members[0].Address).To(Equal("10.0.0.1"))
 }
 
 func TestGetDesiredLoadBalancerMembers_NoMachines(t *testing.T) {
+	g := NewWithT(t)
+
 	k8sClient := newFakeClientForLB()
 	clusterScope := newTestClusterScopeWithLB(lbTestScopeOptions{
 		lbEnabled: true,
@@ -1292,8 +1365,8 @@ func TestGetDesiredLoadBalancerMembers_NoMachines(t *testing.T) {
 
 	members, err := r.getDesiredLoadBalancerMembers(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Empty(t, members)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(members).To(BeEmpty())
 }
 
 // ============================================================================
@@ -1301,6 +1374,8 @@ func TestGetDesiredLoadBalancerMembers_NoMachines(t *testing.T) {
 // ============================================================================
 
 func TestCreateLoadBalancerMember_AppendsToStatus(t *testing.T) {
+	g := NewWithT(t)
+
 	poolMemberService := &mockLoadBalancerPoolMemberService{
 		createFn: func(ctx context.Context, poolID string, req *cloudscalesdk.LoadBalancerPoolMemberRequest) (*cloudscalesdk.LoadBalancerPoolMember, error) {
 			return &cloudscalesdk.LoadBalancerPoolMember{UUID: "new-uuid", Name: req.Name}, nil
@@ -1321,11 +1396,13 @@ func TestCreateLoadBalancerMember_AppendsToStatus(t *testing.T) {
 		Address: "10.0.0.1",
 	})
 
-	require.NoError(t, err)
-	assert.Equal(t, []string{"existing-uuid", "new-uuid"}, clusterScope.CloudscaleCluster.Status.LoadBalancerMemberIDs)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerMemberIDs).To(Equal([]string{"existing-uuid", "new-uuid"}))
 }
 
 func TestDeleteLoadBalancerMember_RemovesFromStatus(t *testing.T) {
+	g := NewWithT(t)
+
 	poolMemberService := &mockLoadBalancerPoolMemberService{
 		deleteFn: func(ctx context.Context, poolID, memberID string) error {
 			return nil
@@ -1346,8 +1423,8 @@ func TestDeleteLoadBalancerMember_RemovesFromStatus(t *testing.T) {
 		Name: "cp-machine-old",
 	})
 
-	require.NoError(t, err)
-	assert.Equal(t, []string{"keep-uuid"}, clusterScope.CloudscaleCluster.Status.LoadBalancerMemberIDs)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerMemberIDs).To(Equal([]string{"keep-uuid"}))
 }
 
 // Mock services for Load Balancer components

@@ -23,8 +23,7 @@ import (
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v6"
 	"github.com/go-logr/logr"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
@@ -75,6 +74,8 @@ func extractTestUUID(r testResource) string {
 var testTags = cloudscalesdk.TagMap{"test-key": "test-value"}
 
 func TestEnsureResource_ExistingID_Found(t *testing.T) {
+	g := NewWithT(t)
+
 	svc := &mockGetListService{
 		getFn: func(ctx context.Context, id string) (*testResource, error) {
 			return &testResource{UUID: id}, nil
@@ -83,11 +84,13 @@ func TestEnsureResource_ExistingID_Found(t *testing.T) {
 
 	id, err := ensureResource(context.Background(), testClusterScope(), "existing-123", "test resource", svc, extractTestUUID, testTags)
 
-	require.NoError(t, err)
-	assert.Equal(t, "existing-123", id)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(id).To(Equal("existing-123"))
 }
 
 func TestEnsureResource_ExistingID_NotFound_FallsThrough(t *testing.T) {
+	g := NewWithT(t)
+
 	svc := &mockGetListService{
 		getFn: func(ctx context.Context, id string) (*testResource, error) {
 			return nil, &cloudscalesdk.ErrorResponse{StatusCode: 404}
@@ -99,11 +102,13 @@ func TestEnsureResource_ExistingID_NotFound_FallsThrough(t *testing.T) {
 
 	id, err := ensureResource(context.Background(), testClusterScope(), "deleted-123", "test resource", svc, extractTestUUID, testTags)
 
-	require.NoError(t, err)
-	assert.Equal(t, "", id, "should return empty ID so caller creates the resource")
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(id).To(Equal(""), "should return empty ID so caller creates the resource")
 }
 
 func TestEnsureResource_ExistingID_GetError(t *testing.T) {
+	g := NewWithT(t)
+
 	svc := &mockGetListService{
 		getFn: func(ctx context.Context, id string) (*testResource, error) {
 			return nil, fmt.Errorf("api connection error")
@@ -112,11 +117,13 @@ func TestEnsureResource_ExistingID_GetError(t *testing.T) {
 
 	_, err := ensureResource(context.Background(), testClusterScope(), "existing-123", "test resource", svc, extractTestUUID, testTags)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "api connection error")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("api connection error"))
 }
 
 func TestEnsureResource_NoID_ListFindsOne(t *testing.T) {
+	g := NewWithT(t)
+
 	svc := &mockGetListService{
 		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]testResource, error) {
 			return []testResource{{UUID: "adopted-123"}}, nil
@@ -125,11 +132,13 @@ func TestEnsureResource_NoID_ListFindsOne(t *testing.T) {
 
 	id, err := ensureResource(context.Background(), testClusterScope(), "", "test resource", svc, extractTestUUID, testTags)
 
-	require.NoError(t, err)
-	assert.Equal(t, "adopted-123", id)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(id).To(Equal("adopted-123"))
 }
 
 func TestEnsureResource_NoID_ListFindsMultiple(t *testing.T) {
+	g := NewWithT(t)
+
 	svc := &mockGetListService{
 		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]testResource, error) {
 			return []testResource{
@@ -141,11 +150,13 @@ func TestEnsureResource_NoID_ListFindsMultiple(t *testing.T) {
 
 	_, err := ensureResource(context.Background(), testClusterScope(), "", "test resource", svc, extractTestUUID, testTags)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "found 2 test resources matching tag filter")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("found 2 test resources matching tag filter"))
 }
 
 func TestEnsureResource_NoID_ListFindsNone(t *testing.T) {
+	g := NewWithT(t)
+
 	svc := &mockGetListService{
 		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]testResource, error) {
 			return nil, nil
@@ -154,11 +165,13 @@ func TestEnsureResource_NoID_ListFindsNone(t *testing.T) {
 
 	id, err := ensureResource(context.Background(), testClusterScope(), "", "test resource", svc, extractTestUUID, testTags)
 
-	require.NoError(t, err)
-	assert.Equal(t, "", id, "should return empty ID so caller creates the resource")
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(id).To(Equal(""), "should return empty ID so caller creates the resource")
 }
 
 func TestEnsureResource_NoID_ListError(t *testing.T) {
+	g := NewWithT(t)
+
 	svc := &mockGetListService{
 		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]testResource, error) {
 			return nil, fmt.Errorf("list api error")
@@ -167,6 +180,6 @@ func TestEnsureResource_NoID_ListError(t *testing.T) {
 
 	_, err := ensureResource(context.Background(), testClusterScope(), "", "test resource", svc, extractTestUUID, testTags)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "list api error")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("list api error"))
 }

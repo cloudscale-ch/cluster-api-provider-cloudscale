@@ -23,8 +23,6 @@ import (
 	"github.com/cloudscale-ch/cloudscale-go-sdk/v6"
 	"github.com/go-logr/logr"
 	. "github.com/onsi/gomega"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -164,6 +162,7 @@ func newTestMachineScopeWithServer(serverService cs.ServerService) *scope.Machin
 }
 
 func TestReconcileServer_CreatesServer(t *testing.T) {
+	g := NewWithT(t)
 	var capturedReq *cloudscale.ServerRequest
 
 	serverService := &mockServerService{
@@ -196,21 +195,22 @@ func TestReconcileServer_CreatesServer(t *testing.T) {
 
 	result, err := r.reconcileServer(context.Background(), machineScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, ctrl.Result{}, result)
-	assert.Equal(t, "server-uuid-123", machineScope.CloudscaleMachine.Status.ServerID)
-	assert.Equal(t, "flex-8-4", capturedReq.Flavor)
-	assert.Equal(t, "ubuntu-24.04", capturedReq.Image)
-	assert.Equal(t, "rma1", capturedReq.Zone)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result).To(Equal(ctrl.Result{}))
+	g.Expect(machineScope.CloudscaleMachine.Status.ServerID).To(Equal("server-uuid-123"))
+	g.Expect(capturedReq.Flavor).To(Equal("flex-8-4"))
+	g.Expect(capturedReq.Image).To(Equal("ubuntu-24.04"))
+	g.Expect(capturedReq.Zone).To(Equal("rma1"))
 
 	// Verify condition is set
 	cond := conditions.Get(machineScope.CloudscaleMachine, infrastructurev1beta2.ServerReadyCondition)
-	require.NotNil(t, cond)
-	assert.Equal(t, metav1.ConditionTrue, cond.Status)
-	assert.Equal(t, infrastructurev1beta2.ServerRunningReason, cond.Reason)
+	g.Expect(cond).ToNot(BeNil())
+	g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+	g.Expect(cond.Reason).To(Equal(infrastructurev1beta2.ServerRunningReason))
 }
 
 func TestReconcileServer_SetsProviderID(t *testing.T) {
+	g := NewWithT(t)
 	serverService := &mockServerService{
 		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.Server, error) {
 			return nil, nil
@@ -232,13 +232,14 @@ func TestReconcileServer_SetsProviderID(t *testing.T) {
 
 	result, err := r.reconcileServer(context.Background(), machineScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, ctrl.Result{}, result)
-	require.NotNil(t, machineScope.CloudscaleMachine.Spec.ProviderID)
-	assert.Equal(t, "cloudscale://server-uuid-456", *machineScope.CloudscaleMachine.Spec.ProviderID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result).To(Equal(ctrl.Result{}))
+	g.Expect(machineScope.CloudscaleMachine.Spec.ProviderID).ToNot(BeNil())
+	g.Expect(*machineScope.CloudscaleMachine.Spec.ProviderID).To(Equal("cloudscale://server-uuid-456"))
 }
 
 func TestReconcileServer_SetsAddresses(t *testing.T) {
+	g := NewWithT(t)
 	serverService := &mockServerService{
 		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.Server, error) {
 			return nil, nil
@@ -274,12 +275,13 @@ func TestReconcileServer_SetsAddresses(t *testing.T) {
 
 	result, err := r.reconcileServer(context.Background(), machineScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, ctrl.Result{}, result)
-	assert.Len(t, machineScope.CloudscaleMachine.Status.Addresses, 2)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result).To(Equal(ctrl.Result{}))
+	g.Expect(machineScope.CloudscaleMachine.Status.Addresses).To(HaveLen(2))
 }
 
 func TestReconcileServer_SkipsIfAlreadyExists(t *testing.T) {
+	g := NewWithT(t)
 	serverService := &mockServerService{
 		getFn: func(ctx context.Context, id string) (*cloudscale.Server, error) {
 			return &cloudscale.Server{
@@ -303,12 +305,13 @@ func TestReconcileServer_SkipsIfAlreadyExists(t *testing.T) {
 
 	result, err := r.reconcileServer(context.Background(), machineScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, ctrl.Result{}, result)
-	assert.Equal(t, testExistingServerUUID, machineScope.CloudscaleMachine.Status.ServerID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result).To(Equal(ctrl.Result{}))
+	g.Expect(machineScope.CloudscaleMachine.Status.ServerID).To(Equal(testExistingServerUUID))
 }
 
 func TestReconcileServer_FindsExistingByTag(t *testing.T) {
+	g := NewWithT(t)
 	serverService := &mockServerService{
 		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.Server, error) {
 			return []cloudscale.Server{
@@ -332,12 +335,13 @@ func TestReconcileServer_FindsExistingByTag(t *testing.T) {
 
 	result, err := r.reconcileServer(context.Background(), machineScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, ctrl.Result{}, result)
-	assert.Equal(t, "found-server-uuid", machineScope.CloudscaleMachine.Status.ServerID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result).To(Equal(ctrl.Result{}))
+	g.Expect(machineScope.CloudscaleMachine.Status.ServerID).To(Equal("found-server-uuid"))
 }
 
 func TestReconcileServer_ErrorsOnMultipleByTag(t *testing.T) {
+	g := NewWithT(t)
 	serverService := &mockServerService{
 		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.Server, error) {
 			return []cloudscale.Server{
@@ -362,18 +366,19 @@ func TestReconcileServer_ErrorsOnMultipleByTag(t *testing.T) {
 
 	_, err := r.reconcileServer(context.Background(), machineScope)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "found 2 servers matching tag filter")
-	assert.Empty(t, machineScope.CloudscaleMachine.Status.ServerID)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("found 2 servers matching tag filter"))
+	g.Expect(machineScope.CloudscaleMachine.Status.ServerID).To(BeEmpty())
 
 	// Verify error condition is set by defer
 	cond := conditions.Get(machineScope.CloudscaleMachine, infrastructurev1beta2.ServerReadyCondition)
-	require.NotNil(t, cond)
-	assert.Equal(t, metav1.ConditionFalse, cond.Status)
-	assert.Equal(t, infrastructurev1beta2.ServerErrorReason, cond.Reason)
+	g.Expect(cond).ToNot(BeNil())
+	g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+	g.Expect(cond.Reason).To(Equal(infrastructurev1beta2.ServerErrorReason))
 }
 
 func TestDeleteServer_DeletesServer(t *testing.T) {
+	g := NewWithT(t)
 	var deletedID string
 
 	serverService := &mockServerService{
@@ -392,12 +397,13 @@ func TestDeleteServer_DeletesServer(t *testing.T) {
 
 	err := r.deleteServer(context.Background(), machineScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, "server-to-delete", deletedID)
-	assert.Empty(t, machineScope.CloudscaleMachine.Status.ServerID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(deletedID).To(Equal("server-to-delete"))
+	g.Expect(machineScope.CloudscaleMachine.Status.ServerID).To(BeEmpty())
 }
 
 func TestDeleteServer_SkipsIfNoServer(t *testing.T) {
+	g := NewWithT(t)
 	serverService := &mockServerService{
 		deleteFn: func(ctx context.Context, id string) error {
 			t.Fatal("Delete should not be called when no server exists")
@@ -413,10 +419,11 @@ func TestDeleteServer_SkipsIfNoServer(t *testing.T) {
 
 	err := r.deleteServer(context.Background(), machineScope)
 
-	require.NoError(t, err)
+	g.Expect(err).ToNot(HaveOccurred())
 }
 
 func TestDeleteServer_IgnoresAlreadyDeleted(t *testing.T) {
+	g := NewWithT(t)
 	serverService := &mockServerService{
 		deleteFn: func(ctx context.Context, id string) error {
 			return &cloudscale.ErrorResponse{StatusCode: 404}
@@ -432,8 +439,8 @@ func TestDeleteServer_IgnoresAlreadyDeleted(t *testing.T) {
 
 	err := r.deleteServer(context.Background(), machineScope)
 
-	require.NoError(t, err)
-	assert.Empty(t, machineScope.CloudscaleMachine.Status.ServerID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(machineScope.CloudscaleMachine.Status.ServerID).To(BeEmpty())
 }
 
 func TestReconcileServer_SetsServerStatusCondition(t *testing.T) {
@@ -456,6 +463,7 @@ func TestReconcileServer_SetsServerStatusCondition(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
 			serverService := &mockServerService{
 				getFn: func(ctx context.Context, id string) (*cloudscale.Server, error) {
 					return &cloudscale.Server{
@@ -475,23 +483,24 @@ func TestReconcileServer_SetsServerStatusCondition(t *testing.T) {
 
 			result, err := r.reconcileServer(context.Background(), machineScope)
 
-			require.NoError(t, err)
+			g.Expect(err).ToNot(HaveOccurred())
 
 			cond := conditions.Get(machineScope.CloudscaleMachine, infrastructurev1beta2.ServerReadyCondition)
-			require.NotNil(t, cond)
-			assert.Equal(t, tc.expectedCondition, cond.Status)
-			assert.Equal(t, tc.expectedReason, cond.Reason)
+			g.Expect(cond).ToNot(BeNil())
+			g.Expect(cond.Status).To(Equal(tc.expectedCondition))
+			g.Expect(cond.Reason).To(Equal(tc.expectedReason))
 
 			if tc.expectedRequeue {
-				assert.Equal(t, ServerStatusPollInterval, result.RequeueAfter)
+				g.Expect(result.RequeueAfter).To(Equal(ServerStatusPollInterval))
 			} else {
-				assert.Equal(t, ctrl.Result{}, result)
+				g.Expect(result).To(Equal(ctrl.Result{}))
 			}
 		})
 	}
 }
 
 func TestReconcileServer_ProvisionedNotModified(t *testing.T) {
+	g := NewWithT(t)
 	// Verify that reconcileServer does not modify the Provisioned flag
 	// (that's the controller's responsibility)
 	serverService := &mockServerService{
@@ -516,19 +525,19 @@ func TestReconcileServer_ProvisionedNotModified(t *testing.T) {
 
 	result, err := r.reconcileServer(context.Background(), machineScope)
 
-	require.NoError(t, err)
+	g.Expect(err).ToNot(HaveOccurred())
 
 	// Should requeue since status is "changing"
-	assert.Equal(t, ServerStatusPollInterval, result.RequeueAfter)
+	g.Expect(result.RequeueAfter).To(Equal(ServerStatusPollInterval))
 
 	// Condition should reflect changing status with "already provisioned" reason
 	cond := conditions.Get(machineScope.CloudscaleMachine, infrastructurev1beta2.ServerReadyCondition)
-	require.NotNil(t, cond)
-	assert.Equal(t, metav1.ConditionFalse, cond.Status)
-	assert.Equal(t, infrastructurev1beta2.ServerChangingReason, cond.Reason)
+	g.Expect(cond).ToNot(BeNil())
+	g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+	g.Expect(cond.Reason).To(Equal(infrastructurev1beta2.ServerChangingReason))
 
 	// Provisioned should remain unchanged
-	assert.True(t, *machineScope.CloudscaleMachine.Status.Initialization.Provisioned)
+	g.Expect(*machineScope.CloudscaleMachine.Status.Initialization.Provisioned).To(BeTrue())
 }
 
 func TestReconcileServer_SetsServerGroupInRequest(t *testing.T) {

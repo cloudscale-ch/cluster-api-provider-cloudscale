@@ -18,8 +18,8 @@ package controller
 
 import (
 	"context"
+	"testing"
 
-	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -28,48 +28,47 @@ import (
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 )
 
-var _ = Describe("CloudscaleMachine Controller", func() {
-	Context("When reconciling a resource", func() {
-		ctx := context.Background()
+func TestCloudscaleMachineReconciler_ResourceNotFound(t *testing.T) {
+	g := NewWithT(t)
 
-		It("should return no error when resource is not found", func() {
-			controllerReconciler := &CloudscaleMachineReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-			}
+	controllerReconciler := &CloudscaleMachineReconciler{
+		Client: k8sClient,
+		Scheme: k8sClient.Scheme(),
+	}
 
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: "nonexistent", Namespace: "default"},
-			})
-			Expect(err).NotTo(HaveOccurred())
-		})
-
-		It("should return no error and no requeue when no owner machine", func() {
-			resource := &infrastructurev1beta2.CloudscaleMachine{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "no-owner-machine",
-					Namespace: "default",
-				},
-				Spec: infrastructurev1beta2.CloudscaleMachineSpec{
-					Flavor: "flex-8-4",
-					Image:  "ubuntu-24.04",
-				},
-			}
-			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
-			defer func() {
-				Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-			}()
-
-			controllerReconciler := &CloudscaleMachineReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-			}
-
-			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: resource.Name, Namespace: resource.Namespace},
-			})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result.IsZero()).To(BeTrue())
-		})
+	_, err := controllerReconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: "nonexistent", Namespace: "default"},
 	})
-})
+	g.Expect(err).NotTo(HaveOccurred())
+}
+
+func TestCloudscaleMachineReconciler_NoOwnerMachine(t *testing.T) {
+	g := NewWithT(t)
+	ctx := context.Background()
+
+	resource := &infrastructurev1beta2.CloudscaleMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "no-owner-machine",
+			Namespace: "default",
+		},
+		Spec: infrastructurev1beta2.CloudscaleMachineSpec{
+			Flavor: "flex-8-4",
+			Image:  "ubuntu-24.04",
+		},
+	}
+	g.Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+	defer func() {
+		g.Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+	}()
+
+	controllerReconciler := &CloudscaleMachineReconciler{
+		Client: k8sClient,
+		Scheme: k8sClient.Scheme(),
+	}
+
+	result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: resource.Name, Namespace: resource.Namespace},
+	})
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(result.IsZero()).To(BeTrue())
+}

@@ -21,8 +21,7 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -80,6 +79,8 @@ func newTestCloudscaleClient() *cloudscale.Client {
 // ============================================================================
 
 func TestNewClusterScope_Success(t *testing.T) {
+	g := NewWithT(t)
+
 	cluster := newTestCluster()
 	cloudscaleCluster := newTestCloudscaleCluster()
 	fakeClient := newFakeClient(cloudscaleCluster)
@@ -93,14 +94,16 @@ func TestNewClusterScope_Success(t *testing.T) {
 		CloudscaleClient:  cloudscaleClient,
 	})
 
-	require.NoError(t, err)
-	require.NotNil(t, scope)
-	assert.Equal(t, cluster, scope.Cluster)
-	assert.Equal(t, cloudscaleCluster, scope.CloudscaleCluster)
-	assert.Equal(t, cloudscaleClient, scope.CloudscaleClient)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(scope).ToNot(BeNil())
+	g.Expect(scope.Cluster).To(Equal(cluster))
+	g.Expect(scope.CloudscaleCluster).To(Equal(cloudscaleCluster))
+	g.Expect(scope.CloudscaleClient).To(Equal(cloudscaleClient))
 }
 
 func TestNewClusterScope_NilClient(t *testing.T) {
+	g := NewWithT(t)
+
 	scope, err := NewClusterScope(ClusterScopeParams{
 		Client:            nil,
 		Logger:            logr.Discard(),
@@ -109,12 +112,14 @@ func TestNewClusterScope_NilClient(t *testing.T) {
 		CloudscaleClient:  newTestCloudscaleClient(),
 	})
 
-	require.Error(t, err)
-	assert.Nil(t, scope)
-	assert.Contains(t, err.Error(), "client is required")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(scope).To(BeNil())
+	g.Expect(err.Error()).To(ContainSubstring("client is required"))
 }
 
 func TestNewClusterScope_NilCluster(t *testing.T) {
+	g := NewWithT(t)
+
 	cloudscaleCluster := newTestCloudscaleCluster()
 	fakeClient := newFakeClient(cloudscaleCluster)
 
@@ -126,12 +131,14 @@ func TestNewClusterScope_NilCluster(t *testing.T) {
 		CloudscaleClient:  newTestCloudscaleClient(),
 	})
 
-	require.Error(t, err)
-	assert.Nil(t, scope)
-	assert.Contains(t, err.Error(), "cluster is required")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(scope).To(BeNil())
+	g.Expect(err.Error()).To(ContainSubstring("cluster is required"))
 }
 
 func TestNewClusterScope_NilCloudscaleCluster(t *testing.T) {
+	g := NewWithT(t)
+
 	fakeClient := newFakeClient()
 
 	scope, err := NewClusterScope(ClusterScopeParams{
@@ -142,12 +149,14 @@ func TestNewClusterScope_NilCloudscaleCluster(t *testing.T) {
 		CloudscaleClient:  newTestCloudscaleClient(),
 	})
 
-	require.Error(t, err)
-	assert.Nil(t, scope)
-	assert.Contains(t, err.Error(), "cloudscaleCluster is required")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(scope).To(BeNil())
+	g.Expect(err.Error()).To(ContainSubstring("cloudscaleCluster is required"))
 }
 
 func TestNewClusterScope_NilCloudscaleClient(t *testing.T) {
+	g := NewWithT(t)
+
 	cloudscaleCluster := newTestCloudscaleCluster()
 	fakeClient := newFakeClient(cloudscaleCluster)
 
@@ -159,9 +168,9 @@ func TestNewClusterScope_NilCloudscaleClient(t *testing.T) {
 		CloudscaleClient:  nil,
 	})
 
-	require.Error(t, err)
-	assert.Nil(t, scope)
-	assert.Contains(t, err.Error(), "cloudscaleClient is required")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(scope).To(BeNil())
+	g.Expect(err.Error()).To(ContainSubstring("cloudscaleClient is required"))
 }
 
 // ============================================================================
@@ -169,6 +178,8 @@ func TestNewClusterScope_NilCloudscaleClient(t *testing.T) {
 // ============================================================================
 
 func TestClusterScope_Name(t *testing.T) {
+	g := NewWithT(t)
+
 	cluster := newTestCluster()
 	cloudscaleCluster := newTestCloudscaleCluster()
 	fakeClient := newFakeClient(cloudscaleCluster)
@@ -181,11 +192,13 @@ func TestClusterScope_Name(t *testing.T) {
 		CloudscaleClient:  newTestCloudscaleClient(),
 	})
 
-	require.NoError(t, err)
-	assert.Equal(t, "test-cluster", scope.Name())
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(scope.Name()).To(Equal("test-cluster"))
 }
 
 func TestClusterScope_Namespace(t *testing.T) {
+	g := NewWithT(t)
+
 	cluster := newTestCluster()
 	cloudscaleCluster := newTestCloudscaleCluster()
 	fakeClient := newFakeClient(cloudscaleCluster)
@@ -198,8 +211,8 @@ func TestClusterScope_Namespace(t *testing.T) {
 		CloudscaleClient:  newTestCloudscaleClient(),
 	})
 
-	require.NoError(t, err)
-	assert.Equal(t, "test-namespace", scope.Namespace())
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(scope.Namespace()).To(Equal("test-namespace"))
 }
 
 // ============================================================================
@@ -207,6 +220,8 @@ func TestClusterScope_Namespace(t *testing.T) {
 // ============================================================================
 
 func TestClusterScope_Close(t *testing.T) {
+	g := NewWithT(t)
+
 	cluster := newTestCluster()
 	cloudscaleCluster := newTestCloudscaleCluster()
 	fakeClient := newFakeClient(cloudscaleCluster)
@@ -218,13 +233,13 @@ func TestClusterScope_Close(t *testing.T) {
 		CloudscaleCluster: cloudscaleCluster,
 		CloudscaleClient:  newTestCloudscaleClient(),
 	})
-	require.NoError(t, err)
+	g.Expect(err).ToNot(HaveOccurred())
 
 	// Modify status to verify patch happens
 	scope.CloudscaleCluster.Status.NetworkID = "patched-network-id"
 
 	err = scope.Close(context.Background())
-	require.NoError(t, err)
+	g.Expect(err).ToNot(HaveOccurred())
 
 	// Verify the status was patched by fetching the object again
 	updated := &infrastructurev1beta2.CloudscaleCluster{}
@@ -232,6 +247,6 @@ func TestClusterScope_Close(t *testing.T) {
 		Name:      cloudscaleCluster.Name,
 		Namespace: cloudscaleCluster.Namespace,
 	}, updated)
-	require.NoError(t, err)
-	assert.Equal(t, "patched-network-id", updated.Status.NetworkID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(updated.Status.NetworkID).To(Equal("patched-network-id"))
 }

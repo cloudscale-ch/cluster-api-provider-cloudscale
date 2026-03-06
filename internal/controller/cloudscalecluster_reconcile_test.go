@@ -23,8 +23,7 @@ import (
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v6"
 	"github.com/go-logr/logr"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/events"
@@ -157,6 +156,8 @@ func defaultMocks() reconcileTestOpts {
 // ============================================================================
 
 func TestReconcileNormal_FullyProvisionedCluster(t *testing.T) {
+	g := NewWithT(t)
+
 	mocks := defaultMocks()
 	clusterScope := reconcileTestScope(mocks)
 	clusterScope.CloudscaleCluster.Status.NetworkID = "net-123"
@@ -181,17 +182,19 @@ func TestReconcileNormal_FullyProvisionedCluster(t *testing.T) {
 
 	result, err := r.reconcileNormal(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.True(t, result.IsZero())
-	assert.NotNil(t, clusterScope.CloudscaleCluster.Status.Initialization)
-	assert.True(t, *clusterScope.CloudscaleCluster.Status.Initialization.Provisioned)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result.IsZero()).To(BeTrue())
+	g.Expect(clusterScope.CloudscaleCluster.Status.Initialization).ToNot(BeNil())
+	g.Expect(*clusterScope.CloudscaleCluster.Status.Initialization.Provisioned).To(BeTrue())
 
 	readyCond := conditions.Get(clusterScope.CloudscaleCluster, infrastructurev1beta2.ReadyCondition)
-	require.NotNil(t, readyCond)
-	assert.Equal(t, metav1.ConditionTrue, readyCond.Status)
+	g.Expect(readyCond).ToNot(BeNil())
+	g.Expect(readyCond.Status).To(Equal(metav1.ConditionTrue))
 }
 
 func TestReconcileNormal_NetworkErrorStopsReconciliation(t *testing.T) {
+	g := NewWithT(t)
+
 	mocks := defaultMocks()
 	mocks.networkService = &mockNetworkService{
 		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Network, error) {
@@ -204,16 +207,18 @@ func TestReconcileNormal_NetworkErrorStopsReconciliation(t *testing.T) {
 
 	_, err := r.reconcileNormal(context.Background(), clusterScope)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "network api error")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("network api error"))
 
 	// Ready condition should be set by deferred setReadyCondition (False since no sub-conditions are set)
 	readyCond := conditions.Get(clusterScope.CloudscaleCluster, infrastructurev1beta2.ReadyCondition)
-	require.NotNil(t, readyCond)
-	assert.Equal(t, metav1.ConditionFalse, readyCond.Status)
+	g.Expect(readyCond).ToNot(BeNil())
+	g.Expect(readyCond.Status).To(Equal(metav1.ConditionFalse))
 }
 
 func TestReconcileNormal_LBErrorStopsReconciliation(t *testing.T) {
+	g := NewWithT(t)
+
 	mocks := defaultMocks()
 	mocks.lbService = &mockLoadBalancerService{
 		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancer, error) {
@@ -230,11 +235,13 @@ func TestReconcileNormal_LBErrorStopsReconciliation(t *testing.T) {
 
 	_, err := r.reconcileNormal(context.Background(), clusterScope)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "lb api error")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("lb api error"))
 }
 
 func TestReconcileNormal_LBPendingReturnsRequeue(t *testing.T) {
+	g := NewWithT(t)
+
 	mocks := defaultMocks()
 	mocks.lbService = &mockLoadBalancerService{
 		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancer, error) {
@@ -251,13 +258,15 @@ func TestReconcileNormal_LBPendingReturnsRequeue(t *testing.T) {
 
 	result, err := r.reconcileNormal(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.False(t, result.IsZero(), "should requeue when LB is pending")
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result.IsZero()).To(BeFalse(), "should requeue when LB is pending")
 	// Provisioned should be false
-	assert.Nil(t, clusterScope.CloudscaleCluster.Status.Initialization)
+	g.Expect(clusterScope.CloudscaleCluster.Status.Initialization).To(BeNil())
 }
 
 func TestReconcileNormal_LBDisabledSetsProvisioned(t *testing.T) {
+	g := NewWithT(t)
+
 	mocks := defaultMocks()
 	mocks.lbEnabled = false
 
@@ -273,10 +282,10 @@ func TestReconcileNormal_LBDisabledSetsProvisioned(t *testing.T) {
 
 	result, err := r.reconcileNormal(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.True(t, result.IsZero())
-	assert.NotNil(t, clusterScope.CloudscaleCluster.Status.Initialization)
-	assert.True(t, *clusterScope.CloudscaleCluster.Status.Initialization.Provisioned)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result.IsZero()).To(BeTrue())
+	g.Expect(clusterScope.CloudscaleCluster.Status.Initialization).ToNot(BeNil())
+	g.Expect(*clusterScope.CloudscaleCluster.Status.Initialization.Provisioned).To(BeTrue())
 }
 
 // ============================================================================
@@ -284,6 +293,8 @@ func TestReconcileNormal_LBDisabledSetsProvisioned(t *testing.T) {
 // ============================================================================
 
 func TestReconcileDelete_SuccessfulDeletion(t *testing.T) {
+	g := NewWithT(t)
+
 	var deletedLBID, deletedNetID string
 
 	mocks := defaultMocks()
@@ -313,33 +324,35 @@ func TestReconcileDelete_SuccessfulDeletion(t *testing.T) {
 
 	result, err := r.reconcileDelete(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.True(t, result.IsZero())
-	assert.Equal(t, "lb-123", deletedLBID)
-	assert.Equal(t, "net-123", deletedNetID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result.IsZero()).To(BeTrue())
+	g.Expect(deletedLBID).To(Equal("lb-123"))
+	g.Expect(deletedNetID).To(Equal("net-123"))
 
 	// Verify all LB status fields cleared
-	assert.Empty(t, clusterScope.CloudscaleCluster.Status.LoadBalancerID)
-	assert.Empty(t, clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID)
-	assert.Empty(t, clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID)
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerID).To(BeEmpty())
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID).To(BeEmpty())
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID).To(BeEmpty())
 	// Verify network status cleared
-	assert.Empty(t, clusterScope.CloudscaleCluster.Status.NetworkID)
-	assert.Empty(t, clusterScope.CloudscaleCluster.Status.SubnetID)
+	g.Expect(clusterScope.CloudscaleCluster.Status.NetworkID).To(BeEmpty())
+	g.Expect(clusterScope.CloudscaleCluster.Status.SubnetID).To(BeEmpty())
 
 	// Verify finalizer removed
-	assert.NotContains(t, clusterScope.CloudscaleCluster.Finalizers, infrastructurev1beta2.ClusterFinalizer)
+	g.Expect(clusterScope.CloudscaleCluster.Finalizers).ToNot(ContainElement(infrastructurev1beta2.ClusterFinalizer))
 
 	// Verify conditions
 	readyCond := conditions.Get(clusterScope.CloudscaleCluster, infrastructurev1beta2.ReadyCondition)
-	require.NotNil(t, readyCond)
-	assert.Equal(t, metav1.ConditionFalse, readyCond.Status)
+	g.Expect(readyCond).ToNot(BeNil())
+	g.Expect(readyCond.Status).To(Equal(metav1.ConditionFalse))
 
 	deletingCond := conditions.Get(clusterScope.CloudscaleCluster, infrastructurev1beta2.DeletingCondition)
-	require.NotNil(t, deletingCond)
-	assert.Equal(t, metav1.ConditionTrue, deletingCond.Status)
+	g.Expect(deletingCond).ToNot(BeNil())
+	g.Expect(deletingCond.Status).To(Equal(metav1.ConditionTrue))
 }
 
 func TestReconcileDelete_LBDeleteErrorStopsDeletion(t *testing.T) {
+	g := NewWithT(t)
+
 	mocks := defaultMocks()
 	mocks.lbService = &mockLoadBalancerService{
 		deleteFn: func(ctx context.Context, id string) error {
@@ -362,13 +375,15 @@ func TestReconcileDelete_LBDeleteErrorStopsDeletion(t *testing.T) {
 
 	_, err := r.reconcileDelete(context.Background(), clusterScope)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "lb delete failed")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("lb delete failed"))
 	// Finalizer should NOT be removed on error
-	assert.Contains(t, clusterScope.CloudscaleCluster.Finalizers, infrastructurev1beta2.ClusterFinalizer)
+	g.Expect(clusterScope.CloudscaleCluster.Finalizers).To(ContainElement(infrastructurev1beta2.ClusterFinalizer))
 }
 
 func TestReconcileDelete_NetworkDeleteErrorStopsDeletion(t *testing.T) {
+	g := NewWithT(t)
+
 	mocks := defaultMocks()
 	mocks.lbService = &mockLoadBalancerService{
 		deleteFn: func(ctx context.Context, id string) error {
@@ -390,13 +405,15 @@ func TestReconcileDelete_NetworkDeleteErrorStopsDeletion(t *testing.T) {
 
 	_, err := r.reconcileDelete(context.Background(), clusterScope)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "network delete failed")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("network delete failed"))
 	// Finalizer should NOT be removed on error
-	assert.Contains(t, clusterScope.CloudscaleCluster.Finalizers, infrastructurev1beta2.ClusterFinalizer)
+	g.Expect(clusterScope.CloudscaleCluster.Finalizers).To(ContainElement(infrastructurev1beta2.ClusterFinalizer))
 }
 
 func TestReconcileDelete_LBDisabledSkipsLBDeletion(t *testing.T) {
+	g := NewWithT(t)
+
 	var deletedNetID string
 
 	mocks := defaultMocks()
@@ -422,10 +439,10 @@ func TestReconcileDelete_LBDisabledSkipsLBDeletion(t *testing.T) {
 
 	result, err := r.reconcileDelete(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.True(t, result.IsZero())
-	assert.Equal(t, "net-123", deletedNetID)
-	assert.NotContains(t, clusterScope.CloudscaleCluster.Finalizers, infrastructurev1beta2.ClusterFinalizer)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result.IsZero()).To(BeTrue())
+	g.Expect(deletedNetID).To(Equal("net-123"))
+	g.Expect(clusterScope.CloudscaleCluster.Finalizers).ToNot(ContainElement(infrastructurev1beta2.ClusterFinalizer))
 }
 
 // testSchemeForReconcile returns a scheme with the types needed for reconcileNormal tests.

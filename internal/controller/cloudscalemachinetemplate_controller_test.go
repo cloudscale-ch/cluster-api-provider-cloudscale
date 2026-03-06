@@ -18,26 +18,24 @@ package controller
 
 import (
 	"context"
+	"testing"
 
-	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-var _ = Describe("CloudscaleMachineTemplate Controller", func() {
-	Context("When reconciling a resource", func() {
-		It("should return success for the no-op controller", func() {
-			controllerReconciler := &CloudscaleMachineTemplateReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-			}
+func TestCloudscaleMachineTemplateReconciler_NoOp(t *testing.T) {
+	g := NewWithT(t)
 
-			result, err := controllerReconciler.Reconcile(context.Background(), reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: "any-template", Namespace: "default"},
-			})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result.IsZero()).To(BeTrue())
-		})
+	controllerReconciler := &CloudscaleMachineTemplateReconciler{
+		Client: k8sClient,
+		Scheme: k8sClient.Scheme(),
+	}
+
+	result, err := controllerReconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: "any-template", Namespace: "default"},
 	})
-})
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(result.IsZero()).To(BeTrue())
+}

@@ -20,6 +20,7 @@ import (
 	"context"
 	"testing"
 
+	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -129,6 +130,7 @@ func TestGetToken(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			var objs []runtime.Object
 			if tt.secret != nil {
 				objs = append(objs, tt.secret)
@@ -137,13 +139,13 @@ func TestGetToken(t *testing.T) {
 
 			token, err := GetToken(context.Background(), client, tt.secretRef, tt.namespace)
 
-			if (err != nil) != tt.wantErr {
-				t.Errorf("GetToken() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				g.Expect(err).To(HaveOccurred())
 				return
+			} else {
+				g.Expect(err).ToNot(HaveOccurred())
 			}
-			if token != tt.wantToken {
-				t.Errorf("GetToken() = %v, want %v", token, tt.wantToken)
-			}
+			g.Expect(token).To(Equal(tt.wantToken))
 		})
 	}
 }

@@ -20,7 +20,7 @@ import (
 	"testing"
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v6"
-	"github.com/stretchr/testify/assert"
+	. "github.com/onsi/gomega"
 )
 
 func newTestRegionInfo() *RegionInfo {
@@ -49,8 +49,9 @@ func TestRegionInfo_ZoneBelongsToRegion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			result := ri.ZoneBelongsToRegion(tt.zone, tt.region)
-			assert.Equal(t, tt.expected, result)
+			g.Expect(result).To(Equal(tt.expected))
 		})
 	}
 }
@@ -70,8 +71,9 @@ func TestRegionInfo_GetDefaultZoneForRegion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			result := ri.GetDefaultZoneForRegion(tt.region)
-			assert.Equal(t, tt.expected, result)
+			g.Expect(result).To(Equal(tt.expected))
 		})
 	}
 }
@@ -92,18 +94,20 @@ func TestRegionInfo_IsValidZone(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			result := ri.IsValidZone(tt.zone)
-			assert.Equal(t, tt.expected, result)
+			g.Expect(result).To(Equal(tt.expected))
 		})
 	}
 }
 
 func TestRegionInfo_GetAllRegions(t *testing.T) {
+	g := NewWithT(t)
 	ri := newTestRegionInfo()
 
 	regions := ri.GetAllRegions()
 
-	assert.Len(t, regions, 2)
-	assert.Contains(t, regions, "rma")
-	assert.Contains(t, regions, "lpg")
+	g.Expect(regions).To(HaveLen(2))
+	g.Expect(regions).To(ContainElement("rma"))
+	g.Expect(regions).To(ContainElement("lpg"))
 }
