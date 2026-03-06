@@ -23,8 +23,7 @@ import (
 
 	"github.com/cloudscale-ch/cloudscale-go-sdk/v6"
 	"github.com/go-logr/logr"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/events"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
@@ -78,6 +77,8 @@ func newTestReconciler() *CloudscaleClusterReconciler {
 // --- Orchestrator tests ---
 
 func TestReconcileNetwork_CreatesBothResources(t *testing.T) {
+	g := NewWithT(t)
+
 	var capturedNetReq *cloudscale.NetworkCreateRequest
 	var capturedSubReq *cloudscale.SubnetCreateRequest
 
@@ -99,19 +100,21 @@ func TestReconcileNetwork_CreatesBothResources(t *testing.T) {
 
 	err := r.reconcileNetwork(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, netUUID, clusterScope.CloudscaleCluster.Status.NetworkID)
-	assert.Equal(t, "subnet-uuid-123", clusterScope.CloudscaleCluster.Status.SubnetID)
-	assert.Equal(t, "test-cluster", capturedNetReq.Name)
-	assert.Equal(t, "rma1", capturedNetReq.Zone)
-	assert.NotNil(t, capturedNetReq.AutoCreateIPV4Subnet)
-	assert.False(t, *capturedNetReq.AutoCreateIPV4Subnet)
-	assert.Equal(t, netUUID, capturedSubReq.Network)
-	assert.Equal(t, "10.0.0.0/24", capturedSubReq.CIDR)
-	assert.Equal(t, "", capturedSubReq.GatewayAddress)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(clusterScope.CloudscaleCluster.Status.NetworkID).To(Equal(netUUID))
+	g.Expect(clusterScope.CloudscaleCluster.Status.SubnetID).To(Equal("subnet-uuid-123"))
+	g.Expect(capturedNetReq.Name).To(Equal("test-cluster"))
+	g.Expect(capturedNetReq.Zone).To(Equal("rma1"))
+	g.Expect(capturedNetReq.AutoCreateIPV4Subnet).ToNot(BeNil())
+	g.Expect(*capturedNetReq.AutoCreateIPV4Subnet).To(BeFalse())
+	g.Expect(capturedSubReq.Network).To(Equal(netUUID))
+	g.Expect(capturedSubReq.CIDR).To(Equal("10.0.0.0/24"))
+	g.Expect(capturedSubReq.GatewayAddress).To(Equal(""))
 }
 
 func TestReconcileNetwork_SkipsIfBothExist(t *testing.T) {
+	g := NewWithT(t)
+
 	networkService := &mockNetworkService{
 		getFn: func(ctx context.Context, id string) (*cloudscale.Network, error) {
 			return &cloudscale.Network{UUID: id}, nil
@@ -139,12 +142,14 @@ func TestReconcileNetwork_SkipsIfBothExist(t *testing.T) {
 
 	err := r.reconcileNetwork(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, "existing-net", clusterScope.CloudscaleCluster.Status.NetworkID)
-	assert.Equal(t, "existing-subnet", clusterScope.CloudscaleCluster.Status.SubnetID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(clusterScope.CloudscaleCluster.Status.NetworkID).To(Equal("existing-net"))
+	g.Expect(clusterScope.CloudscaleCluster.Status.SubnetID).To(Equal("existing-subnet"))
 }
 
 func TestReconcileNetwork_NetworkErrorStopsSubnet(t *testing.T) {
+	g := NewWithT(t)
+
 	networkService := &mockNetworkService{
 		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.Network, error) {
 			return nil, fmt.Errorf("api error")
@@ -162,12 +167,14 @@ func TestReconcileNetwork_NetworkErrorStopsSubnet(t *testing.T) {
 
 	err := r.reconcileNetwork(context.Background(), clusterScope)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "api error")
-	assert.Empty(t, clusterScope.CloudscaleCluster.Status.SubnetID)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("api error"))
+	g.Expect(clusterScope.CloudscaleCluster.Status.SubnetID).To(BeEmpty())
 }
 
 func TestReconcileNetwork_SubnetErrorSurfaced(t *testing.T) {
+	g := NewWithT(t)
+
 	networkService := &mockNetworkService{
 		createFn: func(ctx context.Context, req *cloudscale.NetworkCreateRequest) (*cloudscale.Network, error) {
 			return &cloudscale.Network{UUID: "net-uuid"}, nil
@@ -184,14 +191,16 @@ func TestReconcileNetwork_SubnetErrorSurfaced(t *testing.T) {
 
 	err := r.reconcileNetwork(context.Background(), clusterScope)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "subnet api error")
-	assert.Equal(t, "net-uuid", clusterScope.CloudscaleCluster.Status.NetworkID)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("subnet api error"))
+	g.Expect(clusterScope.CloudscaleCluster.Status.NetworkID).To(Equal("net-uuid"))
 }
 
 // --- Network sub-resource tests ---
 
 func TestReconcileNetworkResource_FindsByTag(t *testing.T) {
+	g := NewWithT(t)
+
 	networkService := &mockNetworkService{
 		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.Network, error) {
 			return []cloudscale.Network{
@@ -209,11 +218,13 @@ func TestReconcileNetworkResource_FindsByTag(t *testing.T) {
 
 	err := r.reconcileNetworkResource(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, "found-net-uuid", clusterScope.CloudscaleCluster.Status.NetworkID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(clusterScope.CloudscaleCluster.Status.NetworkID).To(Equal("found-net-uuid"))
 }
 
 func TestReconcileNetworkResource_ErrorsOnMultiple(t *testing.T) {
+	g := NewWithT(t)
+
 	networkService := &mockNetworkService{
 		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.Network, error) {
 			return []cloudscale.Network{
@@ -228,11 +239,13 @@ func TestReconcileNetworkResource_ErrorsOnMultiple(t *testing.T) {
 
 	err := r.reconcileNetworkResource(context.Background(), clusterScope)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "found 2 networks matching tag filter")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("found 2 networks matching tag filter"))
 }
 
 func TestReconcileNetworkResource_RecreatesIfDeletedExternally(t *testing.T) {
+	g := NewWithT(t)
+
 	var created bool
 
 	networkService := &mockNetworkService{
@@ -255,14 +268,16 @@ func TestReconcileNetworkResource_RecreatesIfDeletedExternally(t *testing.T) {
 
 	err := r.reconcileNetworkResource(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.True(t, created, "Should create a new network when old one was deleted")
-	assert.Equal(t, "new-net-uuid", clusterScope.CloudscaleCluster.Status.NetworkID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(created).To(BeTrue(), "Should create a new network when old one was deleted")
+	g.Expect(clusterScope.CloudscaleCluster.Status.NetworkID).To(Equal("new-net-uuid"))
 }
 
 // --- Subnet sub-resource tests ---
 
 func TestReconcileSubnet_FindsByTag(t *testing.T) {
+	g := NewWithT(t)
+
 	subnetService := &mockSubnetService{
 		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.Subnet, error) {
 			return []cloudscale.Subnet{
@@ -282,11 +297,13 @@ func TestReconcileSubnet_FindsByTag(t *testing.T) {
 
 	err := r.reconcileSubnet(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, "found-subnet-uuid", clusterScope.CloudscaleCluster.Status.SubnetID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(clusterScope.CloudscaleCluster.Status.SubnetID).To(Equal("found-subnet-uuid"))
 }
 
 func TestReconcileSubnet_ErrorsOnMultiple(t *testing.T) {
+	g := NewWithT(t)
+
 	subnetService := &mockSubnetService{
 		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.Subnet, error) {
 			return []cloudscale.Subnet{
@@ -303,11 +320,13 @@ func TestReconcileSubnet_ErrorsOnMultiple(t *testing.T) {
 
 	err := r.reconcileSubnet(context.Background(), clusterScope)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "found 2 subnets matching tag filter")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("found 2 subnets matching tag filter"))
 }
 
 func TestReconcileSubnet_RecreatesIfDeletedExternally(t *testing.T) {
+	g := NewWithT(t)
+
 	var created bool
 
 	subnetService := &mockSubnetService{
@@ -331,12 +350,14 @@ func TestReconcileSubnet_RecreatesIfDeletedExternally(t *testing.T) {
 
 	err := r.reconcileSubnet(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.True(t, created, "Should create a new subnet when old one was deleted")
-	assert.Equal(t, "new-subnet-uuid", clusterScope.CloudscaleCluster.Status.SubnetID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(created).To(BeTrue(), "Should create a new subnet when old one was deleted")
+	g.Expect(clusterScope.CloudscaleCluster.Status.SubnetID).To(Equal("new-subnet-uuid"))
 }
 
 func TestReconcileSubnet_CustomCIDR(t *testing.T) {
+	g := NewWithT(t)
+
 	var capturedReq *cloudscale.SubnetCreateRequest
 
 	subnetService := &mockSubnetService{
@@ -354,11 +375,13 @@ func TestReconcileSubnet_CustomCIDR(t *testing.T) {
 
 	err := r.reconcileSubnet(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, "192.168.0.0/16", capturedReq.CIDR)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(capturedReq.CIDR).To(Equal("192.168.0.0/16"))
 }
 
 func TestReconcileSubnet_ExplicitGateway(t *testing.T) {
+	g := NewWithT(t)
+
 	var capturedReq *cloudscale.SubnetCreateRequest
 
 	subnetService := &mockSubnetService{
@@ -377,11 +400,13 @@ func TestReconcileSubnet_ExplicitGateway(t *testing.T) {
 
 	err := r.reconcileSubnet(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, "10.0.0.254", capturedReq.GatewayAddress)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(capturedReq.GatewayAddress).To(Equal("10.0.0.254"))
 }
 
 func TestReconcileSubnet_FailsIfNoNetwork(t *testing.T) {
+	g := NewWithT(t)
+
 	clusterScope := newTestClusterScope(&mockNetworkService{}, &mockSubnetService{})
 	clusterScope.CloudscaleCluster.Status.NetworkID = ""
 
@@ -389,13 +414,15 @@ func TestReconcileSubnet_FailsIfNoNetwork(t *testing.T) {
 
 	err := r.reconcileSubnet(context.Background(), clusterScope)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "network must be created before subnet")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("network must be created before subnet"))
 }
 
 // --- Delete tests ---
 
 func TestDeleteNetwork_DeletesNetworkAndClearsBothIDs(t *testing.T) {
+	g := NewWithT(t)
+
 	var deletedID string
 
 	networkService := &mockNetworkService{
@@ -413,13 +440,15 @@ func TestDeleteNetwork_DeletesNetworkAndClearsBothIDs(t *testing.T) {
 
 	err := r.deleteNetwork(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Equal(t, "net-to-delete", deletedID)
-	assert.Empty(t, clusterScope.CloudscaleCluster.Status.NetworkID)
-	assert.Empty(t, clusterScope.CloudscaleCluster.Status.SubnetID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(deletedID).To(Equal("net-to-delete"))
+	g.Expect(clusterScope.CloudscaleCluster.Status.NetworkID).To(BeEmpty())
+	g.Expect(clusterScope.CloudscaleCluster.Status.SubnetID).To(BeEmpty())
 }
 
 func TestDeleteNetwork_SkipsIfNoNetwork(t *testing.T) {
+	g := NewWithT(t)
+
 	networkService := &mockNetworkService{
 		deleteFn: func(ctx context.Context, id string) error {
 			t.Fatal("Delete should not be called when no network exists")
@@ -433,10 +462,12 @@ func TestDeleteNetwork_SkipsIfNoNetwork(t *testing.T) {
 
 	err := r.deleteNetwork(context.Background(), clusterScope)
 
-	require.NoError(t, err)
+	g.Expect(err).ToNot(HaveOccurred())
 }
 
 func TestDeleteNetwork_IgnoresAlreadyDeleted(t *testing.T) {
+	g := NewWithT(t)
+
 	networkService := &mockNetworkService{
 		deleteFn: func(ctx context.Context, id string) error {
 			return &cloudscale.ErrorResponse{StatusCode: 404}
@@ -451,9 +482,9 @@ func TestDeleteNetwork_IgnoresAlreadyDeleted(t *testing.T) {
 
 	err := r.deleteNetwork(context.Background(), clusterScope)
 
-	require.NoError(t, err)
-	assert.Empty(t, clusterScope.CloudscaleCluster.Status.NetworkID)
-	assert.Empty(t, clusterScope.CloudscaleCluster.Status.SubnetID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(clusterScope.CloudscaleCluster.Status.NetworkID).To(BeEmpty())
+	g.Expect(clusterScope.CloudscaleCluster.Status.SubnetID).To(BeEmpty())
 }
 
 // --- Mock services ---

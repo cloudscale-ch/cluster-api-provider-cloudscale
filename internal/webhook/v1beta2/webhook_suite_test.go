@@ -26,9 +26,6 @@ import (
 	"testing"
 	"time"
 
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -43,9 +40,6 @@ import (
 	// +kubebuilder:scaffold:imports
 )
 
-// These tests use Ginkgo (BDD-style Go testing framework). Refer to
-// http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
-
 var (
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -54,24 +48,19 @@ var (
 	testEnv   *envtest.Environment
 )
 
-func TestAPIs(t *testing.T) {
-	RegisterFailHandler(Fail)
-
-	RunSpecs(t, "Webhook Suite")
-}
-
-var _ = BeforeSuite(func() {
-	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
+func TestMain(m *testing.M) {
+	logf.SetLogger(zap.New(zap.WriteTo(os.Stderr), zap.UseDevMode(true)))
 
 	ctx, cancel = context.WithCancel(context.TODO())
 
-	var err error
-	err = infrastructurev1beta2.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
+	err := infrastructurev1beta2.AddToScheme(scheme.Scheme)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to add scheme: %v\n", err)
+		os.Exit(1)
+	}
 
 	// +kubebuilder:scaffold:scheme
 
-	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "..", "config", "crd", "bases")},
 		ErrorIfCRDPathMissing: false,
@@ -88,12 +77,24 @@ var _ = BeforeSuite(func() {
 
 	// cfg is defined in this file globally.
 	cfg, err = testEnv.Start()
-	Expect(err).NotTo(HaveOccurred())
-	Expect(cfg).NotTo(BeNil())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to start test environment: %v\n", err)
+		os.Exit(1)
+	}
+	if cfg == nil {
+		fmt.Fprintln(os.Stderr, "Expected cfg to not be nil")
+		os.Exit(1)
+	}
 
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
-	Expect(err).NotTo(HaveOccurred())
-	Expect(k8sClient).NotTo(BeNil())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create client: %v\n", err)
+		os.Exit(1)
+	}
+	if k8sClient == nil {
+		fmt.Fprintln(os.Stderr, "Expected k8sClient to not be nil")
+		os.Exit(1)
+	}
 
 	// start webhook server using Manager.
 	webhookInstallOptions := &testEnv.WebhookInstallOptions
@@ -107,45 +108,56 @@ var _ = BeforeSuite(func() {
 		LeaderElection: false,
 		Metrics:        metricsserver.Options{BindAddress: "0"},
 	})
-	Expect(err).NotTo(HaveOccurred())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create manager: %v\n", err)
+		os.Exit(1)
+	}
 
 	err = SetupCloudscaleClusterWebhookWithManager(mgr, newTestRegionInfo())
-	Expect(err).NotTo(HaveOccurred())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to setup cluster webhook: %v\n", err)
+		os.Exit(1)
+	}
 
 	err = SetupCloudscaleMachineWebhookWithManager(mgr)
-	Expect(err).NotTo(HaveOccurred())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to setup machine webhook: %v\n", err)
+		os.Exit(1)
+	}
 
 	err = SetupCloudscaleMachineTemplateWebhookWithManager(mgr)
-	Expect(err).NotTo(HaveOccurred())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to setup machine template webhook: %v\n", err)
+		os.Exit(1)
+	}
 
 	// +kubebuilder:scaffold:webhook
 
 	go func() {
-		defer GinkgoRecover()
-		err = mgr.Start(ctx)
-		Expect(err).NotTo(HaveOccurred())
+		if err := mgr.Start(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "Manager exited with error: %v\n", err)
+		}
 	}()
 
 	// wait for the webhook server to get ready.
 	dialer := &net.Dialer{Timeout: time.Second}
 	addrPort := fmt.Sprintf("%s:%d", webhookInstallOptions.LocalServingHost, webhookInstallOptions.LocalServingPort)
-	Eventually(func() error {
-		conn, err := tls.DialWithDialer(dialer, "tcp", addrPort, &tls.Config{InsecureSkipVerify: true})
-		if err != nil {
-			return err
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		conn, dialErr := tls.DialWithDialer(dialer, "tcp", addrPort, &tls.Config{InsecureSkipVerify: true}) //nolint:gosec
+		if dialErr == nil {
+			_ = conn.Close()
+			break
 		}
+		time.Sleep(100 * time.Millisecond)
+	}
 
-		return conn.Close()
-	}).Should(Succeed())
-})
+	code := m.Run()
 
-var _ = AfterSuite(func() {
-	By("tearing down the test environment")
 	cancel()
-	Eventually(func() error {
-		return testEnv.Stop()
-	}, time.Minute, time.Second).Should(Succeed())
-})
+	_ = testEnv.Stop()
+	os.Exit(code)
+}
 
 // getFirstFoundEnvTestBinaryDir locates the first binary in the specified path.
 // ENVTEST-based tests depend on specific binaries, usually located in paths set by

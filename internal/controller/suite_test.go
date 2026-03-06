@@ -18,13 +18,10 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
-
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
 
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -37,9 +34,6 @@ import (
 	// +kubebuilder:scaffold:imports
 )
 
-// These tests use Ginkgo (BDD-style Go testing framework). Refer to
-// http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
-
 var (
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -48,24 +42,19 @@ var (
 	k8sClient client.Client
 )
 
-func TestControllers(t *testing.T) {
-	RegisterFailHandler(Fail)
-
-	RunSpecs(t, "Controller Suite")
-}
-
-var _ = BeforeSuite(func() {
-	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
+func TestMain(m *testing.M) {
+	logf.SetLogger(zap.New(zap.WriteTo(os.Stderr), zap.UseDevMode(true)))
 
 	ctx, cancel = context.WithCancel(context.TODO())
 
-	var err error
-	err = infrastructurev1beta2.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
+	err := infrastructurev1beta2.AddToScheme(scheme.Scheme)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to add scheme: %v\n", err)
+		os.Exit(1)
+	}
 
 	// +kubebuilder:scaffold:scheme
 
-	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
 		ErrorIfCRDPathMissing: true,
@@ -78,21 +67,31 @@ var _ = BeforeSuite(func() {
 
 	// cfg is defined in this file globally.
 	cfg, err = testEnv.Start()
-	Expect(err).NotTo(HaveOccurred())
-	Expect(cfg).NotTo(BeNil())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to start test environment: %v\n", err)
+		os.Exit(1)
+	}
+	if cfg == nil {
+		fmt.Fprintln(os.Stderr, "Expected cfg to not be nil")
+		os.Exit(1)
+	}
 
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
-	Expect(err).NotTo(HaveOccurred())
-	Expect(k8sClient).NotTo(BeNil())
-})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create client: %v\n", err)
+		os.Exit(1)
+	}
+	if k8sClient == nil {
+		fmt.Fprintln(os.Stderr, "Expected k8sClient to not be nil")
+		os.Exit(1)
+	}
 
-var _ = AfterSuite(func() {
-	By("tearing down the test environment")
+	code := m.Run()
+
 	cancel()
-	Eventually(func() error {
-		return testEnv.Stop()
-	}, time.Minute, time.Second).Should(Succeed())
-})
+	_ = testEnv.Stop()
+	os.Exit(code)
+}
 
 // getFirstFoundEnvTestBinaryDir locates the first binary in the specified path.
 // ENVTEST-based tests depend on specific binaries, usually located in paths set by

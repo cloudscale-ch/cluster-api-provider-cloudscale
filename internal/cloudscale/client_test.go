@@ -21,7 +21,7 @@ import (
 	"testing"
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v6"
-	"github.com/stretchr/testify/assert"
+	. "github.com/onsi/gomega"
 )
 
 func TestIsNotFound(t *testing.T) {
@@ -40,8 +40,9 @@ func TestIsNotFound(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			result := IsNotFound(tt.err)
-			assert.Equal(t, tt.expected, result)
+			g.Expect(result).To(Equal(tt.expected))
 		})
 	}
 }

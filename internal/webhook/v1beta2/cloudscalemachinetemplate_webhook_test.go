@@ -17,117 +17,150 @@ limitations under the License.
 package v1beta2
 
 import (
-	. "github.com/onsi/ginkgo/v2"
+	"testing"
+
 	. "github.com/onsi/gomega"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 )
 
-var _ = Describe("CloudscaleMachineTemplate Webhook", func() {
-	var (
-		obj       *infrastructurev1beta2.CloudscaleMachineTemplate
-		oldObj    *infrastructurev1beta2.CloudscaleMachineTemplate
-		validator CloudscaleMachineTemplateCustomValidator
-		defaulter CloudscaleMachineTemplateCustomDefaulter
-	)
-
-	BeforeEach(func() {
-		obj = &infrastructurev1beta2.CloudscaleMachineTemplate{
-			Spec: infrastructurev1beta2.CloudscaleMachineTemplateSpec{
-				Template: infrastructurev1beta2.CloudscaleMachineTemplateResource{
-					Spec: infrastructurev1beta2.CloudscaleMachineSpec{
-						Flavor:         "flex-8-4",
-						Image:          "ubuntu-24.04",
-						RootVolumeSize: 50,
-					},
+func newMachineTemplateWebhookTestObjects() (
+	obj *infrastructurev1beta2.CloudscaleMachineTemplate,
+	oldObj *infrastructurev1beta2.CloudscaleMachineTemplate,
+) {
+	obj = &infrastructurev1beta2.CloudscaleMachineTemplate{
+		Spec: infrastructurev1beta2.CloudscaleMachineTemplateSpec{
+			Template: infrastructurev1beta2.CloudscaleMachineTemplateResource{
+				Spec: infrastructurev1beta2.CloudscaleMachineSpec{
+					Flavor:         "flex-8-4",
+					Image:          "ubuntu-24.04",
+					RootVolumeSize: 50,
 				},
 			},
-		}
-		oldObj = &infrastructurev1beta2.CloudscaleMachineTemplate{
-			Spec: infrastructurev1beta2.CloudscaleMachineTemplateSpec{
-				Template: infrastructurev1beta2.CloudscaleMachineTemplateResource{
-					Spec: infrastructurev1beta2.CloudscaleMachineSpec{
-						Flavor:         "flex-8-4",
-						Image:          "ubuntu-24.04",
-						RootVolumeSize: 50,
-					},
+		},
+	}
+	oldObj = &infrastructurev1beta2.CloudscaleMachineTemplate{
+		Spec: infrastructurev1beta2.CloudscaleMachineTemplateSpec{
+			Template: infrastructurev1beta2.CloudscaleMachineTemplateResource{
+				Spec: infrastructurev1beta2.CloudscaleMachineSpec{
+					Flavor:         "flex-8-4",
+					Image:          "ubuntu-24.04",
+					RootVolumeSize: 50,
 				},
 			},
-		}
-		validator = CloudscaleMachineTemplateCustomValidator{}
-		defaulter = CloudscaleMachineTemplateCustomDefaulter{}
-	})
+		},
+	}
+	return
+}
 
-	Context("When creating CloudscaleMachineTemplate under Defaulting Webhook", func() {
-		It("Should not modify the spec", func() {
-			original := obj.DeepCopy()
-			Expect(defaulter.Default(ctx, obj)).To(Succeed())
-			Expect(obj.Spec).To(Equal(original.Spec))
-		})
-	})
+// ============================================================================
+// Tests for CloudscaleMachineTemplate Defaulting Webhook
+// ============================================================================
 
-	Context("When creating CloudscaleMachineTemplate under Validating Webhook", func() {
-		It("Should accept a valid template", func() {
-			_, err := validator.ValidateCreate(ctx, obj)
-			Expect(err).NotTo(HaveOccurred())
-		})
+func TestMachineTemplateDefaulting_NoModification(t *testing.T) {
+	g := NewWithT(t)
+	obj, _ := newMachineTemplateWebhookTestObjects()
+	defaulter := CloudscaleMachineTemplateCustomDefaulter{}
+	original := obj.DeepCopy()
 
-		It("Should reject tags with capcs- prefix", func() {
-			obj.Spec.Template.Spec.Tags = map[string]string{
-				"capcs-cluster-test": "owned",
-			}
+	g.Expect(defaulter.Default(ctx, obj)).To(Succeed())
+	g.Expect(obj.Spec).To(Equal(original.Spec))
+}
 
-			_, err := validator.ValidateCreate(ctx, obj)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("capcs-"))
-		})
-	})
+// ============================================================================
+// Tests for CloudscaleMachineTemplate Validating Webhook - Create
+// ============================================================================
 
-	Context("When updating CloudscaleMachineTemplate under Validating Webhook", func() {
-		It("Should accept no changes", func() {
-			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-			Expect(err).NotTo(HaveOccurred())
-		})
+func TestMachineTemplateValidateCreate_ValidTemplate(t *testing.T) {
+	g := NewWithT(t)
+	obj, _ := newMachineTemplateWebhookTestObjects()
+	validator := CloudscaleMachineTemplateCustomValidator{}
 
-		It("Should reject flavor change", func() {
-			obj.Spec.Template.Spec.Flavor = "flex-16-8"
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).NotTo(HaveOccurred())
+}
 
-			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("spec.template.spec"))
-		})
+func TestMachineTemplateValidateCreate_ReservedTagPrefix(t *testing.T) {
+	g := NewWithT(t)
+	obj, _ := newMachineTemplateWebhookTestObjects()
+	validator := CloudscaleMachineTemplateCustomValidator{}
+	obj.Spec.Template.Spec.Tags = map[string]string{
+		"capcs-cluster-test": "owned",
+	}
 
-		It("Should reject image change", func() {
-			obj.Spec.Template.Spec.Image = "ubuntu-22.04"
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("capcs-"))
+}
 
-			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("spec.template.spec"))
-		})
+// ============================================================================
+// Tests for CloudscaleMachineTemplate Validating Webhook - Update
+// ============================================================================
 
-		It("Should reject rootVolumeSize change", func() {
-			obj.Spec.Template.Spec.RootVolumeSize = 100
+func TestMachineTemplateValidateUpdate_NoChanges(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj := newMachineTemplateWebhookTestObjects()
+	validator := CloudscaleMachineTemplateCustomValidator{}
 
-			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("spec.template.spec"))
-		})
+	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+	g.Expect(err).NotTo(HaveOccurred())
+}
 
-		It("Should reject tags change", func() {
-			obj.Spec.Template.Spec.Tags = map[string]string{
-				"env": "staging",
-			}
+func TestMachineTemplateValidateUpdate_FlavorChange(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj := newMachineTemplateWebhookTestObjects()
+	validator := CloudscaleMachineTemplateCustomValidator{}
+	obj.Spec.Template.Spec.Flavor = "flex-16-8"
 
-			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("spec.template.spec"))
-		})
-	})
+	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("spec.template.spec"))
+}
 
-	Context("When deleting CloudscaleMachineTemplate under Validating Webhook", func() {
-		It("Should always succeed", func() {
-			_, err := validator.ValidateDelete(ctx, obj)
-			Expect(err).NotTo(HaveOccurred())
-		})
-	})
-})
+func TestMachineTemplateValidateUpdate_ImageChange(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj := newMachineTemplateWebhookTestObjects()
+	validator := CloudscaleMachineTemplateCustomValidator{}
+	obj.Spec.Template.Spec.Image = "ubuntu-22.04"
+
+	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("spec.template.spec"))
+}
+
+func TestMachineTemplateValidateUpdate_RootVolumeSizeChange(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj := newMachineTemplateWebhookTestObjects()
+	validator := CloudscaleMachineTemplateCustomValidator{}
+	obj.Spec.Template.Spec.RootVolumeSize = 100
+
+	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("spec.template.spec"))
+}
+
+func TestMachineTemplateValidateUpdate_TagsChange(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj := newMachineTemplateWebhookTestObjects()
+	validator := CloudscaleMachineTemplateCustomValidator{}
+	obj.Spec.Template.Spec.Tags = map[string]string{
+		"env": "staging",
+	}
+
+	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("spec.template.spec"))
+}
+
+// ============================================================================
+// Tests for CloudscaleMachineTemplate Validating Webhook - Delete
+// ============================================================================
+
+func TestMachineTemplateValidateDelete_AlwaysSucceeds(t *testing.T) {
+	g := NewWithT(t)
+	obj, _ := newMachineTemplateWebhookTestObjects()
+	validator := CloudscaleMachineTemplateCustomValidator{}
+
+	_, err := validator.ValidateDelete(ctx, obj)
+	g.Expect(err).NotTo(HaveOccurred())
+}

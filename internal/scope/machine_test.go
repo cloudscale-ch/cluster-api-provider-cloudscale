@@ -21,8 +21,7 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -62,6 +61,8 @@ func newTestCloudscaleMachine() *infrastructurev1beta2.CloudscaleMachine {
 // ============================================================================
 
 func TestNewMachineScope_Success(t *testing.T) {
+	g := NewWithT(t)
+
 	cluster := newTestCluster()
 	machine := newTestMachine()
 	cloudscaleCluster := newTestCloudscaleCluster()
@@ -79,16 +80,18 @@ func TestNewMachineScope_Success(t *testing.T) {
 		CloudscaleClient:  cloudscaleClient,
 	})
 
-	require.NoError(t, err)
-	require.NotNil(t, scope)
-	assert.Equal(t, cluster, scope.Cluster)
-	assert.Equal(t, machine, scope.Machine)
-	assert.Equal(t, cloudscaleCluster, scope.CloudscaleCluster)
-	assert.Equal(t, cloudscaleMachine, scope.CloudscaleMachine)
-	assert.Equal(t, cloudscaleClient, scope.CloudscaleClient)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(scope).ToNot(BeNil())
+	g.Expect(scope.Cluster).To(Equal(cluster))
+	g.Expect(scope.Machine).To(Equal(machine))
+	g.Expect(scope.CloudscaleCluster).To(Equal(cloudscaleCluster))
+	g.Expect(scope.CloudscaleMachine).To(Equal(cloudscaleMachine))
+	g.Expect(scope.CloudscaleClient).To(Equal(cloudscaleClient))
 }
 
 func TestNewMachineScope_NilClient(t *testing.T) {
+	g := NewWithT(t)
+
 	scope, err := NewMachineScope(MachineScopeParams{
 		Client:            nil,
 		Logger:            logr.Discard(),
@@ -99,12 +102,14 @@ func TestNewMachineScope_NilClient(t *testing.T) {
 		CloudscaleClient:  newTestCloudscaleClient(),
 	})
 
-	require.Error(t, err)
-	assert.Nil(t, scope)
-	assert.Contains(t, err.Error(), "client is required")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(scope).To(BeNil())
+	g.Expect(err.Error()).To(ContainSubstring("client is required"))
 }
 
 func TestNewMachineScope_NilCluster(t *testing.T) {
+	g := NewWithT(t)
+
 	cloudscaleMachine := newTestCloudscaleMachine()
 	fakeClient := newFakeClient(cloudscaleMachine)
 
@@ -118,12 +123,14 @@ func TestNewMachineScope_NilCluster(t *testing.T) {
 		CloudscaleClient:  newTestCloudscaleClient(),
 	})
 
-	require.Error(t, err)
-	assert.Nil(t, scope)
-	assert.Contains(t, err.Error(), "cluster is required")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(scope).To(BeNil())
+	g.Expect(err.Error()).To(ContainSubstring("cluster is required"))
 }
 
 func TestNewMachineScope_NilMachine(t *testing.T) {
+	g := NewWithT(t)
+
 	cloudscaleMachine := newTestCloudscaleMachine()
 	fakeClient := newFakeClient(cloudscaleMachine)
 
@@ -137,12 +144,14 @@ func TestNewMachineScope_NilMachine(t *testing.T) {
 		CloudscaleClient:  newTestCloudscaleClient(),
 	})
 
-	require.Error(t, err)
-	assert.Nil(t, scope)
-	assert.Contains(t, err.Error(), "machine is required")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(scope).To(BeNil())
+	g.Expect(err.Error()).To(ContainSubstring("machine is required"))
 }
 
 func TestNewMachineScope_NilCloudscaleCluster(t *testing.T) {
+	g := NewWithT(t)
+
 	cloudscaleMachine := newTestCloudscaleMachine()
 	fakeClient := newFakeClient(cloudscaleMachine)
 
@@ -156,12 +165,14 @@ func TestNewMachineScope_NilCloudscaleCluster(t *testing.T) {
 		CloudscaleClient:  newTestCloudscaleClient(),
 	})
 
-	require.Error(t, err)
-	assert.Nil(t, scope)
-	assert.Contains(t, err.Error(), "cloudscaleCluster is required")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(scope).To(BeNil())
+	g.Expect(err.Error()).To(ContainSubstring("cloudscaleCluster is required"))
 }
 
 func TestNewMachineScope_NilCloudscaleMachine(t *testing.T) {
+	g := NewWithT(t)
+
 	fakeClient := newFakeClient()
 
 	scope, err := NewMachineScope(MachineScopeParams{
@@ -174,12 +185,14 @@ func TestNewMachineScope_NilCloudscaleMachine(t *testing.T) {
 		CloudscaleClient:  newTestCloudscaleClient(),
 	})
 
-	require.Error(t, err)
-	assert.Nil(t, scope)
-	assert.Contains(t, err.Error(), "cloudscaleMachine is required")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(scope).To(BeNil())
+	g.Expect(err.Error()).To(ContainSubstring("cloudscaleMachine is required"))
 }
 
 func TestNewMachineScope_NilCloudscaleClient(t *testing.T) {
+	g := NewWithT(t)
+
 	cloudscaleMachine := newTestCloudscaleMachine()
 	fakeClient := newFakeClient(cloudscaleMachine)
 
@@ -193,9 +206,9 @@ func TestNewMachineScope_NilCloudscaleClient(t *testing.T) {
 		CloudscaleClient:  nil,
 	})
 
-	require.Error(t, err)
-	assert.Nil(t, scope)
-	assert.Contains(t, err.Error(), "cloudscaleClient is required")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(scope).To(BeNil())
+	g.Expect(err.Error()).To(ContainSubstring("cloudscaleClient is required"))
 }
 
 // ============================================================================
@@ -203,6 +216,8 @@ func TestNewMachineScope_NilCloudscaleClient(t *testing.T) {
 // ============================================================================
 
 func TestMachineScope_Name(t *testing.T) {
+	g := NewWithT(t)
+
 	cloudscaleMachine := newTestCloudscaleMachine()
 	fakeClient := newFakeClient(cloudscaleMachine)
 
@@ -216,11 +231,13 @@ func TestMachineScope_Name(t *testing.T) {
 		CloudscaleClient:  newTestCloudscaleClient(),
 	})
 
-	require.NoError(t, err)
-	assert.Equal(t, "test-machine", scope.Name())
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(scope.Name()).To(Equal("test-machine"))
 }
 
 func TestMachineScope_Namespace(t *testing.T) {
+	g := NewWithT(t)
+
 	cloudscaleMachine := newTestCloudscaleMachine()
 	fakeClient := newFakeClient(cloudscaleMachine)
 
@@ -234,8 +251,8 @@ func TestMachineScope_Namespace(t *testing.T) {
 		CloudscaleClient:  newTestCloudscaleClient(),
 	})
 
-	require.NoError(t, err)
-	assert.Equal(t, "test-namespace", scope.Namespace())
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(scope.Namespace()).To(Equal("test-namespace"))
 }
 
 // ============================================================================
@@ -243,6 +260,8 @@ func TestMachineScope_Namespace(t *testing.T) {
 // ============================================================================
 
 func TestMachineScope_IsControlPlane_True(t *testing.T) {
+	g := NewWithT(t)
+
 	machine := newTestMachine()
 	machine.Labels = map[string]string{
 		clusterv1.MachineControlPlaneLabel: "",
@@ -260,11 +279,13 @@ func TestMachineScope_IsControlPlane_True(t *testing.T) {
 		CloudscaleClient:  newTestCloudscaleClient(),
 	})
 
-	require.NoError(t, err)
-	assert.True(t, scope.IsControlPlane())
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(scope.IsControlPlane()).To(BeTrue())
 }
 
 func TestMachineScope_IsControlPlane_False(t *testing.T) {
+	g := NewWithT(t)
+
 	machine := newTestMachine()
 	cloudscaleMachine := newTestCloudscaleMachine()
 	fakeClient := newFakeClient(cloudscaleMachine)
@@ -279,8 +300,8 @@ func TestMachineScope_IsControlPlane_False(t *testing.T) {
 		CloudscaleClient:  newTestCloudscaleClient(),
 	})
 
-	require.NoError(t, err)
-	assert.False(t, scope.IsControlPlane())
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(scope.IsControlPlane()).To(BeFalse())
 }
 
 // ============================================================================
@@ -288,6 +309,8 @@ func TestMachineScope_IsControlPlane_False(t *testing.T) {
 // ============================================================================
 
 func TestMachineScope_GetBootstrapData_Success(t *testing.T) {
+	g := NewWithT(t)
+
 	machine := newTestMachine()
 	machine.Spec.Bootstrap.DataSecretName = ptr.To("bootstrap-secret")
 
@@ -313,15 +336,17 @@ func TestMachineScope_GetBootstrapData_Success(t *testing.T) {
 		CloudscaleMachine: cloudscaleMachine,
 		CloudscaleClient:  newTestCloudscaleClient(),
 	})
-	require.NoError(t, err)
+	g.Expect(err).ToNot(HaveOccurred())
 
 	data, err := scope.GetBootstrapData(context.Background())
 
-	require.NoError(t, err)
-	assert.Equal(t, "#cloud-config\nruncmd:\n  - echo hello", data)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(data).To(Equal("#cloud-config\nruncmd:\n  - echo hello"))
 }
 
 func TestMachineScope_GetBootstrapData_NilSecretName(t *testing.T) {
+	g := NewWithT(t)
+
 	machine := newTestMachine()
 	// DataSecretName is nil
 
@@ -337,15 +362,17 @@ func TestMachineScope_GetBootstrapData_NilSecretName(t *testing.T) {
 		CloudscaleMachine: cloudscaleMachine,
 		CloudscaleClient:  newTestCloudscaleClient(),
 	})
-	require.NoError(t, err)
+	g.Expect(err).ToNot(HaveOccurred())
 
 	_, err = scope.GetBootstrapData(context.Background())
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "bootstrap data secret name is nil")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("bootstrap data secret name is nil"))
 }
 
 func TestMachineScope_GetBootstrapData_SecretNotFound(t *testing.T) {
+	g := NewWithT(t)
+
 	machine := newTestMachine()
 	machine.Spec.Bootstrap.DataSecretName = ptr.To("nonexistent-secret")
 
@@ -361,15 +388,17 @@ func TestMachineScope_GetBootstrapData_SecretNotFound(t *testing.T) {
 		CloudscaleMachine: cloudscaleMachine,
 		CloudscaleClient:  newTestCloudscaleClient(),
 	})
-	require.NoError(t, err)
+	g.Expect(err).ToNot(HaveOccurred())
 
 	_, err = scope.GetBootstrapData(context.Background())
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "getting bootstrap data secret")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("getting bootstrap data secret"))
 }
 
 func TestMachineScope_GetBootstrapData_MissingValueKey(t *testing.T) {
+	g := NewWithT(t)
+
 	machine := newTestMachine()
 	machine.Spec.Bootstrap.DataSecretName = ptr.To("bootstrap-secret")
 
@@ -395,12 +424,12 @@ func TestMachineScope_GetBootstrapData_MissingValueKey(t *testing.T) {
 		CloudscaleMachine: cloudscaleMachine,
 		CloudscaleClient:  newTestCloudscaleClient(),
 	})
-	require.NoError(t, err)
+	g.Expect(err).ToNot(HaveOccurred())
 
 	_, err = scope.GetBootstrapData(context.Background())
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "missing 'value' key")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("missing 'value' key"))
 }
 
 // ============================================================================
@@ -408,6 +437,8 @@ func TestMachineScope_GetBootstrapData_MissingValueKey(t *testing.T) {
 // ============================================================================
 
 func TestMachineScope_GetProviderID_WhenSet(t *testing.T) {
+	g := NewWithT(t)
+
 	cloudscaleMachine := newTestCloudscaleMachine()
 	cloudscaleMachine.Spec.ProviderID = ptr.To("cloudscale://server-uuid")
 	fakeClient := newFakeClient(cloudscaleMachine)
@@ -421,12 +452,14 @@ func TestMachineScope_GetProviderID_WhenSet(t *testing.T) {
 		CloudscaleMachine: cloudscaleMachine,
 		CloudscaleClient:  newTestCloudscaleClient(),
 	})
-	require.NoError(t, err)
+	g.Expect(err).ToNot(HaveOccurred())
 
-	assert.Equal(t, "cloudscale://server-uuid", scope.GetProviderID())
+	g.Expect(scope.GetProviderID()).To(Equal("cloudscale://server-uuid"))
 }
 
 func TestMachineScope_GetProviderID_WhenNil(t *testing.T) {
+	g := NewWithT(t)
+
 	cloudscaleMachine := newTestCloudscaleMachine()
 	// ProviderID is nil
 	fakeClient := newFakeClient(cloudscaleMachine)
@@ -440,12 +473,14 @@ func TestMachineScope_GetProviderID_WhenNil(t *testing.T) {
 		CloudscaleMachine: cloudscaleMachine,
 		CloudscaleClient:  newTestCloudscaleClient(),
 	})
-	require.NoError(t, err)
+	g.Expect(err).ToNot(HaveOccurred())
 
-	assert.Equal(t, "", scope.GetProviderID())
+	g.Expect(scope.GetProviderID()).To(Equal(""))
 }
 
 func TestMachineScope_SetProviderID(t *testing.T) {
+	g := NewWithT(t)
+
 	cloudscaleMachine := newTestCloudscaleMachine()
 	fakeClient := newFakeClient(cloudscaleMachine)
 
@@ -458,12 +493,12 @@ func TestMachineScope_SetProviderID(t *testing.T) {
 		CloudscaleMachine: cloudscaleMachine,
 		CloudscaleClient:  newTestCloudscaleClient(),
 	})
-	require.NoError(t, err)
+	g.Expect(err).ToNot(HaveOccurred())
 
 	scope.SetProviderID("new-server-uuid")
 
-	assert.Equal(t, "cloudscale://new-server-uuid", scope.GetProviderID())
-	assert.Equal(t, "cloudscale://new-server-uuid", *scope.CloudscaleMachine.Spec.ProviderID)
+	g.Expect(scope.GetProviderID()).To(Equal("cloudscale://new-server-uuid"))
+	g.Expect(*scope.CloudscaleMachine.Spec.ProviderID).To(Equal("cloudscale://new-server-uuid"))
 }
 
 // ============================================================================
@@ -471,6 +506,8 @@ func TestMachineScope_SetProviderID(t *testing.T) {
 // ============================================================================
 
 func TestMachineScope_Close(t *testing.T) {
+	g := NewWithT(t)
+
 	cloudscaleMachine := newTestCloudscaleMachine()
 	fakeClient := newFakeClient(cloudscaleMachine)
 
@@ -483,13 +520,13 @@ func TestMachineScope_Close(t *testing.T) {
 		CloudscaleMachine: cloudscaleMachine,
 		CloudscaleClient:  newTestCloudscaleClient(),
 	})
-	require.NoError(t, err)
+	g.Expect(err).ToNot(HaveOccurred())
 
 	// Modify status to verify patch happens
 	scope.CloudscaleMachine.Status.ServerID = "patched-server-id"
 
 	err = scope.Close(context.Background())
-	require.NoError(t, err)
+	g.Expect(err).ToNot(HaveOccurred())
 
 	// Verify the status was patched by fetching the object again
 	updated := &infrastructurev1beta2.CloudscaleMachine{}
@@ -497,6 +534,6 @@ func TestMachineScope_Close(t *testing.T) {
 		Name:      cloudscaleMachine.Name,
 		Namespace: cloudscaleMachine.Namespace,
 	}, updated)
-	require.NoError(t, err)
-	assert.Equal(t, "patched-server-id", updated.Status.ServerID)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(updated.Status.ServerID).To(Equal("patched-server-id"))
 }

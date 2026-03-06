@@ -17,156 +17,204 @@ limitations under the License.
 package v1beta2
 
 import (
-	. "github.com/onsi/ginkgo/v2"
+	"testing"
+
 	. "github.com/onsi/gomega"
 	"k8s.io/utils/ptr"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 )
 
-var _ = Describe("CloudscaleMachine Webhook", func() {
-	var (
-		obj       *infrastructurev1beta2.CloudscaleMachine
-		oldObj    *infrastructurev1beta2.CloudscaleMachine
-		validator CloudscaleMachineCustomValidator
-		defaulter CloudscaleMachineCustomDefaulter
-	)
+func newMachineWebhookTestObjects() (
+	obj *infrastructurev1beta2.CloudscaleMachine,
+	oldObj *infrastructurev1beta2.CloudscaleMachine,
+) {
+	obj = &infrastructurev1beta2.CloudscaleMachine{
+		Spec: infrastructurev1beta2.CloudscaleMachineSpec{
+			Flavor:         "flex-8-4",
+			Image:          "ubuntu-24.04",
+			RootVolumeSize: 50,
+		},
+	}
+	oldObj = &infrastructurev1beta2.CloudscaleMachine{
+		Spec: infrastructurev1beta2.CloudscaleMachineSpec{
+			Flavor:         "flex-8-4",
+			Image:          "ubuntu-24.04",
+			RootVolumeSize: 50,
+		},
+	}
+	return
+}
 
-	BeforeEach(func() {
-		obj = &infrastructurev1beta2.CloudscaleMachine{
-			Spec: infrastructurev1beta2.CloudscaleMachineSpec{
-				Flavor:         "flex-8-4",
-				Image:          "ubuntu-24.04",
-				RootVolumeSize: 50,
-			},
-		}
-		oldObj = &infrastructurev1beta2.CloudscaleMachine{
-			Spec: infrastructurev1beta2.CloudscaleMachineSpec{
-				Flavor:         "flex-8-4",
-				Image:          "ubuntu-24.04",
-				RootVolumeSize: 50,
-			},
-		}
-		validator = CloudscaleMachineCustomValidator{}
-		defaulter = CloudscaleMachineCustomDefaulter{}
-	})
+// ============================================================================
+// Tests for CloudscaleMachine Defaulting Webhook
+// ============================================================================
 
-	Context("When creating CloudscaleMachine under Defaulting Webhook", func() {
-		It("Should not modify the spec", func() {
-			original := obj.DeepCopy()
-			Expect(defaulter.Default(ctx, obj)).To(Succeed())
-			Expect(obj.Spec).To(Equal(original.Spec))
-		})
-	})
+func TestMachineDefaulting_NoModification(t *testing.T) {
+	g := NewWithT(t)
+	obj, _ := newMachineWebhookTestObjects()
+	defaulter := CloudscaleMachineCustomDefaulter{}
+	original := obj.DeepCopy()
 
-	Context("When creating CloudscaleMachine under Validating Webhook", func() {
-		It("Should accept a valid spec", func() {
-			_, err := validator.ValidateCreate(ctx, obj)
-			Expect(err).NotTo(HaveOccurred())
-		})
+	g.Expect(defaulter.Default(ctx, obj)).To(Succeed())
+	g.Expect(obj.Spec).To(Equal(original.Spec))
+}
 
-		It("Should accept valid user tags", func() {
-			obj.Spec.Tags = map[string]string{
-				"env":  "production",
-				"team": "platform",
-			}
+// ============================================================================
+// Tests for CloudscaleMachine Validating Webhook - Create
+// ============================================================================
 
-			_, err := validator.ValidateCreate(ctx, obj)
-			Expect(err).NotTo(HaveOccurred())
-		})
+func TestMachineValidateCreate_ValidSpec(t *testing.T) {
+	g := NewWithT(t)
+	obj, _ := newMachineWebhookTestObjects()
+	validator := CloudscaleMachineCustomValidator{}
 
-		It("Should reject tags with capcs- prefix", func() {
-			obj.Spec.Tags = map[string]string{
-				"capcs-cluster-test": "owned",
-			}
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).NotTo(HaveOccurred())
+}
 
-			_, err := validator.ValidateCreate(ctx, obj)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("capcs-"))
-		})
-	})
+func TestMachineValidateCreate_ValidUserTags(t *testing.T) {
+	g := NewWithT(t)
+	obj, _ := newMachineWebhookTestObjects()
+	validator := CloudscaleMachineCustomValidator{}
+	obj.Spec.Tags = map[string]string{
+		"env":  "production",
+		"team": "platform",
+	}
 
-	Context("When updating CloudscaleMachine under Validating Webhook", func() {
-		It("Should accept no changes", func() {
-			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-			Expect(err).NotTo(HaveOccurred())
-		})
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).NotTo(HaveOccurred())
+}
 
-		It("Should reject flavor change", func() {
-			obj.Spec.Flavor = "flex-16-8"
+func TestMachineValidateCreate_ReservedTagPrefix(t *testing.T) {
+	g := NewWithT(t)
+	obj, _ := newMachineWebhookTestObjects()
+	validator := CloudscaleMachineCustomValidator{}
+	obj.Spec.Tags = map[string]string{
+		"capcs-cluster-test": "owned",
+	}
 
-			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("spec.flavor"))
-		})
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("capcs-"))
+}
 
-		It("Should allow tag changes", func() {
-			obj.Spec.Tags = map[string]string{
-				"env": "staging",
-			}
+// ============================================================================
+// Tests for CloudscaleMachine Validating Webhook - Update
+// ============================================================================
 
-			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-			Expect(err).NotTo(HaveOccurred())
-		})
+func TestMachineValidateUpdate_NoChanges(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj := newMachineWebhookTestObjects()
+	validator := CloudscaleMachineCustomValidator{}
 
-		It("Should reject image change", func() {
-			obj.Spec.Image = "ubuntu-22.04"
+	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+	g.Expect(err).NotTo(HaveOccurred())
+}
 
-			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("spec.image"))
-		})
+func TestMachineValidateUpdate_FlavorChange(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj := newMachineWebhookTestObjects()
+	validator := CloudscaleMachineCustomValidator{}
+	obj.Spec.Flavor = "flex-16-8"
 
-		It("Should reject rootVolumeSize change", func() {
-			obj.Spec.RootVolumeSize = 100
+	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("spec.flavor"))
+}
 
-			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("spec.rootVolumeSize"))
-		})
+func TestMachineValidateUpdate_TagChanges(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj := newMachineWebhookTestObjects()
+	validator := CloudscaleMachineCustomValidator{}
+	obj.Spec.Tags = map[string]string{
+		"env": "staging",
+	}
 
-		It("Should reject providerID change once set", func() {
-			oldObj.Spec.ProviderID = ptr.To("cloudscale://aaa")
-			obj.Spec.ProviderID = ptr.To("cloudscale://bbb")
+	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+	g.Expect(err).NotTo(HaveOccurred())
+}
 
-			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("spec.providerID"))
-		})
+func TestMachineValidateUpdate_ImageChange(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj := newMachineWebhookTestObjects()
+	validator := CloudscaleMachineCustomValidator{}
+	obj.Spec.Image = "ubuntu-22.04"
 
-		It("Should allow providerID to be set when nil", func() {
-			oldObj.Spec.ProviderID = nil
-			obj.Spec.ProviderID = ptr.To("cloudscale://aaa")
+	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("spec.image"))
+}
 
-			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-			Expect(err).NotTo(HaveOccurred())
-		})
+func TestMachineValidateUpdate_RootVolumeSizeChange(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj := newMachineWebhookTestObjects()
+	validator := CloudscaleMachineCustomValidator{}
+	obj.Spec.RootVolumeSize = 100
 
-		It("Should reject reserved prefix tags on update", func() {
-			obj.Spec.Tags = map[string]string{
-				"capcs-machine": "test",
-			}
+	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("spec.rootVolumeSize"))
+}
 
-			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("capcs-"))
-		})
+func TestMachineValidateUpdate_ProviderIDChange(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj := newMachineWebhookTestObjects()
+	validator := CloudscaleMachineCustomValidator{}
+	oldObj.Spec.ProviderID = ptr.To("cloudscale://aaa")
+	obj.Spec.ProviderID = ptr.To("cloudscale://bbb")
 
-		It("Should report multiple immutable field errors", func() {
-			obj.Spec.Image = "ubuntu-22.04"
-			obj.Spec.RootVolumeSize = 100
+	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("spec.providerID"))
+}
 
-			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("spec.image"))
-			Expect(err.Error()).To(ContainSubstring("spec.rootVolumeSize"))
-		})
-	})
+func TestMachineValidateUpdate_ProviderIDSetWhenNil(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj := newMachineWebhookTestObjects()
+	validator := CloudscaleMachineCustomValidator{}
+	oldObj.Spec.ProviderID = nil
+	obj.Spec.ProviderID = ptr.To("cloudscale://aaa")
 
-	Context("When deleting CloudscaleMachine under Validating Webhook", func() {
-		It("Should always succeed", func() {
-			_, err := validator.ValidateDelete(ctx, obj)
-			Expect(err).NotTo(HaveOccurred())
-		})
-	})
-})
+	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+	g.Expect(err).NotTo(HaveOccurred())
+}
+
+func TestMachineValidateUpdate_ReservedPrefixTags(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj := newMachineWebhookTestObjects()
+	validator := CloudscaleMachineCustomValidator{}
+	obj.Spec.Tags = map[string]string{
+		"capcs-machine": "test",
+	}
+
+	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("capcs-"))
+}
+
+func TestMachineValidateUpdate_MultipleImmutableChanges(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj := newMachineWebhookTestObjects()
+	validator := CloudscaleMachineCustomValidator{}
+	obj.Spec.Image = "ubuntu-22.04"
+	obj.Spec.RootVolumeSize = 100
+
+	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("spec.image"))
+	g.Expect(err.Error()).To(ContainSubstring("spec.rootVolumeSize"))
+}
+
+// ============================================================================
+// Tests for CloudscaleMachine Validating Webhook - Delete
+// ============================================================================
+
+func TestMachineValidateDelete_AlwaysSucceeds(t *testing.T) {
+	g := NewWithT(t)
+	obj, _ := newMachineWebhookTestObjects()
+	validator := CloudscaleMachineCustomValidator{}
+
+	_, err := validator.ValidateDelete(ctx, obj)
+	g.Expect(err).NotTo(HaveOccurred())
+}
