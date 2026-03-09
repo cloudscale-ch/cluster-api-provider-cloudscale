@@ -59,7 +59,7 @@ func (r *CloudscaleClusterReconciler) reconcileNetworkResource(ctx context.Conte
 		"network",
 		clusterScope.CloudscaleClient.Networks,
 		func(n cloudscalesdk.Network) string { return n.UUID },
-		*r.resourceTags(clusterScope),
+		clusterOwnershipTags(clusterScope.CloudscaleCluster),
 	)
 	if err != nil {
 		return err
@@ -79,7 +79,7 @@ func (r *CloudscaleClusterReconciler) reconcileNetworkResource(ctx context.Conte
 			Zone: clusterScope.CloudscaleCluster.Spec.Zone,
 		},
 		TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-			Tags: r.resourceTags(clusterScope),
+			Tags: ptr.To(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
 		},
 	})
 	if err != nil {
@@ -105,7 +105,7 @@ func (r *CloudscaleClusterReconciler) reconcileSubnet(ctx context.Context, clust
 		"subnet",
 		clusterScope.CloudscaleClient.Subnets,
 		func(s cloudscalesdk.Subnet) string { return s.UUID },
-		*r.resourceTags(clusterScope),
+		clusterOwnershipTags(clusterScope.CloudscaleCluster),
 	)
 	if err != nil {
 		return err
@@ -125,7 +125,7 @@ func (r *CloudscaleClusterReconciler) reconcileSubnet(ctx context.Context, clust
 		CIDR:           spec.CIDR,
 		GatewayAddress: *spec.GatewayAddress,
 		TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-			Tags: r.resourceTags(clusterScope),
+			Tags: ptr.To(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
 		},
 	})
 	if err != nil {

@@ -130,7 +130,7 @@ func (r *CloudscaleClusterReconciler) reconcileLB(ctx context.Context, clusterSc
 		"load balancer",
 		clusterScope.CloudscaleClient.LoadBalancers,
 		func(lb cloudscalesdk.LoadBalancer) string { return lb.UUID },
-		*r.resourceTags(clusterScope),
+		clusterOwnershipTags(clusterScope.CloudscaleCluster),
 	)
 	if err != nil {
 		return err
@@ -151,7 +151,7 @@ func (r *CloudscaleClusterReconciler) reconcileLB(ctx context.Context, clusterSc
 			Zone: zone,
 		},
 		TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-			Tags: r.resourceTags(clusterScope),
+			Tags: ptr.To(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
 		},
 	}
 
@@ -175,7 +175,7 @@ func (r *CloudscaleClusterReconciler) reconcileLBPool(ctx context.Context, clust
 		"load balancer pool",
 		clusterScope.CloudscaleClient.LoadBalancerPools,
 		func(p cloudscalesdk.LoadBalancerPool) string { return p.UUID },
-		*r.resourceTags(clusterScope),
+		clusterOwnershipTags(clusterScope.CloudscaleCluster),
 	)
 	if err != nil {
 		return err
@@ -194,7 +194,7 @@ func (r *CloudscaleClusterReconciler) reconcileLBPool(ctx context.Context, clust
 		Algorithm:    algorithm,
 		Protocol:     "tcp",
 		TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-			Tags: r.resourceTags(clusterScope),
+			Tags: ptr.To(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
 		},
 	}
 
@@ -218,7 +218,7 @@ func (r *CloudscaleClusterReconciler) reconcileLBListener(ctx context.Context, c
 		"load balancer listener",
 		clusterScope.CloudscaleClient.LoadBalancerListeners,
 		func(l cloudscalesdk.LoadBalancerListener) string { return l.UUID },
-		*r.resourceTags(clusterScope),
+		clusterOwnershipTags(clusterScope.CloudscaleCluster),
 	)
 	if err != nil {
 		return err
@@ -235,7 +235,7 @@ func (r *CloudscaleClusterReconciler) reconcileLBListener(ctx context.Context, c
 		Protocol:     "tcp",
 		ProtocolPort: apiServerPort,
 		TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-			Tags: r.resourceTags(clusterScope),
+			Tags: ptr.To(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
 		},
 	}
 
@@ -261,7 +261,7 @@ func (r *CloudscaleClusterReconciler) reconcileLBHealthMonitor(ctx context.Conte
 		"load balancer health monitor",
 		clusterScope.CloudscaleClient.LoadBalancerHealthMonitors,
 		func(m cloudscalesdk.LoadBalancerHealthMonitor) string { return m.UUID },
-		*r.resourceTags(clusterScope),
+		clusterOwnershipTags(clusterScope.CloudscaleCluster),
 	)
 	if err != nil {
 		return err
@@ -281,7 +281,7 @@ func (r *CloudscaleClusterReconciler) reconcileLBHealthMonitor(ctx context.Conte
 		UpThreshold:   healthMonitorSpec.UpThreshold,
 		DownThreshold: healthMonitorSpec.DownThreshold,
 		TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-			Tags: r.resourceTags(clusterScope),
+			Tags: ptr.To(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
 		},
 	}
 
@@ -374,7 +374,7 @@ func (r *CloudscaleClusterReconciler) getDesiredLoadBalancerMembers(ctx context.
 			Subnet:       clusterScope.CloudscaleCluster.Status.SubnetID,
 			ProtocolPort: int(clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.APIServerPort),
 			TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-				Tags: r.resourceTags(clusterScope),
+				Tags: ptr.To(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
 			},
 		}
 		hasAddr := false

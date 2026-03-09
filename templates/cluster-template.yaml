@@ -79,6 +79,8 @@ spec:
       flavor: "${CLOUDSCALE_CONTROL_PLANE_MACHINE_FLAVOR}"
       image: "${CLOUDSCALE_MACHINE_IMAGE}"
       rootVolumeSize: ${CLOUDSCALE_ROOT_VOLUME_SIZE}
+      serverGroup:
+        name: "${CLUSTER_NAME}-control-plane"
 ---
 apiVersion: cluster.x-k8s.io/v1beta2
 kind: MachineDeployment
@@ -115,6 +117,8 @@ spec:
       flavor: "${CLOUDSCALE_WORKER_MACHINE_FLAVOR}"
       image: "${CLOUDSCALE_MACHINE_IMAGE}"
       rootVolumeSize: ${CLOUDSCALE_ROOT_VOLUME_SIZE}
+      serverGroup:
+        name: "${CLUSTER_NAME}-md-0"
 ---
 apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
 kind: KubeadmConfigTemplate

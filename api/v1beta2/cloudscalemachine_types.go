@@ -52,6 +52,22 @@ type CloudscaleMachineSpec struct {
 	// Tags are key-value pairs to apply to the server.
 	// +optional
 	Tags map[string]string `json:"tags,omitempty"`
+
+	// ServerGroup configures anti-affinity placement.
+	// When specified, machines in the same server group are placed on different physical hosts.
+	// N.B.: Only **up to 4 machines** can be placed in the same server group.
+	// +optional
+	ServerGroup *ServerGroupSpec `json:"serverGroup,omitempty"`
+}
+
+// ServerGroupSpec configures server group placement for anti-affinity.
+type ServerGroupSpec struct {
+	// Name is the server group name. Machines with the same server group name
+	// in the same zone will be placed on different physical hosts.
+	// The server group is created automatically if it doesn't exist.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
 }
 
 // MachineInitializationStatus contains v1beta2 initialization tracking for CloudscaleMachine.
@@ -75,6 +91,10 @@ type CloudscaleMachineStatus struct {
 	// Addresses contains the machine's addresses.
 	// +optional
 	Addresses []clusterv1.MachineAddress `json:"addresses,omitempty"`
+
+	// ServerGroupID is the cloudscale.ch server group UUID.
+	// +optional
+	ServerGroupID string `json:"serverGroupID,omitempty"`
 
 	// conditions represent the current state of the CloudscaleMachine resource.
 	// Each condition has a unique type and reflects the status of a specific aspect of the resource.

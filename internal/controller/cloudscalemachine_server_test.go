@@ -22,6 +22,7 @@ import (
 
 	"github.com/cloudscale-ch/cloudscale-go-sdk/v6"
 	"github.com/go-logr/logr"
+	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -528,4 +529,73 @@ func TestReconcileServer_ProvisionedNotModified(t *testing.T) {
 
 	// Provisioned should remain unchanged
 	assert.True(t, *machineScope.CloudscaleMachine.Status.Initialization.Provisioned)
+}
+
+func TestReconcileServer_SetsServerGroupInRequest(t *testing.T) {
+	g := NewWithT(t)
+
+	var capturedReq *cloudscale.ServerRequest
+
+	serverService := &mockServerService{
+		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.Server, error) {
+			return nil, nil
+		},
+		createFn: func(ctx context.Context, req *cloudscale.ServerRequest) (*cloudscale.Server, error) {
+			capturedReq = req
+			return &cloudscale.Server{
+				UUID:          "server-uuid-sg",
+				Name:          req.Name,
+				Status:        "running",
+				ZonalResource: cloudscale.ZonalResource{Zone: cloudscale.Zone{Slug: "rma1"}},
+			}, nil
+		},
+	}
+
+	machineScope := newTestMachineScopeWithServer(serverService)
+	machineScope.CloudscaleMachine.Status.ServerGroupID = "server-group-uuid-123"
+
+	r := &CloudscaleMachineReconciler{
+		recorder: events.NewFakeRecorder(10),
+	}
+
+	result, err := r.reconcileServer(context.Background(), machineScope)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result).To(Equal(ctrl.Result{}))
+	g.Expect(capturedReq).ToNot(BeNil())
+	g.Expect(capturedReq.ServerGroups).To(Equal([]string{"server-group-uuid-123"}))
+}
+
+func TestReconcileServer_NoServerGroupWhenStatusEmpty(t *testing.T) {
+	g := NewWithT(t)
+
+	var capturedReq *cloudscale.ServerRequest
+
+	serverService := &mockServerService{
+		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.Server, error) {
+			return nil, nil
+		},
+		createFn: func(ctx context.Context, req *cloudscale.ServerRequest) (*cloudscale.Server, error) {
+			capturedReq = req
+			return &cloudscale.Server{
+				UUID:          "server-uuid-no-sg",
+				Name:          req.Name,
+				Status:        "running",
+				ZonalResource: cloudscale.ZonalResource{Zone: cloudscale.Zone{Slug: "rma1"}},
+			}, nil
+		},
+	}
+
+	machineScope := newTestMachineScopeWithServer(serverService)
+
+	r := &CloudscaleMachineReconciler{
+		recorder: events.NewFakeRecorder(10),
+	}
+
+	result, err := r.reconcileServer(context.Background(), machineScope)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result).To(Equal(ctrl.Result{}))
+	g.Expect(capturedReq).ToNot(BeNil())
+	g.Expect(capturedReq.ServerGroups).To(BeNil())
 }

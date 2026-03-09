@@ -18,6 +18,10 @@ const (
 	// Only applicable to CloudscaleCluster.
 	LoadBalancerReadyCondition = "LoadBalancerReady"
 
+	// ServerGroupReadyCondition indicates whether the server group has been provisioned.
+	// Only applicable to CloudscaleMachine.
+	ServerGroupReadyCondition = "ServerGroupReady"
+
 	// ServerReadyCondition indicates whether the server has been provisioned.
 	// Only applicable to CloudscaleMachine.
 	ServerReadyCondition = "ServerReady"
@@ -86,6 +90,12 @@ const (
 
 	// ServerDeletedExternallyReason indicates the server was deleted outside of CAPI.
 	ServerDeletedExternallyReason = "ServerDeletedExternally"
+
+	// ServerGroupReadyReason indicates the server group has been successfully provisioned.
+	ServerGroupReadyReason = "ServerGroupReady"
+
+	// ServerGroupErrorReason indicates an error occurred during server group operations.
+	ServerGroupErrorReason = "ServerGroupError"
 
 	// WaitingForClusterInfrastructureReason indicates the machine is waiting for
 	// the cluster infrastructure to be provisioned.

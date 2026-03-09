@@ -77,6 +77,7 @@ func reconcileTestScope(opts reconcileTestOpts) *scope.ClusterScope {
 		CloudscaleClient: &cs.Client{
 			Networks:                   opts.networkService,
 			Subnets:                    opts.subnetService,
+			ServerGroups:               opts.serverGroupService,
 			LoadBalancers:              opts.lbService,
 			LoadBalancerPools:          opts.poolService,
 			LoadBalancerListeners:      opts.listenerService,
@@ -87,20 +88,26 @@ func reconcileTestScope(opts reconcileTestOpts) *scope.ClusterScope {
 }
 
 type reconcileTestOpts struct {
-	lbEnabled       bool
-	networkService  *mockNetworkService
-	subnetService   *mockSubnetService
-	lbService       *mockLoadBalancerService
-	poolService     *mockLoadBalancerPoolService
-	listenerService *mockLoadBalancerListenerService
-	hmService       *mockLoadBalancerHealthMonitorService
-	memberService   *mockLoadBalancerPoolMemberService
+	lbEnabled          bool
+	networkService     *mockNetworkService
+	subnetService      *mockSubnetService
+	serverGroupService *mockServerGroupService
+	lbService          *mockLoadBalancerService
+	poolService        *mockLoadBalancerPoolService
+	listenerService    *mockLoadBalancerListenerService
+	hmService          *mockLoadBalancerHealthMonitorService
+	memberService      *mockLoadBalancerPoolMemberService
 }
 
 // defaultMocks returns mocks that simulate all resources already provisioned and running.
 func defaultMocks() reconcileTestOpts {
 	return reconcileTestOpts{
 		lbEnabled: true,
+		serverGroupService: &mockServerGroupService{
+			listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
+				return nil, nil
+			},
+		},
 		networkService: &mockNetworkService{
 			getFn: func(ctx context.Context, id string) (*cloudscalesdk.Network, error) {
 				return &cloudscalesdk.Network{UUID: id}, nil
