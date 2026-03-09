@@ -173,6 +173,12 @@ func (r *CloudscaleMachineReconciler) reconcileNormal(ctx context.Context, machi
 		return ctrl.Result{}, nil
 	}
 
+	if machineScope.CloudscaleMachine.Spec.ServerGroup != nil {
+		if err := r.reconcileServerGroup(ctx, machineScope); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	result, err := r.reconcileServer(ctx, machineScope)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("reconciling server: %w", err)
@@ -232,6 +238,8 @@ func (r *CloudscaleMachineReconciler) reconcileDelete(ctx context.Context, machi
 	if err := r.deleteServer(ctx, machineScope); err != nil {
 		return ctrl.Result{}, fmt.Errorf("deleting server: %w", err)
 	}
+
+	r.deleteServerGroup(ctx, machineScope)
 
 	r.setCondition(machineScope.CloudscaleMachine, infrastructurev1beta2.ReadyCondition, metav1.ConditionFalse, infrastructurev1beta2.DeletingReason, "Machine infrastructure has been deleted")
 

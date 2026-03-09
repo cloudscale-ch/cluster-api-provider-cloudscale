@@ -76,6 +76,22 @@ spec:
                 description: RootVolumeSize is the root volume size in GB.
                 minimum: 10
                 type: integer
+              serverGroup:
+                description: |-
+                  ServerGroup configures anti-affinity placement.
+                  When specified, machines in the same server group are placed on different physical hosts.
+                  N.B.: Only **up to 4 machines** can be placed in the same server group.
+                properties:
+                  name:
+                    description: |-
+                      Name is the server group name. Machines with the same server group name
+                      in the same zone will be placed on different physical hosts.
+                      The server group is created automatically if it doesn't exist.
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                type: object
               tags:
                 additionalProperties:
                   type: string
@@ -192,6 +208,9 @@ spec:
                       True when the server is running and ready.
                     type: boolean
                 type: object
+              serverGroupID:
+                description: ServerGroupID is the cloudscale.ch server group UUID.
+                type: string
               serverID:
                 description: ServerID is the cloudscale.ch server UUID.
                 type: string

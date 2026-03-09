@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v6"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -176,6 +175,10 @@ func (r *CloudscaleClusterReconciler) reconcileDelete(ctx context.Context, clust
 		return ctrl.Result{}, fmt.Errorf("deleting load balancer: %w", err)
 	}
 
+	if err := r.deleteServerGroups(ctx, clusterScope); err != nil {
+		return ctrl.Result{}, fmt.Errorf("deleting server groups: %w", err)
+	}
+
 	if err := r.deleteNetwork(ctx, clusterScope); err != nil {
 		return ctrl.Result{}, fmt.Errorf("deleting network: %w", err)
 	}
@@ -249,12 +252,6 @@ func (r *CloudscaleClusterReconciler) setCondition(clusterScope *scope.ClusterSc
 		Reason:  reason,
 		Message: message,
 	})
-}
-
-func (r *CloudscaleClusterReconciler) resourceTags(clusterScope *scope.ClusterScope) *cloudscalesdk.TagMap {
-	return &cloudscalesdk.TagMap{
-		clusterScope.CloudscaleCluster.ClusterTagKey(): string(infrastructurev1beta2.ResourceLifecycleOwned),
-	}
 }
 
 // SetupWithManager sets up the controller with the Manager.

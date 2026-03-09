@@ -48,6 +48,14 @@ type ServerService interface {
 	Update(ctx context.Context, id string, req *cloudscalesdk.ServerUpdateRequest) error
 }
 
+type ServerGroupService interface {
+	Create(ctx context.Context, req *cloudscalesdk.ServerGroupRequest) (*cloudscalesdk.ServerGroup, error)
+	Get(ctx context.Context, id string) (*cloudscalesdk.ServerGroup, error)
+	List(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error)
+	Delete(ctx context.Context, id string) error
+	Update(ctx context.Context, id string, req *cloudscalesdk.ServerGroupRequest) error
+}
+
 type LoadBalancerService interface {
 	Create(ctx context.Context, req *cloudscalesdk.LoadBalancerRequest) (*cloudscalesdk.LoadBalancer, error)
 	Get(ctx context.Context, id string) (*cloudscalesdk.LoadBalancer, error)

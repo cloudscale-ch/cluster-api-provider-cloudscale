@@ -98,7 +98,7 @@ func (r *CloudscaleMachineReconciler) reconcileServer(ctx context.Context, machi
 
 	// 2. Search for existing server by tag (idempotency after crash)
 	servers, err := machineScope.CloudscaleClient.Servers.List(ctx,
-		cloudscalesdk.WithTagFilter(r.providerOwnedMachineTag(machineScope)))
+		cloudscalesdk.WithTagFilter(r.machineLookupTag(machineScope)))
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("listing servers: %w", err)
 	}
@@ -133,7 +133,7 @@ func (r *CloudscaleMachineReconciler) reconcileServer(ctx context.Context, machi
 		Image:  machineScope.CloudscaleMachine.Spec.Image,
 		Zone:   zone,
 		TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-			Tags: r.machineResourceTags(machineScope),
+			Tags: r.machineCreateTags(machineScope),
 		},
 		UserData:   bootstrapData,
 		Interfaces: r.buildInterfaceRequests(machineScope),
@@ -143,6 +143,10 @@ func (r *CloudscaleMachineReconciler) reconcileServer(ctx context.Context, machi
 
 	if machineScope.CloudscaleMachine.Spec.RootVolumeSize > 0 {
 		req.VolumeSizeGB = machineScope.CloudscaleMachine.Spec.RootVolumeSize
+	}
+
+	if machineScope.CloudscaleMachine.Status.ServerGroupID != "" {
+		req.ServerGroups = []string{machineScope.CloudscaleMachine.Status.ServerGroupID}
 	}
 
 	server, err = machineScope.CloudscaleClient.Servers.Create(ctx, req)
@@ -247,9 +251,10 @@ func (r *CloudscaleMachineReconciler) deleteServer(ctx context.Context, machineS
 	return nil
 }
 
-// machineResourceTags returns the tags for machine resources.
-func (r *CloudscaleMachineReconciler) machineResourceTags(machineScope *scope.MachineScope) *cloudscalesdk.TagMap {
-	tags := r.providerOwnedMachineTag(machineScope)
+// machineCreateTags returns the full tag set for creating machine resources
+// (lookup tag + user-specified tags).
+func (r *CloudscaleMachineReconciler) machineCreateTags(machineScope *scope.MachineScope) *cloudscalesdk.TagMap {
+	tags := r.machineLookupTag(machineScope)
 
 	// Merge user-specified tags
 	maps.Copy(tags, machineScope.CloudscaleMachine.Spec.Tags)
@@ -257,8 +262,8 @@ func (r *CloudscaleMachineReconciler) machineResourceTags(machineScope *scope.Ma
 	return &tags
 }
 
-// providerOwnedMachineTag returns the single tag for machine resources which can be also used for listing.
-func (r *CloudscaleMachineReconciler) providerOwnedMachineTag(machineScope *scope.MachineScope) cloudscalesdk.TagMap {
+// machineLookupTag returns the ownership tag used to find a machine's server by tag filter.
+func (r *CloudscaleMachineReconciler) machineLookupTag(machineScope *scope.MachineScope) cloudscalesdk.TagMap {
 	tags := cloudscalesdk.TagMap{
 		machineScope.CloudscaleMachine.MachineTagKey(machineScope.Cluster.Name): fmt.Sprintf("%s/%s/%s", machineScope.Cluster.Namespace, machineScope.Cluster.Name, machineScope.CloudscaleMachine.Name),
 	}
