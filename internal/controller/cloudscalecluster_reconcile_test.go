@@ -57,8 +57,8 @@ func reconcileTestScope(opts reconcileTestOpts) *scope.ClusterScope {
 			},
 			Spec: infrastructurev1beta2.CloudscaleClusterSpec{
 				Region: "rma",
+				Zone:   "rma1",
 				Network: infrastructurev1beta2.NetworkSpec{
-					Zone:           "rma1",
 					CIDR:           "10.0.0.0/24",
 					GatewayAddress: &defaultGateway,
 				},

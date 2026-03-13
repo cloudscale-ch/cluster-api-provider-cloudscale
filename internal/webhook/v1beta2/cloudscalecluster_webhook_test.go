@@ -62,18 +62,18 @@ var _ = Describe("CloudscaleCluster Webhook", func() {
 	Context("When creating CloudscaleCluster under Defaulting Webhook", func() {
 		It("Should default network zone from region", func() {
 			obj.Spec.Region = RegionRma
-			obj.Spec.Network.Zone = ""
+			obj.Spec.Zone = ""
 
 			Expect(defaulter.Default(ctx, obj)).To(Succeed())
-			Expect(obj.Spec.Network.Zone).To(Equal(ZoneRma1))
+			Expect(obj.Spec.Zone).To(Equal(ZoneRma1))
 		})
 
 		It("Should not override explicit zone", func() {
 			obj.Spec.Region = RegionRma
-			obj.Spec.Network.Zone = ZoneRma1
+			obj.Spec.Zone = ZoneRma1
 
 			Expect(defaulter.Default(ctx, obj)).To(Succeed())
-			Expect(obj.Spec.Network.Zone).To(Equal(ZoneRma1))
+			Expect(obj.Spec.Zone).To(Equal(ZoneRma1))
 		})
 
 		It("Should default CIDR", func() {
@@ -165,7 +165,7 @@ var _ = Describe("CloudscaleCluster Webhook", func() {
 
 			Expect(defaulter.Default(ctx, obj)).To(Succeed())
 
-			Expect(obj.Spec.Network.Zone).To(Equal(ZoneRma1))
+			Expect(obj.Spec.Zone).To(Equal(ZoneRma1))
 			Expect(obj.Spec.Network.CIDR).To(Equal(defaultSubnetCIDR))
 			Expect(obj.Spec.Network.GatewayAddress).To(Equal(ptr.To("")))
 			Expect(obj.Spec.ControlPlaneLoadBalancer.Enabled).To(Equal(ptr.To(true)))
@@ -182,7 +182,7 @@ var _ = Describe("CloudscaleCluster Webhook", func() {
 	Context("When creating CloudscaleCluster under Validating Webhook", func() {
 		It("Should accept a valid cluster", func() {
 			obj.Spec.Region = RegionRma
-			obj.Spec.Network.Zone = ZoneRma1
+			obj.Spec.Zone = ZoneRma1
 
 			_, err := validator.ValidateCreate(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
@@ -190,25 +190,25 @@ var _ = Describe("CloudscaleCluster Webhook", func() {
 
 		It("Should reject zone not belonging to region", func() {
 			obj.Spec.Region = RegionRma
-			obj.Spec.Network.Zone = "lpg1"
+			obj.Spec.Zone = "lpg1"
 
 			_, err := validator.ValidateCreate(ctx, obj)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("spec.network.zone"))
+			Expect(err.Error()).To(ContainSubstring("spec.zone"))
 		})
 
 		It("Should reject unknown zone", func() {
 			obj.Spec.Region = RegionRma
-			obj.Spec.Network.Zone = "xyz1"
+			obj.Spec.Zone = "xyz1"
 
 			_, err := validator.ValidateCreate(ctx, obj)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("spec.network.zone"))
+			Expect(err.Error()).To(ContainSubstring("spec.zone"))
 		})
 
 		It("Should accept empty zone (defaulted before validation)", func() {
 			obj.Spec.Region = RegionRma
-			obj.Spec.Network.Zone = ""
+			obj.Spec.Zone = ""
 
 			_, err := validator.ValidateCreate(ctx, obj)
 			Expect(err).NotTo(HaveOccurred())
@@ -216,7 +216,7 @@ var _ = Describe("CloudscaleCluster Webhook", func() {
 
 		It("Should accept gateway within CIDR", func() {
 			obj.Spec.Region = RegionRma
-			obj.Spec.Network.Zone = ZoneRma1
+			obj.Spec.Zone = ZoneRma1
 			obj.Spec.Network.CIDR = defaultSubnetCIDR
 			obj.Spec.Network.GatewayAddress = ptr.To("10.0.0.1")
 
@@ -226,7 +226,7 @@ var _ = Describe("CloudscaleCluster Webhook", func() {
 
 		It("Should reject gateway outside CIDR", func() {
 			obj.Spec.Region = RegionRma
-			obj.Spec.Network.Zone = ZoneRma1
+			obj.Spec.Zone = ZoneRma1
 			obj.Spec.Network.CIDR = defaultSubnetCIDR
 			obj.Spec.Network.GatewayAddress = ptr.To("192.168.1.1")
 
@@ -237,7 +237,7 @@ var _ = Describe("CloudscaleCluster Webhook", func() {
 
 		It("Should reject invalid gateway IP", func() {
 			obj.Spec.Region = RegionRma
-			obj.Spec.Network.Zone = ZoneRma1
+			obj.Spec.Zone = ZoneRma1
 			obj.Spec.Network.CIDR = defaultSubnetCIDR
 			obj.Spec.Network.GatewayAddress = ptr.To("notanip")
 
@@ -248,7 +248,7 @@ var _ = Describe("CloudscaleCluster Webhook", func() {
 
 		It("Should accept empty gateway string", func() {
 			obj.Spec.Region = RegionRma
-			obj.Spec.Network.Zone = ZoneRma1
+			obj.Spec.Zone = ZoneRma1
 			obj.Spec.Network.GatewayAddress = ptr.To("")
 
 			_, err := validator.ValidateCreate(ctx, obj)
@@ -257,7 +257,7 @@ var _ = Describe("CloudscaleCluster Webhook", func() {
 
 		It("Should accept nil gateway", func() {
 			obj.Spec.Region = RegionRma
-			obj.Spec.Network.Zone = ZoneRma1
+			obj.Spec.Zone = ZoneRma1
 			obj.Spec.Network.GatewayAddress = nil
 
 			_, err := validator.ValidateCreate(ctx, obj)
@@ -268,13 +268,13 @@ var _ = Describe("CloudscaleCluster Webhook", func() {
 	Context("When updating CloudscaleCluster under Validating Webhook", func() {
 		BeforeEach(func() {
 			oldObj.Spec.Region = RegionRma
-			oldObj.Spec.Network.Zone = ZoneRma1
+			oldObj.Spec.Zone = ZoneRma1
 			oldObj.Spec.Network.CIDR = defaultSubnetCIDR
 			oldObj.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(true)
 			oldObj.Spec.Network.GatewayAddress = ptr.To("")
 
 			obj.Spec.Region = RegionRma
-			obj.Spec.Network.Zone = ZoneRma1
+			obj.Spec.Zone = ZoneRma1
 			obj.Spec.Network.CIDR = defaultSubnetCIDR
 			obj.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(true)
 			obj.Spec.Network.GatewayAddress = ptr.To("")
@@ -294,11 +294,11 @@ var _ = Describe("CloudscaleCluster Webhook", func() {
 		})
 
 		It("Should reject network zone change", func() {
-			obj.Spec.Network.Zone = "rma2"
+			obj.Spec.Zone = "rma2"
 
 			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("spec.network.zone"))
+			Expect(err.Error()).To(ContainSubstring("spec.zone"))
 		})
 
 		It("Should reject network CIDR change", func() {
@@ -381,13 +381,13 @@ var _ = Describe("CloudscaleCluster Webhook", func() {
 
 		It("Should report multiple immutable field changes", func() {
 			obj.Spec.Region = "lpg"
-			obj.Spec.Network.Zone = "lpg1"
+			obj.Spec.Zone = "lpg1"
 			obj.Spec.Network.CIDR = "10.1.0.0/24"
 
 			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("spec.region"))
-			Expect(err.Error()).To(ContainSubstring("spec.network.zone"))
+			Expect(err.Error()).To(ContainSubstring("spec.zone"))
 			Expect(err.Error()).To(ContainSubstring("spec.network.cidr"))
 		})
 	})

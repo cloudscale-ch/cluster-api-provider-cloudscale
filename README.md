@@ -61,9 +61,20 @@ enable_providers:
 deploy_cert_manager: true
 kustomize_substitutions:
   CLOUDSCALE_API_TOKEN: "INSERT_TOKEN_HERE"
+  CLOUDSCALE_SSH_PUBLIC_KEY: "INSERT_SSH_PUBLIC_KEY_HERE"
+  CLOUDSCALE_REGION: "lpg"
+  CLOUDSCALE_CONTROL_PLANE_MACHINE_FLAVOR: "flex-4-2"
+  CLOUDSCALE_WORKER_MACHINE_FLAVOR: "flex-4-2"
+  CLOUDSCALE_MACHINE_IMAGE: "IMAGE_NAME"
+  CLOUDSCALE_ROOT_VOLUME_SIZE: "50"
 extra_args:
   cloudscale:
     - "--zap-log-level=5"
+template_dirs:
+  docker:
+    - ./test/infrastructure/docker/templates
+  cloudscale:
+    - path/to/local/clone/cluster-api-provider-cloudscale/templates
 ```
 
 ## License

@@ -40,10 +40,47 @@ spec:
           spec:
             description: spec defines the desired state of CloudscaleMachineTemplate
             properties:
-              foo:
-                description: foo is an example field of CloudscaleMachineTemplate.
-                  Edit cloudscalemachinetemplate_types.go to remove/update
-                type: string
+              template:
+                description: Template contains the machine template specification.
+                properties:
+                  spec:
+                    description: Spec is the specification of the desired behavior
+                      of the machine.
+                    properties:
+                      flavor:
+                        description: Flavor is the cloudscale.ch server flavor (e.g.,
+                          "flex-8-4").
+                        minLength: 1
+                        type: string
+                      image:
+                        description: Image is the OS image slug (e.g., "ubuntu-24.04"),
+                          custom image slug (e.g., "custom:ubuntu-foo"), or custom
+                          image UUID.
+                        minLength: 1
+                        type: string
+                      providerID:
+                        description: |-
+                          ProviderID is the unique identifier as specified by the cloud provider.
+                          Format: cloudscale://<server-uuid>
+                        type: string
+                      rootVolumeSize:
+                        description: RootVolumeSize is the root volume size in GB.
+                        minimum: 10
+                        type: integer
+                      tags:
+                        additionalProperties:
+                          type: string
+                        description: Tags are key-value pairs to apply to the server.
+                        type: object
+                    required:
+                    - flavor
+                    - image
+                    type: object
+                required:
+                - spec
+                type: object
+            required:
+            - template
             type: object
           status:
             description: status defines the observed state of CloudscaleMachineTemplate
