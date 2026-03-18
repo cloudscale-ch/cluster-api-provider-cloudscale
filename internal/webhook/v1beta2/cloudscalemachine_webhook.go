@@ -27,15 +27,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
 )
 
 // cloudscalemachinelog is for logging in this package.
 var cloudscalemachinelog = logf.Log.WithName("cloudscalemachine-resource")
 
 // SetupCloudscaleMachineWebhookWithManager registers the webhook for CloudscaleMachine in the manager.
-func SetupCloudscaleMachineWebhookWithManager(mgr ctrl.Manager) error {
+func SetupCloudscaleMachineWebhookWithManager(mgr ctrl.Manager, flavorInfo *cloudscale.FlavorInfo) error {
 	return ctrl.NewWebhookManagedBy(mgr, &infrastructurev1beta2.CloudscaleMachine{}).
-		WithValidator(&CloudscaleMachineCustomValidator{}).
+		WithValidator(&CloudscaleMachineCustomValidator{
+			FlavorInfo: flavorInfo,
+		}).
 		WithDefaulter(&CloudscaleMachineCustomDefaulter{}).
 		Complete()
 }
@@ -62,13 +65,15 @@ func (d *CloudscaleMachineCustomDefaulter) Default(_ context.Context, obj *infra
 //
 // NOTE: The +kubebuilder:object:generate=false marker prevents controller-gen from generating DeepCopy methods,
 // as this struct is used only for temporary operations and does not need to be deeply copied.
-type CloudscaleMachineCustomValidator struct{}
+type CloudscaleMachineCustomValidator struct {
+	FlavorInfo *cloudscale.FlavorInfo
+}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type CloudscaleMachine.
 func (v *CloudscaleMachineCustomValidator) ValidateCreate(_ context.Context, obj *infrastructurev1beta2.CloudscaleMachine) (admission.Warnings, error) {
 	cloudscalemachinelog.Info("Validation for CloudscaleMachine upon creation", "name", obj.GetName())
 
-	allErrs := validateMachineSpec(&obj.Spec, field.NewPath("spec"))
+	allErrs := validateMachineSpec(&obj.Spec, v.FlavorInfo, field.NewPath("spec"))
 	if len(allErrs) > 0 {
 		return nil, apierrors.NewInvalid(
 			schema.GroupKind{Group: infrastructurev1beta2.GroupVersion.Group, Kind: "CloudscaleMachine"},

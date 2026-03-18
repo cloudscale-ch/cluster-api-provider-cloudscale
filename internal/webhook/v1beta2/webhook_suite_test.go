@@ -119,13 +119,13 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	err = SetupCloudscaleMachineWebhookWithManager(mgr)
+	err = SetupCloudscaleMachineWebhookWithManager(mgr, newTestFlavorInfo())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to setup machine webhook: %v\n", err)
 		os.Exit(1)
 	}
 
-	err = SetupCloudscaleMachineTemplateWebhookWithManager(mgr)
+	err = SetupCloudscaleMachineTemplateWebhookWithManager(mgr, newTestFlavorInfo())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to setup machine template webhook: %v\n", err)
 		os.Exit(1)
