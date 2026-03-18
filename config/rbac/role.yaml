@@ -54,7 +54,6 @@ rules:
   resources:
   - cloudscaleclusters/finalizers
   - cloudscalemachines/finalizers
-  - cloudscalemachinetemplates/finalizers
   verbs:
   - update
 - apiGroups:
