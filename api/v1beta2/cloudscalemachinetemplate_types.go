@@ -17,6 +17,7 @@ limitations under the License.
 package v1beta2
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -34,11 +35,11 @@ type CloudscaleMachineTemplateResource struct {
 
 // CloudscaleMachineTemplateStatus defines the observed state of CloudscaleMachineTemplate.
 type CloudscaleMachineTemplateStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+	// Capacity defines the resource capacity for nodes created from this template.
+	// This value is used for autoscaling from zero operations as defined in:
+	// https://github.com/kubernetes-sigs/cluster-api/blob/main/docs/proposals/20210310-opt-in-autoscaling-from-zero.md
+	// +optional
+	Capacity corev1.ResourceList `json:"capacity,omitempty"`
 
 	// conditions represent the current state of the CloudscaleMachineTemplate resource.
 	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
@@ -53,6 +54,17 @@ type CloudscaleMachineTemplateStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// NodeInfo contains information about the node architecture and operating system.
+type NodeInfo struct {
+	// Architecture is the CPU architecture (e.g., "amd64", "arm64").
+	// +optional
+	Architecture string `json:"architecture,omitempty"`
+
+	// OperatingSystem is the operating system (e.g., "linux").
+	// +optional
+	OperatingSystem string `json:"operatingSystem,omitempty"`
 }
 
 // +kubebuilder:object:root=true

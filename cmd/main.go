@@ -24,6 +24,8 @@ import (
 	"os"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -192,12 +194,13 @@ func main() {
 	ctx := ctrl.SetupSignalHandler()
 
 	// Fetch region information for controllers and webhooks
-	regionInfo, err := fetchAPIInfo()
+	regionInfo, flavorInfo, err := fetchAPIInfo()
 	if err != nil {
 		setupLog.Error(err, "unable to fetch API information")
 		os.Exit(1)
 	}
 	setupLog.Info("fetched region information", "regions", regionInfo.GetAllRegions())
+	setupLog.Info("fetched flavor information", "flavors", len(flavorInfo.GetAllFlavors()))
 
 	if err := (&controller.CloudscaleClusterReconciler{
 		Client:      mgr.GetClient(),
@@ -216,8 +219,9 @@ func main() {
 		os.Exit(1)
 	}
 	if err := (&controller.CloudscaleMachineTemplateReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		FlavorInfo: flavorInfo,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "CloudscaleMachineTemplate")
 		os.Exit(1)
@@ -230,11 +234,11 @@ func main() {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "CloudscaleCluster")
 			os.Exit(1)
 		}
-		if err := webhookv1beta2.SetupCloudscaleMachineWebhookWithManager(mgr); err != nil {
+		if err := webhookv1beta2.SetupCloudscaleMachineWebhookWithManager(mgr, flavorInfo); err != nil {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "CloudscaleMachine")
 			os.Exit(1)
 		}
-		if err := webhookv1beta2.SetupCloudscaleMachineTemplateWebhookWithManager(mgr); err != nil {
+		if err := webhookv1beta2.SetupCloudscaleMachineTemplateWebhookWithManager(mgr, flavorInfo); err != nil {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "CloudscaleMachineTemplate")
 			os.Exit(1)
 		}
@@ -257,12 +261,12 @@ func main() {
 	}
 }
 
-// fetchAPIInfo fetches region information from cloudscale.ch API.
+// fetchAPIInfo fetches region and flavor information from cloudscale.ch API.
 // Requires CLOUDSCALE_API_TOKEN environment variable.
-func fetchAPIInfo() (*cloudscale.RegionInfo, error) {
+func fetchAPIInfo() (*cloudscale.RegionInfo, *cloudscale.FlavorInfo, error) {
 	token := os.Getenv("CLOUDSCALE_API_TOKEN")
 	if token == "" {
-		return nil, fmt.Errorf("CLOUDSCALE_API_TOKEN environment variable is required")
+		return nil, nil, fmt.Errorf("CLOUDSCALE_API_TOKEN environment variable is required")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -270,10 +274,29 @@ func fetchAPIInfo() (*cloudscale.RegionInfo, error) {
 
 	client := cloudscale.NewClient(token)
 
-	regions, err := client.Regions.List(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list regions: %w", err)
+	var regionInfo *cloudscale.RegionInfo
+	var flavorInfo *cloudscale.FlavorInfo
+
+	g, ctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		regions, err := client.Regions.List(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to list regions: %w", err)
+		}
+		regionInfo = cloudscale.NewRegionInfo(regions)
+		return nil
+	})
+	g.Go(func() error {
+		flavors, err := client.Flavors.List(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to list flavors: %w", err)
+		}
+		flavorInfo = cloudscale.NewFlavorInfo(flavors)
+		return nil
+	})
+	if err := g.Wait(); err != nil {
+		return nil, nil, err
 	}
 
-	return cloudscale.NewRegionInfo(regions), nil
+	return regionInfo, flavorInfo, nil
 }

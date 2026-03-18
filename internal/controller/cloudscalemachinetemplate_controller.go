@@ -19,37 +19,74 @@ package controller
 import (
 	"context"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/cluster-api/util/patch"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
 )
 
 // CloudscaleMachineTemplateReconciler reconciles a CloudscaleMachineTemplate object
 type CloudscaleMachineTemplateReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme     *runtime.Scheme
+	FlavorInfo *cloudscale.FlavorInfo
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=cloudscalemachinetemplates,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=cloudscalemachinetemplates/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=cloudscalemachinetemplates/finalizers,verbs=update
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the CloudscaleMachineTemplate object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/reconcile
+// Reconcile populates the status.capacity and status.nodeInfo fields.
 func (r *CloudscaleMachineTemplateReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	logger := logf.FromContext(ctx)
 
-	// TODO(user): your logic here
+	// Fetch the CloudscaleMachineTemplate
+	template := &infrastructurev1beta2.CloudscaleMachineTemplate{}
+	if err := r.Get(ctx, req.NamespacedName, template); err != nil {
+		if apierrors.IsNotFound(err) {
+			return ctrl.Result{}, nil
+		}
+		return ctrl.Result{}, err
+	}
+
+	// Skip if FlavorInfo is not available
+	if r.FlavorInfo == nil {
+		logger.Info("FlavorInfo not available, skipping status update")
+		return ctrl.Result{}, nil
+	}
+
+	// Create patch helper (snapshots current state)
+	patchHelper, err := patch.NewHelper(template, r.Client)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Get the flavor from the spec
+	flavor := template.Spec.Template.Spec.Flavor
+	// flavor is already validated in webhook - condition only here for defensive coding reasons
+	if flavor == "" {
+		return ctrl.Result{}, nil
+	}
+
+	// Get capacity for the flavor
+	capacity, err := r.FlavorInfo.GetCapacity(flavor, template.Spec.Template.Spec.RootVolumeSize)
+	if err != nil {
+		// Unknown flavor - don't populate capacity
+		// flavor is already validated in webhook - this branch is only here for defensive coding reasons
+		logger.Info("Unknown flavor, skipping status update", "flavor", flavor, "error", err)
+		return ctrl.Result{}, nil
+	}
+
+	template.Status.Capacity = capacity
+
+	if err := patchHelper.Patch(ctx, template); err != nil {
+		logger.Error(err, "Failed to patch CloudscaleMachineTemplate status")
+		return ctrl.Result{}, err
+	}
 
 	return ctrl.Result{}, nil
 }
