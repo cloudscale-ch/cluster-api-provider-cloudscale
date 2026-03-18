@@ -19,7 +19,7 @@ package cloudscale
 import (
 	"context"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v6"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 )
 
 type NetworkService interface {
@@ -94,4 +94,8 @@ type LoadBalancerHealthMonitorService interface {
 	List(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancerHealthMonitor, error)
 	Delete(ctx context.Context, id string) error
 	Update(ctx context.Context, id string, req *cloudscalesdk.LoadBalancerHealthMonitorRequest) error
+}
+
+type FlavorService interface {
+	List(ctx context.Context) ([]cloudscalesdk.Flavor, error)
 }

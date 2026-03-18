@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"testing"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v6"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 	. "github.com/onsi/gomega"
 )
 

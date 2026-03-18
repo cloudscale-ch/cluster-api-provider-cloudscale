@@ -20,7 +20,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/cloudscale-ch/cloudscale-go-sdk/v6"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 	"github.com/go-logr/logr"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -42,28 +42,28 @@ import (
 const testExistingServerUUID = "existing-server-uuid"
 
 type mockServerService struct {
-	createFn func(ctx context.Context, req *cloudscale.ServerRequest) (*cloudscale.Server, error)
-	getFn    func(ctx context.Context, id string) (*cloudscale.Server, error)
-	listFn   func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.Server, error)
+	createFn func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error)
+	getFn    func(ctx context.Context, id string) (*cloudscalesdk.Server, error)
+	listFn   func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error)
 	deleteFn func(ctx context.Context, id string) error
-	updateFn func(ctx context.Context, id string, req *cloudscale.ServerUpdateRequest) error
+	updateFn func(ctx context.Context, id string, req *cloudscalesdk.ServerUpdateRequest) error
 }
 
-func (m *mockServerService) Create(ctx context.Context, req *cloudscale.ServerRequest) (*cloudscale.Server, error) {
+func (m *mockServerService) Create(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
 	if m.createFn != nil {
 		return m.createFn(ctx, req)
 	}
 	return nil, nil
 }
 
-func (m *mockServerService) Get(ctx context.Context, id string) (*cloudscale.Server, error) {
+func (m *mockServerService) Get(ctx context.Context, id string) (*cloudscalesdk.Server, error) {
 	if m.getFn != nil {
 		return m.getFn(ctx, id)
 	}
 	return nil, nil
 }
 
-func (m *mockServerService) List(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.Server, error) {
+func (m *mockServerService) List(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
 	if m.listFn != nil {
 		return m.listFn(ctx, modifiers...)
 	}
@@ -77,7 +77,7 @@ func (m *mockServerService) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-func (m *mockServerService) Update(ctx context.Context, id string, req *cloudscale.ServerUpdateRequest) error {
+func (m *mockServerService) Update(ctx context.Context, id string, req *cloudscalesdk.ServerUpdateRequest) error {
 	if m.updateFn != nil {
 		return m.updateFn(ctx, id, req)
 	}
@@ -163,23 +163,23 @@ func newTestMachineScopeWithServer(serverService cs.ServerService) *scope.Machin
 
 func TestReconcileServer_CreatesServer(t *testing.T) {
 	g := NewWithT(t)
-	var capturedReq *cloudscale.ServerRequest
+	var capturedReq *cloudscalesdk.ServerRequest
 
 	serverService := &mockServerService{
-		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.Server, error) {
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
 			return nil, nil // No existing server
 		},
-		createFn: func(ctx context.Context, req *cloudscale.ServerRequest) (*cloudscale.Server, error) {
+		createFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
 			capturedReq = req
-			return &cloudscale.Server{
+			return &cloudscalesdk.Server{
 				UUID:          "server-uuid-123",
 				Name:          req.Name,
 				Status:        "running",
-				ZonalResource: cloudscale.ZonalResource{Zone: cloudscale.Zone{Slug: "rma1"}},
-				Interfaces: []cloudscale.Interface{
+				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
+				Interfaces: []cloudscalesdk.Interface{
 					{
 						Type: "private",
-						Addresses: []cloudscale.Address{
+						Addresses: []cloudscalesdk.Address{
 							{Address: "10.0.0.5", Version: 4},
 						},
 					},
@@ -212,15 +212,15 @@ func TestReconcileServer_CreatesServer(t *testing.T) {
 func TestReconcileServer_SetsProviderID(t *testing.T) {
 	g := NewWithT(t)
 	serverService := &mockServerService{
-		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.Server, error) {
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
 			return nil, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscale.ServerRequest) (*cloudscale.Server, error) {
-			return &cloudscale.Server{
+		createFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
+			return &cloudscalesdk.Server{
 				UUID:          "server-uuid-456",
 				Name:          req.Name,
 				Status:        "running",
-				ZonalResource: cloudscale.ZonalResource{Zone: cloudscale.Zone{Slug: "rma1"}},
+				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
 			}, nil
 		},
 	}
@@ -241,25 +241,25 @@ func TestReconcileServer_SetsProviderID(t *testing.T) {
 func TestReconcileServer_SetsAddresses(t *testing.T) {
 	g := NewWithT(t)
 	serverService := &mockServerService{
-		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.Server, error) {
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
 			return nil, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscale.ServerRequest) (*cloudscale.Server, error) {
-			return &cloudscale.Server{
+		createFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
+			return &cloudscalesdk.Server{
 				UUID:          "server-uuid-789",
 				Name:          req.Name,
 				Status:        "running",
-				ZonalResource: cloudscale.ZonalResource{Zone: cloudscale.Zone{Slug: "rma1"}},
-				Interfaces: []cloudscale.Interface{
+				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
+				Interfaces: []cloudscalesdk.Interface{
 					{
 						Type: "public",
-						Addresses: []cloudscale.Address{
+						Addresses: []cloudscalesdk.Address{
 							{Address: "185.98.123.45", Version: 4},
 						},
 					},
 					{
 						Type: "private",
-						Addresses: []cloudscale.Address{
+						Addresses: []cloudscalesdk.Address{
 							{Address: "10.0.0.10", Version: 4},
 						},
 					},
@@ -283,14 +283,14 @@ func TestReconcileServer_SetsAddresses(t *testing.T) {
 func TestReconcileServer_SkipsIfAlreadyExists(t *testing.T) {
 	g := NewWithT(t)
 	serverService := &mockServerService{
-		getFn: func(ctx context.Context, id string) (*cloudscale.Server, error) {
-			return &cloudscale.Server{
+		getFn: func(ctx context.Context, id string) (*cloudscalesdk.Server, error) {
+			return &cloudscalesdk.Server{
 				UUID:          id,
 				Status:        "running",
-				ZonalResource: cloudscale.ZonalResource{Zone: cloudscale.Zone{Slug: "rma1"}},
+				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
 			}, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscale.ServerRequest) (*cloudscale.Server, error) {
+		createFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
 			t.Fatal("Create should not be called when server already exists")
 			return nil, nil
 		},
@@ -313,16 +313,16 @@ func TestReconcileServer_SkipsIfAlreadyExists(t *testing.T) {
 func TestReconcileServer_FindsExistingByTag(t *testing.T) {
 	g := NewWithT(t)
 	serverService := &mockServerService{
-		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.Server, error) {
-			return []cloudscale.Server{
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
+			return []cloudscalesdk.Server{
 				{
 					UUID:          "found-server-uuid",
 					Status:        "running",
-					ZonalResource: cloudscale.ZonalResource{Zone: cloudscale.Zone{Slug: "rma1"}},
+					ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
 				},
 			}, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscale.ServerRequest) (*cloudscale.Server, error) {
+		createFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
 			t.Fatal("Create should not be called when server is found by tag")
 			return nil, nil
 		},
@@ -343,17 +343,17 @@ func TestReconcileServer_FindsExistingByTag(t *testing.T) {
 func TestReconcileServer_ErrorsOnMultipleByTag(t *testing.T) {
 	g := NewWithT(t)
 	serverService := &mockServerService{
-		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.Server, error) {
-			return []cloudscale.Server{
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
+			return []cloudscalesdk.Server{
 				{
 					UUID:          "server-uuid-1",
 					Status:        "running",
-					ZonalResource: cloudscale.ZonalResource{Zone: cloudscale.Zone{Slug: "rma1"}},
+					ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
 				},
 				{
 					UUID:          "server-uuid-2",
 					Status:        "running",
-					ZonalResource: cloudscale.ZonalResource{Zone: cloudscale.Zone{Slug: "rma1"}},
+					ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
 				},
 			}, nil
 		},
@@ -426,7 +426,7 @@ func TestDeleteServer_IgnoresAlreadyDeleted(t *testing.T) {
 	g := NewWithT(t)
 	serverService := &mockServerService{
 		deleteFn: func(ctx context.Context, id string) error {
-			return &cloudscale.ErrorResponse{StatusCode: 404}
+			return &cloudscalesdk.ErrorResponse{StatusCode: 404}
 		},
 	}
 
@@ -465,11 +465,11 @@ func TestReconcileServer_SetsServerStatusCondition(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			g := NewWithT(t)
 			serverService := &mockServerService{
-				getFn: func(ctx context.Context, id string) (*cloudscale.Server, error) {
-					return &cloudscale.Server{
+				getFn: func(ctx context.Context, id string) (*cloudscalesdk.Server, error) {
+					return &cloudscalesdk.Server{
 						UUID:          id,
 						Status:        tc.serverStatus,
-						ZonalResource: cloudscale.ZonalResource{Zone: cloudscale.Zone{Slug: "rma1"}},
+						ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
 					}, nil
 				},
 			}
@@ -504,11 +504,11 @@ func TestReconcileServer_ProvisionedNotModified(t *testing.T) {
 	// Verify that reconcileServer does not modify the Provisioned flag
 	// (that's the controller's responsibility)
 	serverService := &mockServerService{
-		getFn: func(ctx context.Context, id string) (*cloudscale.Server, error) {
-			return &cloudscale.Server{
+		getFn: func(ctx context.Context, id string) (*cloudscalesdk.Server, error) {
+			return &cloudscalesdk.Server{
 				UUID:          id,
 				Status:        "changing",
-				ZonalResource: cloudscale.ZonalResource{Zone: cloudscale.Zone{Slug: "rma1"}},
+				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
 			}, nil
 		},
 	}
@@ -543,19 +543,19 @@ func TestReconcileServer_ProvisionedNotModified(t *testing.T) {
 func TestReconcileServer_SetsServerGroupInRequest(t *testing.T) {
 	g := NewWithT(t)
 
-	var capturedReq *cloudscale.ServerRequest
+	var capturedReq *cloudscalesdk.ServerRequest
 
 	serverService := &mockServerService{
-		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.Server, error) {
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
 			return nil, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscale.ServerRequest) (*cloudscale.Server, error) {
+		createFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
 			capturedReq = req
-			return &cloudscale.Server{
+			return &cloudscalesdk.Server{
 				UUID:          "server-uuid-sg",
 				Name:          req.Name,
 				Status:        "running",
-				ZonalResource: cloudscale.ZonalResource{Zone: cloudscale.Zone{Slug: "rma1"}},
+				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
 			}, nil
 		},
 	}
@@ -578,19 +578,19 @@ func TestReconcileServer_SetsServerGroupInRequest(t *testing.T) {
 func TestReconcileServer_NoServerGroupWhenStatusEmpty(t *testing.T) {
 	g := NewWithT(t)
 
-	var capturedReq *cloudscale.ServerRequest
+	var capturedReq *cloudscalesdk.ServerRequest
 
 	serverService := &mockServerService{
-		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.Server, error) {
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
 			return nil, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscale.ServerRequest) (*cloudscale.Server, error) {
+		createFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
 			capturedReq = req
-			return &cloudscale.Server{
+			return &cloudscalesdk.Server{
 				UUID:          "server-uuid-no-sg",
 				Name:          req.Name,
 				Status:        "running",
-				ZonalResource: cloudscale.ZonalResource{Zone: cloudscale.Zone{Slug: "rma1"}},
+				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
 			}, nil
 		},
 	}

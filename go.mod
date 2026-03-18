@@ -3,11 +3,12 @@ module github.com/cloudscale-ch/cluster-api-provider-cloudscale
 go 1.25.3
 
 require (
-	github.com/cloudscale-ch/cloudscale-go-sdk/v6 v6.0.1
+	github.com/cloudscale-ch/cloudscale-go-sdk/v8 v8.0.0
 	github.com/go-logr/logr v1.4.3
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
-	golang.org/x/oauth2 v0.34.0
+	golang.org/x/oauth2 v0.36.0
+	golang.org/x/sync v0.18.0
 	k8s.io/api v0.35.0
 	k8s.io/apimachinery v0.35.0
 	k8s.io/client-go v0.35.0
@@ -78,7 +79,6 @@ require (
 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56 // indirect
 	golang.org/x/mod v0.29.0 // indirect
 	golang.org/x/net v0.47.0 // indirect
-	golang.org/x/sync v0.18.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/term v0.37.0 // indirect
 	golang.org/x/text v0.31.0 // indirect

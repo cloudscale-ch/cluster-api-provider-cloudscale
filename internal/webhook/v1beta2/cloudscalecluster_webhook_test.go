@@ -19,7 +19,7 @@ package v1beta2
 import (
 	"testing"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v6"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
@@ -36,8 +36,8 @@ const (
 
 func newTestRegionInfo() *cloudscale.RegionInfo {
 	return cloudscale.NewRegionInfo([]cloudscalesdk.Region{
-		{Slug: RegionRma, Zones: []cloudscalesdk.Zone{{Slug: ZoneRma1}}},
-		{Slug: "lpg", Zones: []cloudscalesdk.Zone{{Slug: "lpg1"}}},
+		{Slug: RegionRma, Zones: []cloudscalesdk.ZoneStub{{Slug: ZoneRma1}}},
+		{Slug: "lpg", Zones: []cloudscalesdk.ZoneStub{{Slug: "lpg1"}}},
 	})
 }
 

@@ -19,14 +19,14 @@ package cloudscale
 import (
 	"testing"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v6"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 	. "github.com/onsi/gomega"
 )
 
 func newTestRegionInfo() *RegionInfo {
 	return NewRegionInfo([]cloudscalesdk.Region{
-		{Slug: "rma", Zones: []cloudscalesdk.Zone{{Slug: "rma1"}}},
-		{Slug: "lpg", Zones: []cloudscalesdk.Zone{{Slug: "lpg1"}}},
+		{Slug: "rma", Zones: []cloudscalesdk.ZoneStub{{Slug: "rma1"}}},
+		{Slug: "lpg", Zones: []cloudscalesdk.ZoneStub{{Slug: "lpg1"}}},
 	})
 }
 

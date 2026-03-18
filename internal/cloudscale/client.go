@@ -20,7 +20,7 @@ import (
 	"context"
 	"errors"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v6"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 	"golang.org/x/oauth2"
 )
 
@@ -35,6 +35,7 @@ type Client struct {
 	LoadBalancerPoolMembers    LoadBalancerPoolMemberService
 	LoadBalancerListeners      LoadBalancerListenerService
 	LoadBalancerHealthMonitors LoadBalancerHealthMonitorService
+	Flavors                    FlavorService
 }
 
 func NewClient(token string) *Client {
@@ -53,6 +54,7 @@ func NewClient(token string) *Client {
 		LoadBalancerPoolMembers:    sdkClient.LoadBalancerPoolMembers,
 		LoadBalancerListeners:      sdkClient.LoadBalancerListeners,
 		LoadBalancerHealthMonitors: sdkClient.LoadBalancerHealthMonitors,
+		Flavors:                    sdkClient.Flavors,
 	}
 }
 
