@@ -20,7 +20,7 @@ import (
 	"context"
 	"fmt"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v6"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"

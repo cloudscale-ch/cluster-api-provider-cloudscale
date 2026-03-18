@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/cloudscale-ch/cloudscale-go-sdk/v6"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -47,15 +47,15 @@ func TestMachineReconcileNormal_ServerRunning_SetsProvisioned(t *testing.T) {
 	g := NewWithT(t)
 
 	serverService := &mockServerService{
-		getFn: func(ctx context.Context, id string) (*cloudscale.Server, error) {
-			return &cloudscale.Server{
+		getFn: func(ctx context.Context, id string) (*cloudscalesdk.Server, error) {
+			return &cloudscalesdk.Server{
 				UUID:          id,
 				Status:        "running",
-				ZonalResource: cloudscale.ZonalResource{Zone: cloudscale.Zone{Slug: "rma1"}},
-				Interfaces: []cloudscale.Interface{
+				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
+				Interfaces: []cloudscalesdk.Interface{
 					{
 						Type: "private",
-						Addresses: []cloudscale.Address{
+						Addresses: []cloudscalesdk.Address{
 							{Address: "10.0.0.5", Version: 4},
 						},
 					},
@@ -88,11 +88,11 @@ func TestMachineReconcileNormal_BootstrapDataNotReady(t *testing.T) {
 	g := NewWithT(t)
 
 	serverService := &mockServerService{
-		getFn: func(ctx context.Context, id string) (*cloudscale.Server, error) {
+		getFn: func(ctx context.Context, id string) (*cloudscalesdk.Server, error) {
 			t.Fatal("Server Get should not be called when bootstrap data is not ready")
 			return nil, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscale.ServerRequest) (*cloudscale.Server, error) {
+		createFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
 			t.Fatal("Server Create should not be called when bootstrap data is not ready")
 			return nil, nil
 		},
@@ -123,11 +123,11 @@ func TestMachineReconcileNormal_ServerChanging_DoesNotSetProvisioned(t *testing.
 	g := NewWithT(t)
 
 	serverService := &mockServerService{
-		getFn: func(ctx context.Context, id string) (*cloudscale.Server, error) {
-			return &cloudscale.Server{
+		getFn: func(ctx context.Context, id string) (*cloudscalesdk.Server, error) {
+			return &cloudscalesdk.Server{
 				UUID:          id,
 				Status:        "changing",
-				ZonalResource: cloudscale.ZonalResource{Zone: cloudscale.Zone{Slug: "rma1"}},
+				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
 			}, nil
 		},
 	}
@@ -150,7 +150,7 @@ func TestMachineReconcileNormal_ServerError_PropagatesError(t *testing.T) {
 	g := NewWithT(t)
 
 	serverService := &mockServerService{
-		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.Server, error) {
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
 			return nil, fmt.Errorf("server api error")
 		},
 	}
@@ -346,11 +346,11 @@ func TestMachineReconcileNormal_AlreadyProvisioned_StaysProvisioned(t *testing.T
 
 	// When a machine is already provisioned and server is still running, Provisioned should remain true
 	serverService := &mockServerService{
-		getFn: func(ctx context.Context, id string) (*cloudscale.Server, error) {
-			return &cloudscale.Server{
+		getFn: func(ctx context.Context, id string) (*cloudscalesdk.Server, error) {
+			return &cloudscalesdk.Server{
 				UUID:          id,
 				Status:        "running",
-				ZonalResource: cloudscale.ZonalResource{Zone: cloudscale.Zone{Slug: "rma1"}},
+				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
 			}, nil
 		},
 	}
@@ -376,11 +376,11 @@ func TestMachineReconcileNormal_ServerChanging_AlreadyProvisioned_StaysProvision
 	// When a server moves to "changing" but was already provisioned, Provisioned remains true
 	// because reconcileNormal only sets Provisioned=true, never reverts it
 	serverService := &mockServerService{
-		getFn: func(ctx context.Context, id string) (*cloudscale.Server, error) {
-			return &cloudscale.Server{
+		getFn: func(ctx context.Context, id string) (*cloudscalesdk.Server, error) {
+			return &cloudscalesdk.Server{
 				UUID:          id,
 				Status:        "changing",
-				ZonalResource: cloudscale.ZonalResource{Zone: cloudscale.Zone{Slug: "rma1"}},
+				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
 			}, nil
 		},
 	}

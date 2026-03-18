@@ -17,7 +17,7 @@ limitations under the License.
 package cloudscale
 
 import (
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v6"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 )
 
 // RegionInfo holds cloudscale.ch region and zone information for validation.

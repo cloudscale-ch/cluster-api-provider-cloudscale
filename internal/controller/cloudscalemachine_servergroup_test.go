@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/cloudscale-ch/cloudscale-go-sdk/v6"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 	"github.com/go-logr/logr"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -37,28 +37,28 @@ import (
 )
 
 type mockServerGroupService struct {
-	createFn func(ctx context.Context, req *cloudscale.ServerGroupRequest) (*cloudscale.ServerGroup, error)
-	getFn    func(ctx context.Context, id string) (*cloudscale.ServerGroup, error)
-	listFn   func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.ServerGroup, error)
+	createFn func(ctx context.Context, req *cloudscalesdk.ServerGroupRequest) (*cloudscalesdk.ServerGroup, error)
+	getFn    func(ctx context.Context, id string) (*cloudscalesdk.ServerGroup, error)
+	listFn   func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error)
 	deleteFn func(ctx context.Context, id string) error
-	updateFn func(ctx context.Context, id string, req *cloudscale.ServerGroupRequest) error
+	updateFn func(ctx context.Context, id string, req *cloudscalesdk.ServerGroupRequest) error
 }
 
-func (m *mockServerGroupService) Create(ctx context.Context, req *cloudscale.ServerGroupRequest) (*cloudscale.ServerGroup, error) {
+func (m *mockServerGroupService) Create(ctx context.Context, req *cloudscalesdk.ServerGroupRequest) (*cloudscalesdk.ServerGroup, error) {
 	if m.createFn != nil {
 		return m.createFn(ctx, req)
 	}
 	return nil, nil
 }
 
-func (m *mockServerGroupService) Get(ctx context.Context, id string) (*cloudscale.ServerGroup, error) {
+func (m *mockServerGroupService) Get(ctx context.Context, id string) (*cloudscalesdk.ServerGroup, error) {
 	if m.getFn != nil {
 		return m.getFn(ctx, id)
 	}
 	return nil, nil
 }
 
-func (m *mockServerGroupService) List(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.ServerGroup, error) {
+func (m *mockServerGroupService) List(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
 	if m.listFn != nil {
 		return m.listFn(ctx, modifiers...)
 	}
@@ -72,7 +72,7 @@ func (m *mockServerGroupService) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-func (m *mockServerGroupService) Update(ctx context.Context, id string, req *cloudscale.ServerGroupRequest) error {
+func (m *mockServerGroupService) Update(ctx context.Context, id string, req *cloudscalesdk.ServerGroupRequest) error {
 	if m.updateFn != nil {
 		return m.updateFn(ctx, id, req)
 	}
@@ -153,7 +153,7 @@ func TestReconcileServerGroup_NoServerGroup_Noop(t *testing.T) {
 	g := NewWithT(t)
 
 	serverGroupService := &mockServerGroupService{
-		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.ServerGroup, error) {
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
 			t.Fatal("List should not be called when no server group is specified")
 			return nil, nil
 		},
@@ -180,17 +180,17 @@ func TestReconcileServerGroup_FindsExisting_SetsStatusID(t *testing.T) {
 
 	createCalled := false
 	serverGroupService := &mockServerGroupService{
-		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.ServerGroup, error) {
-			return []cloudscale.ServerGroup{
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
+			return []cloudscalesdk.ServerGroup{
 				{
 					UUID:          "existing-group-uuid",
 					Name:          "test-group",
 					Type:          "anti-affinity",
-					ZonalResource: cloudscale.ZonalResource{Zone: cloudscale.Zone{Slug: "rma1"}},
+					ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
 				},
 			}, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscale.ServerGroupRequest) (*cloudscale.ServerGroup, error) {
+		createFn: func(ctx context.Context, req *cloudscalesdk.ServerGroupRequest) (*cloudscalesdk.ServerGroup, error) {
 			createCalled = true
 			return nil, nil
 		},
@@ -217,23 +217,23 @@ func TestReconcileServerGroup_SkipsNonMatchingName(t *testing.T) {
 
 	createCalled := false
 	serverGroupService := &mockServerGroupService{
-		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.ServerGroup, error) {
-			return []cloudscale.ServerGroup{
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
+			return []cloudscalesdk.ServerGroup{
 				{
 					UUID:          "other-group-uuid",
 					Name:          "different-group",
 					Type:          "anti-affinity",
-					ZonalResource: cloudscale.ZonalResource{Zone: cloudscale.Zone{Slug: "rma1"}},
+					ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
 				},
 			}, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscale.ServerGroupRequest) (*cloudscale.ServerGroup, error) {
+		createFn: func(ctx context.Context, req *cloudscalesdk.ServerGroupRequest) (*cloudscalesdk.ServerGroup, error) {
 			createCalled = true
-			return &cloudscale.ServerGroup{
+			return &cloudscalesdk.ServerGroup{
 				UUID:          "new-group-uuid",
 				Name:          req.Name,
 				Type:          req.Type,
-				ZonalResource: cloudscale.ZonalResource{Zone: cloudscale.Zone{Slug: "rma1"}},
+				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
 			}, nil
 		},
 	}
@@ -255,23 +255,23 @@ func TestReconcileServerGroup_SkipsNonMatchingZone(t *testing.T) {
 
 	createCalled := false
 	serverGroupService := &mockServerGroupService{
-		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.ServerGroup, error) {
-			return []cloudscale.ServerGroup{
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
+			return []cloudscalesdk.ServerGroup{
 				{
 					UUID:          "other-zone-group-uuid",
 					Name:          "test-group",
 					Type:          "anti-affinity",
-					ZonalResource: cloudscale.ZonalResource{Zone: cloudscale.Zone{Slug: "lpg1"}},
+					ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "lpg1"}},
 				},
 			}, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscale.ServerGroupRequest) (*cloudscale.ServerGroup, error) {
+		createFn: func(ctx context.Context, req *cloudscalesdk.ServerGroupRequest) (*cloudscalesdk.ServerGroup, error) {
 			createCalled = true
-			return &cloudscale.ServerGroup{
+			return &cloudscalesdk.ServerGroup{
 				UUID:          "new-group-uuid",
 				Name:          req.Name,
 				Type:          req.Type,
-				ZonalResource: cloudscale.ZonalResource{Zone: cloudscale.Zone{Slug: "rma1"}},
+				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
 			}, nil
 		},
 	}
@@ -291,18 +291,18 @@ func TestReconcileServerGroup_SkipsNonMatchingZone(t *testing.T) {
 func TestReconcileServerGroup_CreatesNew_SetsStatusID(t *testing.T) {
 	g := NewWithT(t)
 
-	var capturedReq *cloudscale.ServerGroupRequest
+	var capturedReq *cloudscalesdk.ServerGroupRequest
 	serverGroupService := &mockServerGroupService{
-		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.ServerGroup, error) {
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
 			return nil, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscale.ServerGroupRequest) (*cloudscale.ServerGroup, error) {
+		createFn: func(ctx context.Context, req *cloudscalesdk.ServerGroupRequest) (*cloudscalesdk.ServerGroup, error) {
 			capturedReq = req
-			return &cloudscale.ServerGroup{
+			return &cloudscalesdk.ServerGroup{
 				UUID:          "created-group-uuid",
 				Name:          req.Name,
 				Type:          req.Type,
-				ZonalResource: cloudscale.ZonalResource{Zone: cloudscale.Zone{Slug: "rma1"}},
+				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
 			}, nil
 		},
 	}
@@ -336,7 +336,7 @@ func TestReconcileServerGroup_ListError_PropagatesError(t *testing.T) {
 	g := NewWithT(t)
 
 	serverGroupService := &mockServerGroupService{
-		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.ServerGroup, error) {
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
 			return nil, fmt.Errorf("api error")
 		},
 	}
@@ -361,10 +361,10 @@ func TestReconcileServerGroup_CreateError_PropagatesError(t *testing.T) {
 	g := NewWithT(t)
 
 	serverGroupService := &mockServerGroupService{
-		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.ServerGroup, error) {
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
 			return nil, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscale.ServerGroupRequest) (*cloudscale.ServerGroup, error) {
+		createFn: func(ctx context.Context, req *cloudscalesdk.ServerGroupRequest) (*cloudscalesdk.ServerGroup, error) {
 			return nil, fmt.Errorf("create failed")
 		},
 	}
