@@ -22,11 +22,18 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
 )
 
 // validateMachineSpec validates a CloudscaleMachineSpec at creation time.
-func validateMachineSpec(spec *infrastructurev1beta2.CloudscaleMachineSpec, fldPath *field.Path) field.ErrorList {
+func validateMachineSpec(spec *infrastructurev1beta2.CloudscaleMachineSpec, flavorInfo *cloudscale.FlavorInfo, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
+	if flavorInfo != nil && !flavorInfo.IsValidFlavor(spec.Flavor) {
+		allErrs = append(allErrs, field.Invalid(
+			fldPath.Child("flavor"),
+			spec.Flavor,
+			"unknown flavor"))
+	}
 	allErrs = append(allErrs, validateTags(spec.Tags, fldPath.Child("tags"))...)
 	return allErrs
 }

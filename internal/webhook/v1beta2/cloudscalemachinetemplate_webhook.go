@@ -28,15 +28,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
 )
 
 // cloudscalemachinetemplatelog is for logging in this package.
 var cloudscalemachinetemplatelog = logf.Log.WithName("cloudscalemachinetemplate-resource")
 
 // SetupCloudscaleMachineTemplateWebhookWithManager registers the webhook for CloudscaleMachineTemplate in the manager.
-func SetupCloudscaleMachineTemplateWebhookWithManager(mgr ctrl.Manager) error {
+func SetupCloudscaleMachineTemplateWebhookWithManager(mgr ctrl.Manager, flavorInfo *cloudscale.FlavorInfo) error {
 	return ctrl.NewWebhookManagedBy(mgr, &infrastructurev1beta2.CloudscaleMachineTemplate{}).
-		WithValidator(&CloudscaleMachineTemplateCustomValidator{}).
+		WithValidator(&CloudscaleMachineTemplateCustomValidator{
+			FlavorInfo: flavorInfo,
+		}).
 		WithDefaulter(&CloudscaleMachineTemplateCustomDefaulter{}).
 		Complete()
 }
@@ -63,13 +66,15 @@ func (d *CloudscaleMachineTemplateCustomDefaulter) Default(_ context.Context, ob
 //
 // NOTE: The +kubebuilder:object:generate=false marker prevents controller-gen from generating DeepCopy methods,
 // as this struct is used only for temporary operations and does not need to be deeply copied.
-type CloudscaleMachineTemplateCustomValidator struct{}
+type CloudscaleMachineTemplateCustomValidator struct {
+	FlavorInfo *cloudscale.FlavorInfo
+}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type CloudscaleMachineTemplate.
 func (v *CloudscaleMachineTemplateCustomValidator) ValidateCreate(_ context.Context, obj *infrastructurev1beta2.CloudscaleMachineTemplate) (admission.Warnings, error) {
 	cloudscalemachinetemplatelog.Info("Validation for CloudscaleMachineTemplate upon creation", "name", obj.GetName())
 
-	allErrs := validateMachineSpec(&obj.Spec.Template.Spec, field.NewPath("spec", "template", "spec"))
+	allErrs := validateMachineSpec(&obj.Spec.Template.Spec, v.FlavorInfo, field.NewPath("spec", "template", "spec"))
 	if len(allErrs) > 0 {
 		return nil, apierrors.NewInvalid(
 			schema.GroupKind{Group: infrastructurev1beta2.GroupVersion.Group, Kind: "CloudscaleMachineTemplate"},

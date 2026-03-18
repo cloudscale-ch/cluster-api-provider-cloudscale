@@ -74,16 +74,28 @@ func TestMachineTemplateDefaulting_NoModification(t *testing.T) {
 func TestMachineTemplateValidateCreate_ValidTemplate(t *testing.T) {
 	g := NewWithT(t)
 	obj, _ := newMachineTemplateWebhookTestObjects()
-	validator := CloudscaleMachineTemplateCustomValidator{}
+	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: newTestFlavorInfo()}
 
 	_, err := validator.ValidateCreate(ctx, obj)
 	g.Expect(err).NotTo(HaveOccurred())
 }
 
+func TestMachineTemplateValidateCreate_InvalidFlavor(t *testing.T) {
+	g := NewWithT(t)
+	obj, _ := newMachineTemplateWebhookTestObjects()
+	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: newTestFlavorInfo()}
+	obj.Spec.Template.Spec.Flavor = "nonexistent-flavor"
+
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("spec.template.spec.flavor"))
+	g.Expect(err.Error()).To(ContainSubstring("unknown flavor"))
+}
+
 func TestMachineTemplateValidateCreate_ReservedTagPrefix(t *testing.T) {
 	g := NewWithT(t)
 	obj, _ := newMachineTemplateWebhookTestObjects()
-	validator := CloudscaleMachineTemplateCustomValidator{}
+	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: newTestFlavorInfo()}
 	obj.Spec.Template.Spec.Tags = map[string]string{
 		"capcs-cluster-test": "owned",
 	}
@@ -100,7 +112,7 @@ func TestMachineTemplateValidateCreate_ReservedTagPrefix(t *testing.T) {
 func TestMachineTemplateValidateUpdate_NoChanges(t *testing.T) {
 	g := NewWithT(t)
 	obj, oldObj := newMachineTemplateWebhookTestObjects()
-	validator := CloudscaleMachineTemplateCustomValidator{}
+	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: newTestFlavorInfo()}
 
 	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
 	g.Expect(err).NotTo(HaveOccurred())
@@ -109,7 +121,7 @@ func TestMachineTemplateValidateUpdate_NoChanges(t *testing.T) {
 func TestMachineTemplateValidateUpdate_FlavorChange(t *testing.T) {
 	g := NewWithT(t)
 	obj, oldObj := newMachineTemplateWebhookTestObjects()
-	validator := CloudscaleMachineTemplateCustomValidator{}
+	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: newTestFlavorInfo()}
 	obj.Spec.Template.Spec.Flavor = "flex-16-8"
 
 	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
@@ -120,7 +132,7 @@ func TestMachineTemplateValidateUpdate_FlavorChange(t *testing.T) {
 func TestMachineTemplateValidateUpdate_ImageChange(t *testing.T) {
 	g := NewWithT(t)
 	obj, oldObj := newMachineTemplateWebhookTestObjects()
-	validator := CloudscaleMachineTemplateCustomValidator{}
+	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: newTestFlavorInfo()}
 	obj.Spec.Template.Spec.Image = "ubuntu-22.04"
 
 	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
@@ -131,7 +143,7 @@ func TestMachineTemplateValidateUpdate_ImageChange(t *testing.T) {
 func TestMachineTemplateValidateUpdate_RootVolumeSizeChange(t *testing.T) {
 	g := NewWithT(t)
 	obj, oldObj := newMachineTemplateWebhookTestObjects()
-	validator := CloudscaleMachineTemplateCustomValidator{}
+	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: newTestFlavorInfo()}
 	obj.Spec.Template.Spec.RootVolumeSize = 100
 
 	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
@@ -142,7 +154,7 @@ func TestMachineTemplateValidateUpdate_RootVolumeSizeChange(t *testing.T) {
 func TestMachineTemplateValidateUpdate_TagsChange(t *testing.T) {
 	g := NewWithT(t)
 	obj, oldObj := newMachineTemplateWebhookTestObjects()
-	validator := CloudscaleMachineTemplateCustomValidator{}
+	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: newTestFlavorInfo()}
 	obj.Spec.Template.Spec.Tags = map[string]string{
 		"env": "staging",
 	}
@@ -159,7 +171,7 @@ func TestMachineTemplateValidateUpdate_TagsChange(t *testing.T) {
 func TestMachineTemplateValidateDelete_AlwaysSucceeds(t *testing.T) {
 	g := NewWithT(t)
 	obj, _ := newMachineTemplateWebhookTestObjects()
-	validator := CloudscaleMachineTemplateCustomValidator{}
+	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: newTestFlavorInfo()}
 
 	_, err := validator.ValidateDelete(ctx, obj)
 	g.Expect(err).NotTo(HaveOccurred())
