@@ -1,5 +1,9 @@
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+TAG ?= dev
+IMG ?= quay.io/cloudscalech/capcs-staging:$(TAG)
+
+# E2E image configuration
+E2E_TAG ?= e2e-$(shell git rev-parse --short HEAD)
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -61,35 +65,6 @@ vet: ## Run go vet against code.
 test: manifests generate fmt vet setup-envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
-# TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
-# The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
-# CertManager is installed by default; skip with:
-# - CERT_MANAGER_INSTALL_SKIP=true
-KIND_CLUSTER ?= cluster-api-provider-cloudscale-test-e2e
-
-.PHONY: setup-test-e2e
-setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
-	@command -v $(KIND) >/dev/null 2>&1 || { \
-		echo "Kind is not installed. Please install Kind manually."; \
-		exit 1; \
-	}
-	@case "$$($(KIND) get clusters)" in \
-		*"$(KIND_CLUSTER)"*) \
-			echo "Kind cluster '$(KIND_CLUSTER)' already exists. Skipping creation." ;; \
-		*) \
-			echo "Creating Kind cluster '$(KIND_CLUSTER)'..."; \
-			$(KIND) create cluster --name $(KIND_CLUSTER) ;; \
-	esac
-
-.PHONY: test-e2e
-test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
-	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -v -ginkgo.v
-	$(MAKE) cleanup-test-e2e
-
-.PHONY: cleanup-test-e2e
-cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
-	@$(KIND) delete cluster --name $(KIND_CLUSTER)
-
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	"$(GOLANGCI_LINT)" run
@@ -101,6 +76,178 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 .PHONY: lint-config
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	"$(GOLANGCI_LINT)" config verify
+
+##@ Dependencies
+
+## Location to install dependencies to
+LOCALBIN := $(shell pwd)/bin
+$(LOCALBIN):
+	mkdir -p "$(LOCALBIN)"
+
+## Tool Binaries
+KUBECTL ?= kubectl
+KIND ?= kind
+KUSTOMIZE ?= $(LOCALBIN)/kustomize
+CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
+ENVTEST ?= $(LOCALBIN)/setup-envtest
+GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
+GINKGO ?= $(LOCALBIN)/ginkgo
+
+##@ E2E Testing
+
+E2E_CONF_FILE_SOURCE ?= $(shell pwd)/test/e2e/config/cloudscale.yaml
+E2E_CONF_FILE ?= $(shell pwd)/test/e2e/config/cloudscale.generated.yaml
+E2E_ARTIFACTS_FOLDER ?= $(shell pwd)/_artifacts
+E2E_TEMPLATES := test/e2e/data/infrastructure-cloudscale
+GINKGO_TIMEOUT ?= 2h
+GINKGO_NODES ?= 1
+SKIP_RESOURCE_CLEANUP ?= false
+USE_EXISTING_CLUSTER ?= false
+KUBETEST_CONFIGURATION ?= ./data/kubetest/conformance.yaml
+GINKGO_LABEL_FILTER ?=
+
+# Cilium CNI configuration
+CILIUM_VERSION ?= 1.19.2
+
+# CCM configuration
+CCM_VERSION ?= 1.3.0
+
+.PHONY: ginkgo
+ginkgo: $(GINKGO) ## Download ginkgo locally if necessary.
+$(GINKGO): $(LOCALBIN)
+	$(call go-install-tool,$(GINKGO),github.com/onsi/ginkgo/v2/ginkgo,$(shell go list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2))
+
+.PHONY: generate-e2e-cni
+generate-e2e-cni: ## Regenerate Cilium CNI manifest from Helm chart
+	@CILIUM_VERSION=$(CILIUM_VERSION) hack/generate-e2e-cni.sh
+
+.PHONY: generate-e2e-ccm
+generate-e2e-ccm: ## Regenerate cloudscale CCM manifest
+	@CCM_VERSION=$(CCM_VERSION) hack/generate-e2e-ccm.sh
+
+.PHONY: generate-e2e-templates
+generate-e2e-templates: $(KUSTOMIZE) generate-e2e-cni generate-e2e-ccm ## Generate e2e cluster templates using kustomize overlays
+	@mkdir -p $(E2E_TEMPLATES)/main
+	@echo "Generating cluster-template.yaml..."
+	@"$(KUSTOMIZE)" build --load-restrictor LoadRestrictionsNone $(E2E_TEMPLATES)/cluster-template > $(E2E_TEMPLATES)/main/cluster-template.yaml
+	@echo "Generating cluster-template-ha.yaml..."
+	@"$(KUSTOMIZE)" build --load-restrictor LoadRestrictionsNone $(E2E_TEMPLATES)/cluster-template-ha > $(E2E_TEMPLATES)/main/cluster-template-ha.yaml
+	@echo "Generating cluster-template-upgrades.yaml..."
+	@"$(KUSTOMIZE)" build --load-restrictor LoadRestrictionsNone $(E2E_TEMPLATES)/cluster-template-upgrades > $(E2E_TEMPLATES)/main/cluster-template-upgrades.yaml
+	@echo "Generating cluster-template-md-remediation.yaml..."
+	@"$(KUSTOMIZE)" build --load-restrictor LoadRestrictionsNone $(E2E_TEMPLATES)/cluster-template-md-remediation > $(E2E_TEMPLATES)/main/cluster-template-md-remediation.yaml
+	@echo "Templates generated successfully."
+
+.PHONY: generate-e2e-config
+generate-e2e-config: ## Generate e2e config from template by resolving environment variables
+	TAG=$(TAG) IMG=$(IMG) KUBETEST_CONFIGURATION=$(KUBETEST_CONFIGURATION) envsubst < $(E2E_CONF_FILE_SOURCE) > $(E2E_CONF_FILE)
+
+.PHONY: test-e2e
+test-e2e: TAG = $(E2E_TAG)
+test-e2e: $(GINKGO) generate-e2e-templates generate-e2e-config docker-build docker-push ## Run all e2e tests
+	$(GINKGO) -v --trace --tags=e2e \
+		--nodes=$(GINKGO_NODES) \
+		--timeout=$(GINKGO_TIMEOUT) \
+		$(if $(GINKGO_LABEL_FILTER),--label-filter="$(GINKGO_LABEL_FILTER)") \
+		--output-dir="$(E2E_ARTIFACTS_FOLDER)" --junit-report="junit.e2e_suite.xml" \
+		./test/e2e -- \
+		-e2e.config=$(E2E_CONF_FILE) \
+		-e2e.artifacts-folder=$(E2E_ARTIFACTS_FOLDER) \
+		-e2e.skip-resource-cleanup=$(SKIP_RESOURCE_CLEANUP) \
+		-e2e.use-existing-cluster=$(USE_EXISTING_CLUSTER)
+
+.PHONY: test-e2e-lifecycle
+test-e2e-lifecycle: $(GINKGO) generate-e2e-templates generate-e2e-config docker-build ## Run lifecycle e2e tests only (single control-plane)
+	$(GINKGO) -v --trace --tags=e2e \
+		--nodes=$(GINKGO_NODES) \
+		--label-filter="lifecycle && !ha" \
+		--timeout=60m \
+		--output-dir="$(E2E_ARTIFACTS_FOLDER)" --junit-report="junit.e2e_lifecycle.xml" \
+		./test/e2e -- \
+		-e2e.config=$(E2E_CONF_FILE) \
+		-e2e.artifacts-folder=$(E2E_ARTIFACTS_FOLDER) \
+		-e2e.skip-resource-cleanup=$(SKIP_RESOURCE_CLEANUP) \
+		-e2e.use-existing-cluster=$(USE_EXISTING_CLUSTER)
+
+.PHONY: test-e2e-ha
+test-e2e-ha: $(GINKGO) generate-e2e-templates generate-e2e-config docker-build ## Run HA e2e tests only (3 control-plane nodes)
+	$(GINKGO) -v --trace --tags=e2e \
+		--nodes=$(GINKGO_NODES) \
+		--label-filter="ha" \
+		--timeout=90m \
+		--output-dir="$(E2E_ARTIFACTS_FOLDER)" --junit-report="junit.e2e_ha.xml" \
+		./test/e2e -- \
+		-e2e.config=$(E2E_CONF_FILE) \
+		-e2e.artifacts-folder=$(E2E_ARTIFACTS_FOLDER) \
+		-e2e.skip-resource-cleanup=$(SKIP_RESOURCE_CLEANUP) \
+		-e2e.use-existing-cluster=$(USE_EXISTING_CLUSTER)
+
+.PHONY: test-e2e-upgrade
+test-e2e-upgrade: $(GINKGO) generate-e2e-templates generate-e2e-config docker-build ## Run cluster upgrade e2e tests
+	$(GINKGO) -v --trace --tags=e2e \
+		--nodes=$(GINKGO_NODES) \
+		--label-filter="upgrade" \
+		--timeout=90m \
+		--output-dir="$(E2E_ARTIFACTS_FOLDER)" --junit-report="junit.e2e_upgrade.xml" \
+		./test/e2e -- \
+		-e2e.config=$(E2E_CONF_FILE) \
+		-e2e.artifacts-folder=$(E2E_ARTIFACTS_FOLDER) \
+		-e2e.skip-resource-cleanup=$(SKIP_RESOURCE_CLEANUP) \
+		-e2e.use-existing-cluster=$(USE_EXISTING_CLUSTER)
+
+.PHONY: test-e2e-self-hosted
+test-e2e-self-hosted: TAG = $(E2E_TAG)
+test-e2e-self-hosted: $(GINKGO) generate-e2e-templates generate-e2e-config docker-build docker-push ## Run self-hosted e2e tests
+	$(GINKGO) -v --trace --tags=e2e \
+		--nodes=$(GINKGO_NODES) \
+		--label-filter="self-hosted" \
+		--timeout=90m \
+		--output-dir="$(E2E_ARTIFACTS_FOLDER)" --junit-report="junit.e2e_self_hosted.xml" \
+		./test/e2e -- \
+		-e2e.config=$(E2E_CONF_FILE) \
+		-e2e.artifacts-folder=$(E2E_ARTIFACTS_FOLDER) \
+		-e2e.skip-resource-cleanup=$(SKIP_RESOURCE_CLEANUP) \
+		-e2e.use-existing-cluster=$(USE_EXISTING_CLUSTER)
+
+.PHONY: test-e2e-md-remediation
+test-e2e-md-remediation: $(GINKGO) generate-e2e-templates generate-e2e-config docker-build ## Run MD remediation e2e tests
+	$(GINKGO) -v --trace --tags=e2e \
+		--nodes=$(GINKGO_NODES) \
+		--label-filter="md-remediation" \
+		--timeout=90m \
+		--output-dir="$(E2E_ARTIFACTS_FOLDER)" --junit-report="junit.e2e_md_remediation.xml" \
+		./test/e2e -- \
+		-e2e.config=$(E2E_CONF_FILE) \
+		-e2e.artifacts-folder=$(E2E_ARTIFACTS_FOLDER) \
+		-e2e.skip-resource-cleanup=$(SKIP_RESOURCE_CLEANUP) \
+		-e2e.use-existing-cluster=$(USE_EXISTING_CLUSTER)
+
+.PHONY: test-e2e-conformance
+test-e2e-conformance: $(GINKGO) generate-e2e-templates generate-e2e-config docker-build ## Run K8s conformance e2e tests
+	$(GINKGO) -v --trace --tags=e2e \
+		--nodes=$(GINKGO_NODES) \
+		--label-filter="conformance" \
+		--timeout=150m \
+		--output-dir="$(E2E_ARTIFACTS_FOLDER)" --junit-report="junit.e2e_conformance.xml" \
+		./test/e2e -- \
+		-e2e.config=$(E2E_CONF_FILE) \
+		-e2e.artifacts-folder=$(E2E_ARTIFACTS_FOLDER) \
+		-e2e.skip-resource-cleanup=$(SKIP_RESOURCE_CLEANUP) \
+		-e2e.use-existing-cluster=$(USE_EXISTING_CLUSTER)
+
+.PHONY: test-e2e-conformance-fast
+test-e2e-conformance-fast: KUBETEST_CONFIGURATION = ./data/kubetest/conformance-fast.yaml
+test-e2e-conformance-fast: $(GINKGO) generate-e2e-templates generate-e2e-config docker-build ## Run K8s conformance e2e tests (fast, skip Serial)
+	$(GINKGO) -v --trace --tags=e2e \
+		--nodes=$(GINKGO_NODES) \
+		--label-filter="conformance" \
+		--timeout=90m \
+		--output-dir="$(E2E_ARTIFACTS_FOLDER)" --junit-report="junit.e2e_conformance_fast.xml" \
+		./test/e2e -- \
+		-e2e.config=$(E2E_CONF_FILE) \
+		-e2e.artifacts-folder=$(E2E_ARTIFACTS_FOLDER) \
+		-e2e.skip-resource-cleanup=$(SKIP_RESOURCE_CLEANUP) \
+		-e2e.use-existing-cluster=$(USE_EXISTING_CLUSTER)
 
 ##@ Build
 
@@ -117,11 +264,15 @@ run: manifests generate fmt vet ## Run a controller from your host.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${IMG} .
+	$(CONTAINER_TOOL) build --platform linux/amd64 -t ${IMG} .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
+
+.PHONY: clean-e2e-images
+clean-e2e-images: ## Delete e2e-* tags older than 7 days from capcs-staging (requires QUAY_E2E_TOKEN)
+	@./hack/clean-e2e-images.sh
 
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
@@ -129,7 +280,7 @@ docker-push: ## Push docker image with the manager.
 # - have enabled BuildKit. More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 # - be able to push the image to your registry (i.e. if you do not set a valid value via IMG=<myregistry/image:<tag>> then the export will fail)
 # To adequately provide solutions that are compatible with multiple platforms, you should consider using this option.
-PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
+PLATFORMS ?= linux/amd64
 .PHONY: docker-buildx
 docker-buildx: ## Build and push docker image for the manager for cross-platform support
 	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
@@ -170,21 +321,6 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -
-
-##@ Dependencies
-
-## Location to install dependencies to
-LOCALBIN ?= $(shell pwd)/bin
-$(LOCALBIN):
-	mkdir -p "$(LOCALBIN)"
-
-## Tool Binaries
-KUBECTL ?= kubectl
-KIND ?= kind
-KUSTOMIZE ?= $(LOCALBIN)/kustomize
-CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
-ENVTEST ?= $(LOCALBIN)/setup-envtest
-GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.8.1

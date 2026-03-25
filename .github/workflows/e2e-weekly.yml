@@ -1,33 +1,20 @@
-name: E2E Tests (Manual)
+name: E2E Tests (Weekly)
 
 permissions:
   contents: read
 
 on:
+  schedule:
+    - cron: "0 3 * * 0" # 3 AM UTC Sunday
   workflow_dispatch:
-    inputs:
-      test_target:
-        description: 'Make target to run'
-        required: true
-        default: 'test-e2e-lifecycle'
-        type: choice
-        options:
-          - test-e2e-lifecycle
-          - test-e2e
-          - test-e2e-ha
-          - test-e2e-upgrade
-          - test-e2e-self-hosted
-          - test-e2e-md-remediation
-          - test-e2e-conformance
-          - test-e2e-conformance-fast
 
 concurrency:
   group: e2e-tests
   cancel-in-progress: false
 
 jobs:
-  test-e2e:
-    name: ${{ github.event.inputs.test_target }}
+  e2e-weekly:
+    name: Weekly Test Suite
     runs-on: ubuntu-latest
     environment: e2e
     steps:
@@ -41,29 +28,26 @@ jobs:
         uses: ./.github/actions/e2e-setup
 
       - name: Login to quay.io
-        if: >-
-          github.event.inputs.test_target == 'test-e2e-self-hosted' ||
-          github.event.inputs.test_target == 'test-e2e'
         uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
         with:
           registry: quay.io
           username: ${{ secrets.QUAY_E2E_USERNAME }}
           password: ${{ secrets.QUAY_E2E_PASSWORD }}
 
-      - name: Run e2e tests
+      - name: Run weekly e2e tests
         env:
           CLOUDSCALE_API_TOKEN: ${{ secrets.CLOUDSCALE_API_TOKEN }}
-          TAG: e2e-manual-${{ github.sha }}
-          TEST_TARGET: ${{ github.event.inputs.test_target }}
-        run: make $TEST_TARGET
+          TAG: e2e-weekly-${{ github.sha }}
+        run: |
+          make test-e2e \
+            GINKGO_LABEL_FILTER="ha || upgrade || self-hosted || kcp-remediation || conformance" \
+            KUBETEST_CONFIGURATION=./data/kubetest/conformance-fast.yaml
 
       - name: Clean up e2e image
-        if: >-
-          github.event.inputs.test_target == 'test-e2e-self-hosted' ||
-          github.event.inputs.test_target == 'test-e2e'
+        if: always()
         env:
           QUAY_E2E_TOKEN: ${{ secrets.QUAY_E2E_TOKEN }}
-          TAG: e2e-manual-${{ github.sha }}
+          TAG: e2e-weekly-${{ github.sha }}
         run: |
           curl -s -X DELETE \
             -H "Authorization: Bearer ${QUAY_E2E_TOKEN}" \
@@ -73,6 +57,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: e2e-artifacts-manual-${{ github.run_id }}
+          name: e2e-artifacts-weekly-${{ github.run_id }}
           path: _artifacts/
-          retention-days: 14
+          retention-days: 30
