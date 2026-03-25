@@ -1,5 +1,4 @@
 //go:build e2e
-// +build e2e
 
 /*
 Copyright 2026 cloudscale.ch.
@@ -20,82 +19,199 @@ limitations under the License.
 package e2e
 
 import (
-	"fmt"
+	"context"
+	"flag"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"testing"
 
+	"github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/klog/v2"
+	ctrl "sigs.k8s.io/controller-runtime"
 
-	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/test/utils"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	bootstrapv1 "sigs.k8s.io/cluster-api/api/bootstrap/kubeadm/v1beta2"
+	controlplanev1 "sigs.k8s.io/cluster-api/api/controlplane/kubeadm/v1beta2"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	clusterctlv1 "sigs.k8s.io/cluster-api/cmd/clusterctl/api/v1alpha3"
+	"sigs.k8s.io/cluster-api/test/framework"
+	"sigs.k8s.io/cluster-api/test/framework/bootstrap"
+	"sigs.k8s.io/cluster-api/test/framework/clusterctl"
+
+	infrav1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 )
 
 var (
-	// managerImage is the manager image to be built and loaded for testing.
-	managerImage = "example.com/cluster-api-provider-cloudscale:v0.0.1"
-	// shouldCleanupCertManager tracks whether CertManager was installed by this suite.
-	shouldCleanupCertManager = false
+	// Test suite configuration
+	ctx                      = context.Background()
+	e2eConfig                *clusterctl.E2EConfig
+	clusterctlConfigPath     string
+	bootstrapClusterProvider bootstrap.ClusterProvider
+	bootstrapClusterProxy    framework.ClusterProxy
+
+	// cloudscale API client and resource snapshot for leak detection
+	cloudscaleClient *cloudscale.Client
+	preTestSnapshot  *resourceSnapshot
+
+	// Command line flags
+	configPath         string
+	artifactFolder     string
+	skipCleanup        bool
+	useExistingCluster bool
+
+	// Scheme for the test
+	scheme = runtime.NewScheme()
 )
 
-// TestE2E runs the e2e test suite to validate the solution in an isolated environment.
-// The default setup requires Kind and CertManager.
-//
-// To skip CertManager installation, set: CERT_MANAGER_INSTALL_SKIP=true
+func init() {
+	flag.StringVar(&configPath, "e2e.config", "", "Path to the e2e config file")
+	flag.StringVar(&artifactFolder, "e2e.artifacts-folder", "", "Folder where test artifacts should be stored")
+	flag.BoolVar(&skipCleanup, "e2e.skip-resource-cleanup", false, "If true, the resource cleanup after tests will be skipped")
+	flag.BoolVar(&useExistingCluster, "e2e.use-existing-cluster", false, "If true, use an existing cluster for e2e tests")
+
+	// Register schemes
+	_ = clientgoscheme.AddToScheme(scheme) // Standard k8s types (apps/v1, core/v1, etc.)
+	_ = clusterv1.AddToScheme(scheme)
+	_ = infrav1beta2.AddToScheme(scheme)
+	_ = bootstrapv1.AddToScheme(scheme)
+	_ = controlplanev1.AddToScheme(scheme)
+	_ = apiextensionsv1.AddToScheme(scheme)
+	_ = clusterctlv1.AddToScheme(scheme)
+}
+
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
-	_, _ = fmt.Fprintf(GinkgoWriter, "Starting cluster-api-provider-cloudscale e2e test suite\n")
-	RunSpecs(t, "e2e suite")
+	ctrl.SetLogger(klog.Background())
+
+	RunSpecs(t, "cluster-api-provider-cloudscale e2e suite")
 }
 
-var _ = BeforeSuite(func() {
-	By("building the manager image")
-	cmd := exec.Command("make", "docker-build", fmt.Sprintf("IMG=%s", managerImage))
-	_, err := utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the manager image")
+var _ = SynchronizedBeforeSuite(func() []byte {
+	// This runs only on the first Ginkgo node
+	Expect(configPath).To(BeAnExistingFile(), "E2E config file is required: --e2e.config=<path>")
 
-	// TODO(user): If you want to change the e2e test vendor from Kind,
-	// ensure the image is built and available, then remove the following block.
-	By("loading the manager image on Kind")
-	err = utils.LoadImageToKindClusterWithName(managerImage)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager image into Kind")
+	By("Loading e2e config")
+	e2eConfig = clusterctl.LoadE2EConfig(ctx, clusterctl.LoadE2EConfigInput{
+		ConfigPath: configPath,
+	})
+	Expect(e2eConfig).NotTo(BeNil(), "Failed to load e2e config")
 
-	setupCertManager()
+	By("Validating required environment variables")
+	apiToken := os.Getenv("CLOUDSCALE_API_TOKEN")
+	Expect(apiToken).NotTo(BeEmpty(), "CLOUDSCALE_API_TOKEN environment variable is required")
+
+	// Add secrets to e2eConfig variables so CreateRepository includes them in clusterctl.yaml
+	e2eConfig.Variables["CLOUDSCALE_API_TOKEN"] = apiToken
+
+	sshKey := os.Getenv("CLOUDSCALE_SSH_PUBLIC_KEY")
+	Expect(sshKey).NotTo(BeEmpty(), "CLOUDSCALE_SSH_PUBLIC_KEY environment variable is required")
+	e2eConfig.Variables["CLOUDSCALE_SSH_PUBLIC_KEY"] = sshKey
+
+	By("Taking pre-test snapshot of cloudscale infrastructure resources")
+	cloudscaleClient = newCloudscaleClient(apiToken)
+	var err error
+	preTestSnapshot, err = takeResourceSnapshot(ctx, cloudscaleClient)
+	Expect(err).NotTo(HaveOccurred(), "Failed to snapshot cloudscale resources")
+
+	By("Setting up artifacts folder")
+	if artifactFolder == "" {
+		artifactFolder = filepath.Join(os.TempDir(), "capcs-e2e-artifacts")
+	}
+	Expect(os.MkdirAll(artifactFolder, 0755)).To(Succeed())
+
+	By("Creating a clusterctl local repository")
+	clusterctlConfigPath = clusterctl.CreateRepository(ctx, clusterctl.CreateRepositoryInput{
+		E2EConfig:        e2eConfig,
+		RepositoryFolder: filepath.Join(artifactFolder, "repository"),
+	})
+
+	By("Setting up bootstrap cluster")
+	bootstrapClusterProvider, bootstrapClusterProxy = setupBootstrapCluster(e2eConfig, scheme, useExistingCluster)
+
+	By("Initializing management cluster with providers")
+	clusterctl.InitManagementClusterAndWatchControllerLogs(ctx,
+		clusterctl.InitManagementClusterAndWatchControllerLogsInput{
+			ClusterProxy:            bootstrapClusterProxy,
+			ClusterctlConfigPath:    clusterctlConfigPath,
+			InfrastructureProviders: e2eConfig.InfrastructureProviders(),
+			// CoreProvider, BootstrapProviders, ControlPlaneProviders use defaults (cluster-api, kubeadm, kubeadm)
+			// If providers are already installed (use-existing-cluster), init is skipped automatically
+			LogFolder: filepath.Join(artifactFolder, "clusters", bootstrapClusterProxy.GetName()),
+		},
+		e2eConfig.GetIntervals("", "wait-controllers")...)
+
+	return []byte(bootstrapClusterProxy.GetKubeconfigPath())
+}, func(data []byte) {
+	// This runs on all Ginkgo nodes
+	Expect(configPath).To(BeAnExistingFile(), "E2E config file is required")
+
+	e2eConfig = clusterctl.LoadE2EConfig(ctx, clusterctl.LoadE2EConfigInput{
+		ConfigPath: configPath,
+	})
+	Expect(e2eConfig).NotTo(BeNil())
+
+	if artifactFolder == "" {
+		artifactFolder = filepath.Join(os.TempDir(), "capcs-e2e-artifacts")
+	}
+
+	kubeconfigPath := string(data)
+	Expect(kubeconfigPath).ToNot(BeEmpty(), "Kubeconfig path was not passed from the first node")
+	bootstrapClusterProxy = framework.NewClusterProxy("bootstrap", kubeconfigPath, scheme,
+		framework.WithMachineLogCollector(CloudscaleLogCollector{}),
+	)
 })
 
-var _ = AfterSuite(func() {
-	teardownCertManager()
+var _ = SynchronizedAfterSuite(func() {
+	// This runs on all Ginkgo nodes - nothing to do here
+}, func() {
+	// This runs only on the first Ginkgo node
+	if !skipCleanup && cloudscaleClient != nil && preTestSnapshot != nil {
+		By("Checking for leaked cloudscale infrastructure resources")
+		Expect(checkForLeakedResources(ctx, cloudscaleClient, preTestSnapshot)).To(Succeed(),
+			"Infrastructure resources leaked during test run")
+	}
+
+	By("Tearing down the management cluster")
+	if !skipCleanup && bootstrapClusterProvider != nil {
+		bootstrapClusterProvider.Dispose(ctx)
+	}
 })
 
-// setupCertManager installs CertManager if needed for webhook tests.
-// Skips installation if CERT_MANAGER_INSTALL_SKIP=true or if already present.
-func setupCertManager() {
-	if os.Getenv("CERT_MANAGER_INSTALL_SKIP") == "true" {
-		_, _ = fmt.Fprintf(GinkgoWriter, "Skipping CertManager installation (CERT_MANAGER_INSTALL_SKIP=true)\n")
-		return
+// setupBootstrapCluster creates or uses an existing bootstrap cluster
+func setupBootstrapCluster(config *clusterctl.E2EConfig, scheme *runtime.Scheme, useExisting bool) (bootstrap.ClusterProvider, framework.ClusterProxy) {
+	var clusterProvider bootstrap.ClusterProvider
+	var clusterProxy framework.ClusterProxy
+
+	if useExisting {
+		By("Using existing cluster")
+		kubeconfigPath := os.Getenv("KUBECONFIG")
+		if kubeconfigPath == "" {
+			kubeconfigPath = filepath.Join(os.Getenv("HOME"), ".kube", "config")
+		}
+		clusterProxy = framework.NewClusterProxy("bootstrap", kubeconfigPath, scheme,
+			framework.WithMachineLogCollector(CloudscaleLogCollector{}),
+		)
+	} else {
+		By("Creating a Kind bootstrap cluster")
+		clusterProvider = bootstrap.CreateKindBootstrapClusterAndLoadImages(ctx,
+			bootstrap.CreateKindBootstrapClusterAndLoadImagesInput{
+				Name:               config.ManagementClusterName,
+				RequiresDockerSock: true,
+				Images:             config.Images,
+			})
+		Expect(clusterProvider).NotTo(BeNil(), "Failed to create Kind cluster")
+
+		kubeconfigPath := clusterProvider.GetKubeconfigPath()
+		Expect(kubeconfigPath).To(BeAnExistingFile(), "Kubeconfig should exist")
+
+		clusterProxy = framework.NewClusterProxy("bootstrap", kubeconfigPath, scheme,
+			framework.WithMachineLogCollector(CloudscaleLogCollector{}),
+		)
 	}
 
-	By("checking if CertManager is already installed")
-	if utils.IsCertManagerCRDsInstalled() {
-		_, _ = fmt.Fprintf(GinkgoWriter, "CertManager is already installed. Skipping installation.\n")
-		return
-	}
-
-	// Mark for cleanup before installation to handle interruptions and partial installs.
-	shouldCleanupCertManager = true
-
-	By("installing CertManager")
-	Expect(utils.InstallCertManager()).To(Succeed(), "Failed to install CertManager")
-}
-
-// teardownCertManager uninstalls CertManager if it was installed by setupCertManager.
-// This ensures we only remove what we installed.
-func teardownCertManager() {
-	if !shouldCleanupCertManager {
-		_, _ = fmt.Fprintf(GinkgoWriter, "Skipping CertManager cleanup (not installed by this suite)\n")
-		return
-	}
-
-	By("uninstalling CertManager")
-	utils.UninstallCertManager()
+	return clusterProvider, clusterProxy
 }

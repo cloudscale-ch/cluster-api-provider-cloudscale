@@ -1,0 +1,25 @@
+name: Setup E2E environment
+description: Sets up Go, tool cache, and SSH for e2e tests
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Go
+      uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      with:
+        go-version-file: go.mod
+
+    - name: Cache tool binaries
+      uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+      with:
+        path: bin/
+        key: e2e-tools-${{ runner.os }}-${{ hashFiles('Makefile') }}
+
+    - name: Setup SSH for log collection
+      shell: bash
+      run: | # zizmor: ignore[github-env]
+        ssh-keygen -t ed25519 -f /tmp/e2e-ssh-key -N "" -q
+        eval $(ssh-agent -s)
+        ssh-add /tmp/e2e-ssh-key
+        echo "SSH_AUTH_SOCK=${SSH_AUTH_SOCK}" >> "$GITHUB_ENV"
+        echo "CLOUDSCALE_SSH_PUBLIC_KEY=$(cat /tmp/e2e-ssh-key.pub)" >> "$GITHUB_ENV"

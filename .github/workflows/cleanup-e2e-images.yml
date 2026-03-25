@@ -1,0 +1,25 @@
+name: Cleanup E2E Images
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    - cron: "0 4 * * 0" # Weekly, Sunday 4 AM UTC
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    name: Delete old e2e image tags
+    runs-on: ubuntu-latest
+    environment: e2e
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Clean up e2e-* tags from capcs-staging
+        env:
+          QUAY_E2E_TOKEN: ${{ secrets.QUAY_E2E_TOKEN }}
+        run: make clean-e2e-images

@@ -1,0 +1,127 @@
+# E2EConfig for cluster-api-provider-cloudscale e2e tests
+# Used by CAPI test framework (sigs.k8s.io/cluster-api/test/framework)
+
+managementClusterName: capcs-e2e
+
+images:
+  - name: ${IMG}
+    loadBehavior: mustLoad
+
+providers:
+  - name: cluster-api
+    type: CoreProvider
+    versions:
+      - name: v1.12.4
+        value: https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.12.4/core-components.yaml
+        type: url
+        contract: v1beta2
+        files:
+          - sourcePath: "../data/shared/v1beta2/metadata.yaml"
+
+  - name: kubeadm
+    type: BootstrapProvider
+    versions:
+      - name: v1.12.4
+        value: https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.12.4/bootstrap-components.yaml
+        type: url
+        contract: v1beta2
+        files:
+          - sourcePath: "../data/shared/v1beta2/metadata.yaml"
+
+  - name: kubeadm
+    type: ControlPlaneProvider
+    versions:
+      - name: v1.12.4
+        value: https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.12.4/control-plane-components.yaml
+        type: url
+        contract: v1beta2
+        files:
+          - sourcePath: "../data/shared/v1beta2/metadata.yaml"
+
+  - name: cloudscale
+    type: InfrastructureProvider
+    versions:
+      - name: v1.13.99 # dev version, matches CAPI convention
+        value: ../../../config/default
+        type: kustomize
+        contract: v1beta2
+        replacements:
+          - old: "image: quay.io/cloudscalech/capcs-staging:.*"
+            new: "image: ${IMG}"
+        files:
+          - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template.yaml"
+          - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-ha.yaml"
+          - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-upgrades.yaml"
+          - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-md-remediation.yaml"
+          - sourcePath: "../data/infrastructure-cloudscale/main/metadata.yaml"
+            targetName: metadata.yaml
+
+variables:
+  # Kubernetes versions
+  KUBERNETES_VERSION: "v1.35.2"
+  KUBERNETES_VERSION_UPGRADE_FROM: "v1.34.3"
+  KUBERNETES_VERSION_UPGRADE_TO: "v1.35.2"
+
+  # cloudscale.ch configuration
+  CLOUDSCALE_REGION: "lpg"
+  CLOUDSCALE_CONTROL_PLANE_MACHINE_FLAVOR: "flex-4-2"
+  CLOUDSCALE_WORKER_MACHINE_FLAVOR: "flex-4-2"
+  CLOUDSCALE_MACHINE_IMAGE: "custom:ubuntu-2404-kube-v1.35.2"
+  CLOUDSCALE_MACHINE_IMAGE_UPGRADE_FROM: "custom:ubuntu-2404-kube-v1.34.3"
+  # CLOUDSCALE_SSH_PUBLIC_KEY: Set via environment variable
+  CLOUDSCALE_ROOT_VOLUME_SIZE: "20"
+  CLOUDSCALE_NETWORK_CIDR: "10.100.0.0/24"
+
+  # Machine template names for upgrade tests
+  CONTROL_PLANE_MACHINE_TEMPLATE_UPGRADE_TO: "k8s-upgrade-control-plane"
+  WORKERS_MACHINE_TEMPLATE_UPGRADE_TO: "k8s-upgrade-worker"
+
+  # Cluster configuration
+  CONTROL_PLANE_MACHINE_COUNT: "1"
+  WORKER_MACHINE_COUNT: "1"
+
+  # Feature flags
+  EXP_CLUSTER_RESOURCE_SET: "true"
+
+  # Conformance testing
+  KUBETEST_CONFIGURATION: "${KUBETEST_CONFIGURATION}"
+  KUBETEST_NUMBER_OF_NODES: "2"
+  KUBETEST_GINKGO_NODES: "1"
+
+intervals:
+  # Controller startup
+  default/wait-controllers: ["5m", "10s"]
+
+  # Cluster provisioning
+  default/wait-cluster: ["15m", "30s"]
+  default/wait-control-plane: ["20m", "30s"]
+  default/wait-worker-nodes: ["15m", "30s"]
+
+  # Machine operations
+  default/wait-machine-status: ["10m", "30s"]
+  default/wait-machine-remediation: ["15m", "30s"]
+
+  # Upgrades
+  default/wait-machine-upgrade: ["30m", "30s"]
+  default/wait-control-plane-upgrade: ["35m", "30s"]
+
+  # Upgrade spec (spec name: k8s-upgrade-and-conformance)
+  k8s-upgrade-and-conformance/wait-cluster: ["15m", "30s"]
+  k8s-upgrade-and-conformance/wait-control-plane: ["25m", "30s"]
+  k8s-upgrade-and-conformance/wait-worker-nodes: ["15m", "30s"]
+  k8s-upgrade-and-conformance/wait-control-plane-upgrade: ["35m", "30s"]
+  k8s-upgrade-and-conformance/wait-machine-upgrade: ["30m", "30s"]
+
+  # MD remediation
+  md-remediation/wait-cluster: ["15m", "30s"]
+  md-remediation/wait-control-plane: ["20m", "30s"]
+  md-remediation/wait-worker-nodes: ["15m", "30s"]
+  md-remediation/wait-machine-remediation: ["15m", "30s"]
+
+  # K8s conformance
+  k8s-conformance/wait-cluster: ["15m", "30s"]
+  k8s-conformance/wait-control-plane: ["20m", "30s"]
+  k8s-conformance/wait-worker-nodes: ["15m", "30s"]
+
+  # Deletion
+  default/wait-delete-cluster: ["15m", "30s"]

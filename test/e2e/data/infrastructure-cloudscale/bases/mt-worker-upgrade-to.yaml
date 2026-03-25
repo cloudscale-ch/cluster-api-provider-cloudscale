@@ -1,0 +1,11 @@
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+kind: CloudscaleMachineTemplate
+metadata:
+  name: "k8s-upgrade-worker"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      flavor: "${CLOUDSCALE_WORKER_MACHINE_FLAVOR}"
+      image: "${CLOUDSCALE_MACHINE_IMAGE}"
+      rootVolumeSize: ${CLOUDSCALE_ROOT_VOLUME_SIZE}

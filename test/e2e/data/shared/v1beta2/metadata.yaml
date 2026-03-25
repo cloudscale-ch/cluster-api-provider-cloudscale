@@ -1,0 +1,7 @@
+# Shared metadata for v1beta2 contract
+apiVersion: clusterctl.cluster.x-k8s.io/v1alpha3
+kind: Metadata
+releaseSeries:
+  - major: 1
+    minor: 12
+    contract: v1beta2
