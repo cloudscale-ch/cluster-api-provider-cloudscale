@@ -57,6 +57,11 @@ spec:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/control-plane
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
       containers:
       - command:
         - /manager
@@ -70,8 +75,12 @@ spec:
                 name: cloudscale
                 key: token
         image: controller:latest
+        imagePullPolicy: IfNotPresent
         name: manager
-        ports: []
+        ports:
+        - containerPort: 8081
+          name: healthz
+          protocol: TCP
         securityContext:
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
@@ -81,15 +90,22 @@ spec:
         livenessProbe:
           httpGet:
             path: /healthz
-            port: 8081
+            port: healthz
+          failureThreshold: 3
+          successThreshold: 1
+          timeoutSeconds: 1
           initialDelaySeconds: 15
           periodSeconds: 20
         readinessProbe:
           httpGet:
             path: /readyz
-            port: 8081
+            port: healthz
+          failureThreshold: 3
+          successThreshold: 1
+          timeoutSeconds: 1
           initialDelaySeconds: 5
           periodSeconds: 10
+        terminationMessagePolicy: FallbackToLogsOnError
         # TODO(user): Configure the resources accordingly based on the project requirements.
         # More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
         resources:

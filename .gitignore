@@ -36,3 +36,6 @@ go.work
 _artifacts/
 test/e2e/config/*.generated.yaml
 test/e2e/data/infrastructure-cloudscale/main/cluster-template*.yaml
+
+# release
+dist/
