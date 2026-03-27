@@ -55,6 +55,9 @@ type CloudscaleMachineCustomDefaulter struct{}
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the Kind CloudscaleMachine.
 func (d *CloudscaleMachineCustomDefaulter) Default(_ context.Context, obj *infrastructurev1beta2.CloudscaleMachine) error {
 	cloudscalemachinelog.Info("Defaulting for CloudscaleMachine", "name", obj.GetName())
+
+	defaultInterfaceIPFamily(obj.Spec.Interfaces)
+
 	return nil
 }
 

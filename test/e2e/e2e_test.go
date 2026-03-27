@@ -39,7 +39,7 @@ var _ = Describe("Workload cluster lifecycle", Label("lifecycle"), func() {
 				BootstrapClusterProxy:    bootstrapClusterProxy,
 				ArtifactFolder:           artifactFolder,
 				SkipCleanup:              skipCleanup,
-				InfrastructureProvider:   ptr.To("cloudscale"),
+				InfrastructureProvider:   ptr.To("cloudscale-ch-cloudscale"),
 				Flavor:                   ptr.To(""),
 				ControlPlaneMachineCount: ptr.To[int64](1),
 				WorkerMachineCount:       ptr.To[int64](1),
@@ -56,10 +56,76 @@ var _ = Describe("Workload cluster lifecycle", Label("lifecycle"), func() {
 				BootstrapClusterProxy:    bootstrapClusterProxy,
 				ArtifactFolder:           artifactFolder,
 				SkipCleanup:              skipCleanup,
-				InfrastructureProvider:   ptr.To("cloudscale"),
+				InfrastructureProvider:   ptr.To("cloudscale-ch-cloudscale"),
 				Flavor:                   ptr.To("ha"),
 				ControlPlaneMachineCount: ptr.To[int64](3),
 				WorkerMachineCount:       ptr.To[int64](2),
+				PostMachinesProvisioned:  validateCloudscaleResources,
+			}
+		})
+	})
+})
+
+// BYO networking tests verify cluster provisioning against a pre-existing (BYO) network.
+// All contexts are skipped when CLOUDSCALE_NETWORK_UUID is not set. The BYO network must
+// provide internet egress (e.g. Support-arranged NAT) for the private-nodes contexts,
+// otherwise kubeadm bootstrap hangs.
+var _ = Describe("BYO networking", Label("byo-networking"), func() {
+	BeforeEach(func() {
+		if _, ok := e2eConfig.Variables["CLOUDSCALE_NETWORK_UUID"]; !ok {
+			Skip("CLOUDSCALE_NETWORK_UUID not set, skipping BYO networking tests")
+		}
+	})
+
+	// With BYO network: public LB, machines dual-attached (BYO + public).
+	Context("With BYO network", func() {
+		capi_e2e.QuickStartSpec(ctx, func() capi_e2e.QuickStartSpecInput {
+			return capi_e2e.QuickStartSpecInput{
+				E2EConfig:                e2eConfig,
+				ClusterctlConfigPath:     clusterctlConfigPath,
+				BootstrapClusterProxy:    bootstrapClusterProxy,
+				ArtifactFolder:           artifactFolder,
+				SkipCleanup:              skipCleanup,
+				InfrastructureProvider:   ptr.To("cloudscale-ch-cloudscale"),
+				Flavor:                   ptr.To("byo-network"),
+				ControlPlaneMachineCount: ptr.To[int64](1),
+				WorkerMachineCount:       ptr.To[int64](1),
+				PostMachinesProvisioned:  validateCloudscaleResources,
+			}
+		})
+	})
+
+	// With public LB, machines attached only to the BYO network (no public interface).
+	Context("With public LB, private nodes", func() {
+		capi_e2e.QuickStartSpec(ctx, func() capi_e2e.QuickStartSpecInput {
+			return capi_e2e.QuickStartSpecInput{
+				E2EConfig:                e2eConfig,
+				ClusterctlConfigPath:     clusterctlConfigPath,
+				BootstrapClusterProxy:    bootstrapClusterProxy,
+				ArtifactFolder:           artifactFolder,
+				SkipCleanup:              skipCleanup,
+				InfrastructureProvider:   ptr.To("cloudscale-ch-cloudscale"),
+				Flavor:                   ptr.To("public-lb-private-nodes"),
+				ControlPlaneMachineCount: ptr.To[int64](1),
+				WorkerMachineCount:       ptr.To[int64](1),
+				PostMachinesProvisioned:  validateCloudscaleResources,
+			}
+		})
+	})
+
+	// Floating IP on a LB.
+	Context("With Floating IP on CP server", func() {
+		capi_e2e.QuickStartSpec(ctx, func() capi_e2e.QuickStartSpecInput {
+			return capi_e2e.QuickStartSpecInput{
+				E2EConfig:                e2eConfig,
+				ClusterctlConfigPath:     clusterctlConfigPath,
+				BootstrapClusterProxy:    bootstrapClusterProxy,
+				ArtifactFolder:           artifactFolder,
+				SkipCleanup:              skipCleanup,
+				InfrastructureProvider:   ptr.To("cloudscale-ch-cloudscale"),
+				Flavor:                   ptr.To("fip"),
+				ControlPlaneMachineCount: ptr.To[int64](1),
+				WorkerMachineCount:       ptr.To[int64](1),
 				PostMachinesProvisioned:  validateCloudscaleResources,
 			}
 		})
@@ -79,7 +145,7 @@ var _ = Describe("Cluster upgrade", Label("upgrade"), func() {
 			ArtifactFolder:           artifactFolder,
 			SkipCleanup:              skipCleanup,
 			SkipConformanceTests:     true,
-			InfrastructureProvider:   ptr.To("cloudscale"),
+			InfrastructureProvider:   ptr.To("cloudscale-ch-cloudscale"),
 			ControlPlaneMachineCount: ptr.To[int64](1),
 			WorkerMachineCount:       ptr.To[int64](1),
 		}
@@ -98,7 +164,7 @@ var _ = Describe("Self-hosted cluster", Label("self-hosted"), func() {
 			BootstrapClusterProxy:    bootstrapClusterProxy,
 			ArtifactFolder:           artifactFolder,
 			SkipCleanup:              skipCleanup,
-			InfrastructureProvider:   ptr.To("cloudscale"),
+			InfrastructureProvider:   ptr.To("cloudscale-ch-cloudscale"),
 			SkipUpgrade:              true,
 			ControlPlaneMachineCount: ptr.To[int64](1),
 			WorkerMachineCount:       ptr.To[int64](1),
@@ -122,7 +188,7 @@ var _ = Describe("MD remediation", Label("md-remediation"), func() {
 			BootstrapClusterProxy:  bootstrapClusterProxy,
 			ArtifactFolder:         artifactFolder,
 			SkipCleanup:            skipCleanup,
-			InfrastructureProvider: ptr.To("cloudscale"),
+			InfrastructureProvider: ptr.To("cloudscale-ch-cloudscale"),
 		}
 	})
 })
@@ -138,7 +204,7 @@ var _ = Describe("Kubernetes conformance", Label("conformance"), func() {
 			BootstrapClusterProxy:  bootstrapClusterProxy,
 			ArtifactFolder:         artifactFolder,
 			SkipCleanup:            skipCleanup,
-			InfrastructureProvider: ptr.To("cloudscale"),
+			InfrastructureProvider: ptr.To("cloudscale-ch-cloudscale"),
 		}
 	})
 })

@@ -35,6 +35,7 @@ type Client struct {
 	LoadBalancerPoolMembers    LoadBalancerPoolMemberService
 	LoadBalancerListeners      LoadBalancerListenerService
 	LoadBalancerHealthMonitors LoadBalancerHealthMonitorService
+	FloatingIPs                FloatingIPService
 	Flavors                    FlavorService
 }
 
@@ -54,6 +55,7 @@ func NewClient(token string) *Client {
 		LoadBalancerPoolMembers:    sdkClient.LoadBalancerPoolMembers,
 		LoadBalancerListeners:      sdkClient.LoadBalancerListeners,
 		LoadBalancerHealthMonitors: sdkClient.LoadBalancerHealthMonitors,
+		FloatingIPs:                sdkClient.FloatingIPs,
 		Flavors:                    sdkClient.Flavors,
 	}
 }

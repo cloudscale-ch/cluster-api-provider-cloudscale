@@ -116,6 +116,9 @@ func newTestClusterScopeWithLB(opts lbTestScopeOptions) *scope.ClusterScope {
 			Spec: infrastructurev1beta2.CloudscaleClusterSpec{
 				Region: "rma",
 				Zone:   "rma1",
+				Networks: []infrastructurev1beta2.NetworkSpec{
+					{Name: "test", CIDR: "10.0.0.0/24"},
+				},
 				ControlPlaneLoadBalancer: infrastructurev1beta2.LoadBalancerSpec{
 					Enabled:       &opts.lbEnabled,
 					Algorithm:     opts.algorithm,
@@ -127,6 +130,11 @@ func newTestClusterScopeWithLB(opts lbTestScopeOptions) *scope.ClusterScope {
 						UpThreshold:   opts.healthMonitorUpThreshold,
 						DownThreshold: opts.healthMonitorDownThreshold,
 					},
+				},
+			},
+			Status: infrastructurev1beta2.CloudscaleClusterStatus{
+				Networks: []infrastructurev1beta2.NetworkStatus{
+					{Name: "test", NetworkID: "net-uuid", SubnetID: "subnet-uuid", CIDR: "10.0.0.0/24", Managed: true},
 				},
 			},
 		},
@@ -1146,7 +1154,7 @@ func TestReconcileLBMembers_AddsMissingMember(t *testing.T) {
 		lbEnabled:         true,
 	})
 	clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID = testPoolUUID
-	clusterScope.CloudscaleCluster.Status.SubnetID = "subnet-uuid"
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{{Name: "test", NetworkID: "net-uuid", SubnetID: "subnet-uuid", CIDR: "10.0.0.0/24", Managed: true}}
 
 	r := newTestReconcilerWithClient(k8sClient)
 
@@ -1341,7 +1349,7 @@ func TestGetDesiredLoadBalancerMembers_SkipsMachinesWithoutIP(t *testing.T) {
 	clusterScope := newTestClusterScopeWithLB(lbTestScopeOptions{
 		lbEnabled: true,
 	})
-	clusterScope.CloudscaleCluster.Status.SubnetID = "subnet-uuid"
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{{Name: "test", NetworkID: "net-uuid", SubnetID: "subnet-uuid", CIDR: "10.0.0.0/24", Managed: true}}
 
 	r := newTestReconcilerWithClient(k8sClient)
 
@@ -1367,6 +1375,47 @@ func TestGetDesiredLoadBalancerMembers_NoMachines(t *testing.T) {
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(members).To(BeEmpty())
+}
+
+func TestGetDesiredLoadBalancerMembers_PicksAddressInMemberSubnet(t *testing.T) {
+	g := NewWithT(t)
+
+	machine := &infrastructurev1beta2.CloudscaleMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cp-machine-1",
+			Namespace: "default",
+			Labels: map[string]string{
+				clusterv1.ClusterNameLabel:         "test-cluster",
+				clusterv1.MachineControlPlaneLabel: "",
+			},
+		},
+		Status: infrastructurev1beta2.CloudscaleMachineStatus{
+			Addresses: []clusterv1.MachineAddress{
+				{Type: clusterv1.MachineInternalIP, Address: "192.168.1.5"}, // wrong network
+				{Type: clusterv1.MachineInternalIP, Address: "10.0.0.15"},   // correct network
+				{Type: clusterv1.MachineExternalIP, Address: "185.1.2.3"},
+			},
+		},
+	}
+
+	k8sClient := newFakeClientForLB(machine)
+	clusterScope := newTestClusterScopeWithLB(lbTestScopeOptions{
+		lbEnabled: true,
+	})
+	clusterScope.CloudscaleCluster.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
+		{Name: "main", CIDR: "10.0.0.0/24"},
+	}
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "main", NetworkID: "net-uuid", SubnetID: "subnet-uuid", CIDR: "10.0.0.0/24", Managed: true},
+	}
+
+	r := newTestReconcilerWithClient(k8sClient)
+
+	members, err := r.getDesiredLoadBalancerMembers(context.Background(), clusterScope)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(members).To(HaveLen(1))
+	g.Expect(members[0].Address).To(Equal("10.0.0.15"))
 }
 
 // ============================================================================

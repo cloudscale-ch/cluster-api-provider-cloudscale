@@ -82,10 +82,12 @@ func TestEnsureResource_ExistingID_Found(t *testing.T) {
 		},
 	}
 
-	id, err := ensureResource(context.Background(), testClusterScope(), "existing-123", "test resource", svc, extractTestUUID, testTags)
+	resource, id, err := ensureResource(context.Background(), testClusterScope(), "existing-123", "test resource", svc, extractTestUUID, testTags)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(id).To(Equal("existing-123"))
+	g.Expect(resource).ToNot(BeNil())
+	g.Expect(resource.UUID).To(Equal("existing-123"))
 }
 
 func TestEnsureResource_ExistingID_NotFound_FallsThrough(t *testing.T) {
@@ -100,10 +102,11 @@ func TestEnsureResource_ExistingID_NotFound_FallsThrough(t *testing.T) {
 		},
 	}
 
-	id, err := ensureResource(context.Background(), testClusterScope(), "deleted-123", "test resource", svc, extractTestUUID, testTags)
+	resource, id, err := ensureResource(context.Background(), testClusterScope(), "deleted-123", "test resource", svc, extractTestUUID, testTags)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(id).To(Equal(""), "should return empty ID so caller creates the resource")
+	g.Expect(resource).To(BeNil())
 }
 
 func TestEnsureResource_ExistingID_GetError(t *testing.T) {
@@ -115,7 +118,7 @@ func TestEnsureResource_ExistingID_GetError(t *testing.T) {
 		},
 	}
 
-	_, err := ensureResource(context.Background(), testClusterScope(), "existing-123", "test resource", svc, extractTestUUID, testTags)
+	_, _, err := ensureResource(context.Background(), testClusterScope(), "existing-123", "test resource", svc, extractTestUUID, testTags)
 
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("api connection error"))
@@ -130,10 +133,12 @@ func TestEnsureResource_NoID_ListFindsOne(t *testing.T) {
 		},
 	}
 
-	id, err := ensureResource(context.Background(), testClusterScope(), "", "test resource", svc, extractTestUUID, testTags)
+	resource, id, err := ensureResource(context.Background(), testClusterScope(), "", "test resource", svc, extractTestUUID, testTags)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(id).To(Equal("adopted-123"))
+	g.Expect(resource).ToNot(BeNil())
+	g.Expect(resource.UUID).To(Equal("adopted-123"))
 }
 
 func TestEnsureResource_NoID_ListFindsMultiple(t *testing.T) {
@@ -148,7 +153,7 @@ func TestEnsureResource_NoID_ListFindsMultiple(t *testing.T) {
 		},
 	}
 
-	_, err := ensureResource(context.Background(), testClusterScope(), "", "test resource", svc, extractTestUUID, testTags)
+	_, _, err := ensureResource(context.Background(), testClusterScope(), "", "test resource", svc, extractTestUUID, testTags)
 
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("found 2 test resources matching tag filter"))
@@ -163,10 +168,11 @@ func TestEnsureResource_NoID_ListFindsNone(t *testing.T) {
 		},
 	}
 
-	id, err := ensureResource(context.Background(), testClusterScope(), "", "test resource", svc, extractTestUUID, testTags)
+	resource, id, err := ensureResource(context.Background(), testClusterScope(), "", "test resource", svc, extractTestUUID, testTags)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(id).To(Equal(""), "should return empty ID so caller creates the resource")
+	g.Expect(resource).To(BeNil())
 }
 
 func TestEnsureResource_NoID_ListError(t *testing.T) {
@@ -178,7 +184,7 @@ func TestEnsureResource_NoID_ListError(t *testing.T) {
 		},
 	}
 
-	_, err := ensureResource(context.Background(), testClusterScope(), "", "test resource", svc, extractTestUUID, testTags)
+	_, _, err := ensureResource(context.Background(), testClusterScope(), "", "test resource", svc, extractTestUUID, testTags)
 
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("list api error"))

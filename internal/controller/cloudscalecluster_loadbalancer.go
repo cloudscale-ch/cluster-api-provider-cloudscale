@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net"
 	"slices"
 	"time"
 
@@ -51,9 +52,6 @@ func (r *CloudscaleClusterReconciler) reconcileLoadBalancer(ctx context.Context,
 		return ctrl.Result{}, nil
 	}
 
-	// lbPending indicates whether the load balancer is in progress of being updated.
-	// This needs to be set by code checking LB (and sub-resources) status.
-	// It's used in the deferred function to set the right condition.
 	var lbPending bool
 
 	defer func() {
@@ -110,7 +108,11 @@ func (r *CloudscaleClusterReconciler) reconcileLoadBalancer(ctx context.Context,
 
 	// 6. Set the control plane endpoint from the VIP
 	if clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host == "" {
-		if len(lb.VIPAddresses) > 0 {
+		if clusterScope.CloudscaleCluster.Spec.FloatingIP != nil {
+			// Floating IP is configured — the FIP reconciler will set the endpoint.
+			// The FIP provides a stable IP that survives LB recreation.
+			clusterScope.Info("Skipping control plane endpoint from LB VIP (floating IP will provide it)")
+		} else if len(lb.VIPAddresses) > 0 {
 			apiServerPort := clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.APIServerPort
 			clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host = lb.VIPAddresses[0].Address
 			clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Port = apiServerPort
@@ -125,7 +127,7 @@ func (r *CloudscaleClusterReconciler) reconcileLoadBalancer(ctx context.Context,
 
 // reconcileLB ensures the load balancer exists.
 func (r *CloudscaleClusterReconciler) reconcileLB(ctx context.Context, clusterScope *scope.ClusterScope) error {
-	id, err := ensureResource(ctx, clusterScope,
+	_, id, err := ensureResource(ctx, clusterScope,
 		clusterScope.CloudscaleCluster.Status.LoadBalancerID,
 		"load balancer",
 		clusterScope.CloudscaleClient.LoadBalancers,
@@ -142,11 +144,11 @@ func (r *CloudscaleClusterReconciler) reconcileLB(ctx context.Context, clusterSc
 
 	// Create new load balancer
 	zone := clusterScope.CloudscaleCluster.Spec.Zone
-	flavor := clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Flavor
+	lbSpec := clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer
 
 	req := &cloudscalesdk.LoadBalancerRequest{
 		Name:   fmt.Sprintf("%s-cp-lb", clusterScope.CloudscaleCluster.Name),
-		Flavor: flavor,
+		Flavor: lbSpec.Flavor,
 		ZonalResourceRequest: cloudscalesdk.ZonalResourceRequest{
 			Zone: zone,
 		},
@@ -155,7 +157,19 @@ func (r *CloudscaleClusterReconciler) reconcileLB(ctx context.Context, clusterSc
 		},
 	}
 
-	clusterScope.Info("Creating load balancer", "zone", zone, "flavor", flavor)
+	// Place LB on a private network if specified, otherwise public VIP
+	if lbSpec.Network != "" {
+		subnetID, err := lbPrivateNetworkSubnetID(clusterScope)
+		if err != nil {
+			return err
+		}
+		req.VIPAddresses = &[]cloudscalesdk.VIPAddressRequest{
+			{Subnet: subnetID},
+		}
+		clusterScope.Info("Creating load balancer with private VIP", "network", lbSpec.Network, "subnet", subnetID)
+	}
+
+	clusterScope.Info("Creating load balancer", "zone", zone, "flavor", lbSpec.Flavor)
 	lb, err := clusterScope.CloudscaleClient.LoadBalancers.Create(ctx, req)
 	if err != nil {
 		return fmt.Errorf("creating load balancer: %w", err)
@@ -170,7 +184,7 @@ func (r *CloudscaleClusterReconciler) reconcileLB(ctx context.Context, clusterSc
 
 // reconcileLBPool ensures the load balancer pool exists.
 func (r *CloudscaleClusterReconciler) reconcileLBPool(ctx context.Context, clusterScope *scope.ClusterScope) error {
-	id, err := ensureResource(ctx, clusterScope,
+	_, id, err := ensureResource(ctx, clusterScope,
 		clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID,
 		"load balancer pool",
 		clusterScope.CloudscaleClient.LoadBalancerPools,
@@ -213,7 +227,7 @@ func (r *CloudscaleClusterReconciler) reconcileLBPool(ctx context.Context, clust
 
 // reconcileLBListener ensures the load balancer listener exists.
 func (r *CloudscaleClusterReconciler) reconcileLBListener(ctx context.Context, clusterScope *scope.ClusterScope) error {
-	id, err := ensureResource(ctx, clusterScope,
+	_, id, err := ensureResource(ctx, clusterScope,
 		clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID,
 		"load balancer listener",
 		clusterScope.CloudscaleClient.LoadBalancerListeners,
@@ -256,7 +270,7 @@ func (r *CloudscaleClusterReconciler) reconcileLBListener(ctx context.Context, c
 // reconcileLBHealthMonitor ensures the load balancer health monitor exists.
 // The health monitor performs TCP health checks on the API server port.
 func (r *CloudscaleClusterReconciler) reconcileLBHealthMonitor(ctx context.Context, clusterScope *scope.ClusterScope) error {
-	id, err := ensureResource(ctx, clusterScope,
+	_, id, err := ensureResource(ctx, clusterScope,
 		clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID,
 		"load balancer health monitor",
 		clusterScope.CloudscaleClient.LoadBalancerHealthMonitors,
@@ -365,13 +379,31 @@ func (r *CloudscaleClusterReconciler) getDesiredLoadBalancerMembers(ctx context.
 		return nil, fmt.Errorf("listing CloudscaleMachines: %w", err)
 	}
 
+	// Determine which subnet to use for pool members
+	memberSubnetID, err := r.getPoolMemberSubnetID(clusterScope)
+	if err != nil {
+		return nil, err
+	}
+
+	memberSubnetCIDR, err := r.getMemberSubnetCIDR(clusterScope, memberSubnetID)
+	if err != nil {
+		return nil, fmt.Errorf("resolving pool member subnet CIDR: %w", err)
+	}
+
+	_, memberIPNet, err := net.ParseCIDR(memberSubnetCIDR)
+	if err != nil {
+		return nil, fmt.Errorf("parsing pool member subnet CIDR %q: %w", memberSubnetCIDR, err)
+	}
+
 	desiredList := make([]cloudscalesdk.LoadBalancerPoolMemberRequest, 0)
 
-	// Build desired pool members from machines with an internal IP
+	// Build desired pool members from machines with an internal IP on the member subnet.
+	// With multi-NIC machines, the first MachineInternalIP may belong to a different
+	// network than the pool's subnet, so we filter by CIDR containment.
 	for _, machine := range machineList.Items {
 		member := cloudscalesdk.LoadBalancerPoolMemberRequest{
 			Name:         machine.Name,
-			Subnet:       clusterScope.CloudscaleCluster.Status.SubnetID,
+			Subnet:       memberSubnetID,
 			ProtocolPort: int(clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.APIServerPort),
 			TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
 				Tags: ptr.To(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
@@ -380,9 +412,12 @@ func (r *CloudscaleClusterReconciler) getDesiredLoadBalancerMembers(ctx context.
 		hasAddr := false
 		for _, addr := range machine.Status.Addresses {
 			if addr.Type == clusterv1.MachineInternalIP && addr.Address != "" {
-				hasAddr = true
-				member.Address = addr.Address
-				break
+				ip := net.ParseIP(addr.Address)
+				if ip != nil && memberIPNet.Contains(ip) {
+					hasAddr = true
+					member.Address = addr.Address
+					break
+				}
 			}
 		}
 		// can't add a member without an address
@@ -391,6 +426,48 @@ func (r *CloudscaleClusterReconciler) getDesiredLoadBalancerMembers(ctx context.
 		}
 	}
 	return desiredList, nil
+}
+
+// getMemberSubnetCIDR resolves the subnet UUID used for LB pool members to its CIDR.
+// The CIDR is read from status (set during network reconciliation) so that BYO subnets
+// are discovered once and cached, avoiding repeated API calls.
+func (r *CloudscaleClusterReconciler) getMemberSubnetCIDR(clusterScope *scope.ClusterScope, subnetID string) (string, error) {
+	for _, ns := range clusterScope.CloudscaleCluster.Status.Networks {
+		if ns.SubnetID == subnetID && ns.CIDR != "" {
+			return ns.CIDR, nil
+		}
+	}
+	return "", fmt.Errorf("subnet %s has no cached CIDR in status; ensure networks are reconciled first", subnetID)
+}
+
+// getPoolMemberSubnetID determines the subnet UUID for LB pool members.
+// If the LB is on a private network, use that network's subnet.
+// Otherwise (public LB), use the first network's subnet.
+func (r *CloudscaleClusterReconciler) getPoolMemberSubnetID(clusterScope *scope.ClusterScope) (string, error) {
+	if clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Network != "" {
+		return lbPrivateNetworkSubnetID(clusterScope)
+	}
+
+	networks := clusterScope.CloudscaleCluster.Status.Networks
+	if len(networks) == 0 {
+		return "", fmt.Errorf("no networks in cluster status")
+	}
+	if networks[0].SubnetID == "" {
+		return "", fmt.Errorf("first network %q has no subnet ID", networks[0].Name)
+	}
+	return networks[0].SubnetID, nil
+}
+
+// lbPrivateNetworkSubnetID returns the subnet UUID of the private network that the LB
+// VIP is placed on (spec.controlPlaneLoadBalancer.network). Caller must verify that
+// spec.controlPlaneLoadBalancer.network is non-empty before calling.
+func lbPrivateNetworkSubnetID(clusterScope *scope.ClusterScope) (string, error) {
+	name := clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Network
+	ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus(name)
+	if ns == nil || ns.SubnetID == "" {
+		return "", fmt.Errorf("network %q not yet provisioned for LB VIP placement", name)
+	}
+	return ns.SubnetID, nil
 }
 
 func (r *CloudscaleClusterReconciler) createLoadBalancerMember(ctx context.Context, clusterScope *scope.ClusterScope, member cloudscalesdk.LoadBalancerPoolMemberRequest) error {

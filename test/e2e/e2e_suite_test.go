@@ -111,8 +111,15 @@ var _ = SynchronizedBeforeSuite(func() []byte {
 	Expect(sshKey).NotTo(BeEmpty(), "CLOUDSCALE_SSH_PUBLIC_KEY environment variable is required")
 	e2eConfig.Variables["CLOUDSCALE_SSH_PUBLIC_KEY"] = sshKey
 
-	By("Taking pre-test snapshot of cloudscale infrastructure resources")
 	cloudscaleClient = newCloudscaleClient(apiToken)
+
+	// Optional: BYO network for private networking tests.
+	// If not set, tests requiring a BYO network will be skipped.
+	if networkUUID := os.Getenv("CLOUDSCALE_NETWORK_UUID"); networkUUID != "" {
+		e2eConfig.Variables["CLOUDSCALE_NETWORK_UUID"] = networkUUID
+	}
+
+	By("Taking pre-test snapshot of cloudscale infrastructure resources")
 	var err error
 	preTestSnapshot, err = takeResourceSnapshot(ctx, cloudscaleClient)
 	Expect(err).NotTo(HaveOccurred(), "Failed to snapshot cloudscale resources")
@@ -153,6 +160,11 @@ var _ = SynchronizedBeforeSuite(func() []byte {
 		ConfigPath: configPath,
 	})
 	Expect(e2eConfig).NotTo(BeNil())
+
+	// Re-inject env-only variables lost when LoadE2EConfig overwrites e2eConfig.
+	if networkUUID := os.Getenv("CLOUDSCALE_NETWORK_UUID"); networkUUID != "" {
+		e2eConfig.Variables["CLOUDSCALE_NETWORK_UUID"] = networkUUID
+	}
 
 	if artifactFolder == "" {
 		artifactFolder = filepath.Join(os.TempDir(), "capcs-e2e-artifacts")

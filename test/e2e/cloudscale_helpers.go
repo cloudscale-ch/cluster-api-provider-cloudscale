@@ -39,6 +39,7 @@ type resourceSnapshot struct {
 	NetworkUUIDs      map[string]bool
 	LoadBalancerUUIDs map[string]bool
 	ServerGroupUUIDs  map[string]bool
+	FloatingIPHREFs   map[string]bool
 }
 
 // takeResourceSnapshot lists all relevant cloudscale resources and records their UUIDs.
@@ -48,6 +49,7 @@ func takeResourceSnapshot(ctx context.Context, client *cloudscale.Client) (*reso
 		NetworkUUIDs:      make(map[string]bool),
 		LoadBalancerUUIDs: make(map[string]bool),
 		ServerGroupUUIDs:  make(map[string]bool),
+		FloatingIPHREFs:   make(map[string]bool),
 	}
 
 	servers, err := client.Servers.List(ctx)
@@ -59,7 +61,14 @@ func takeResourceSnapshot(ctx context.Context, client *cloudscale.Client) (*reso
 	}
 
 	// TODO: volumes list
-	// TODO: floating ips list
+
+	floatingIPs, err := client.FloatingIPs.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing floating IPs: %w", err)
+	}
+	for _, fip := range floatingIPs {
+		snap.FloatingIPHREFs[fip.HREF] = true
+	}
 
 	networks, err := client.Networks.List(ctx)
 	if err != nil {
@@ -116,6 +125,11 @@ func checkForLeakedResources(ctx context.Context, client *cloudscale.Client, bef
 	for uuid := range after.ServerGroupUUIDs {
 		if !before.ServerGroupUUIDs[uuid] {
 			leaks = append(leaks, fmt.Sprintf("leaked server group: %s", uuid))
+		}
+	}
+	for href := range after.FloatingIPHREFs {
+		if !before.FloatingIPHREFs[href] {
+			leaks = append(leaks, fmt.Sprintf("leaked floating IP: %s", href))
 		}
 	}
 
