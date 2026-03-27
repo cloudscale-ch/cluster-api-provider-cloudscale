@@ -295,7 +295,12 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
 	mkdir -p dist
 	cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG}
-	"$(KUSTOMIZE)" build config/default > dist/install.yaml
+	"$(KUSTOMIZE)" build config/default > dist/infrastructure-components.yaml
+
+.PHONY: release-manifests
+release-manifests: build-installer ## Build all release artifacts into dist/ (infrastructure-components.yaml, metadata.yaml, cluster-template.yaml).
+	cp metadata.yaml dist/metadata.yaml
+	cp templates/cluster-template.yaml dist/cluster-template.yaml
 
 ##@ Deployment
 

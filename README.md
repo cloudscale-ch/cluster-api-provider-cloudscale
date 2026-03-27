@@ -1,9 +1,10 @@
 # Cluster API Provider for cloudscale.ch
 
+[![Tests](https://github.com/cloudscale-ch/cluster-api-provider-cloudscale/actions/workflows/test.yml/badge.svg)](https://github.com/cloudscale-ch/cluster-api-provider-cloudscale/actions/workflows/test.yml)
+[![Release](https://img.shields.io/github/v/release/cloudscale-ch/cluster-api-provider-cloudscale)](https://github.com/cloudscale-ch/cluster-api-provider-cloudscale/releases/latest)
+
 Kubernetes [Cluster API](https://cluster-api.sigs.k8s.io/) infrastructure provider
 for [cloudscale.ch](https://www.cloudscale.ch).
-
-**Status**: early development
 
 ## Features
 
@@ -13,11 +14,50 @@ for [cloudscale.ch](https://www.cloudscale.ch).
 
 ## Prerequisites
 
-- Go 1.25+
-- Docker
-- kubectl
-- Access to a Kubernetes cluster ([kind](https://kind.sigs.k8s.io/) for development)
-- cloudscale.ch API token
+- A Kubernetes cluster to use as a management cluster ([kind](https://kind.sigs.k8s.io/) works)
+- [clusterctl](https://cluster-api.sigs.k8s.io/user/quick-start#install-clusterctl)
+- A [cloudscale.ch](https://www.cloudscale.ch) account and API token
+- A custom image imported into cloudscale. Images can e.g. be generated using [image-builder Openstack](https://image-builder.sigs.k8s.io/)
+
+## Quickstart
+
+### Initialize the management cluster
+
+```bash
+export CLOUDSCALE_API_TOKEN=<your-api-token>
+
+clusterctl init --infrastructure cloudscale
+```
+
+### Generate and apply a workload cluster
+
+Set the [required environment variables](#environment-variables), then generate and apply the cluster manifest:
+
+```bash
+clusterctl generate cluster my-cluster \
+  --kubernetes-version v1.32.0 \
+  --control-plane-machine-count 1 \
+  --worker-machine-count 2 \
+  | kubectl apply -f -
+```
+
+Watch the cluster come up:
+
+```bash
+clusterctl describe cluster my-cluster
+```
+
+## Environment Variables
+
+| Variable                                  | Description                    | Example                           |
+|-------------------------------------------|--------------------------------|-----------------------------------|
+| `CLOUDSCALE_API_TOKEN`                    | cloudscale.ch API token        | `abc123...`                       |
+| `CLOUDSCALE_SSH_PUBLIC_KEY`               | SSH public key added to nodes  | `ssh-ed25519 AAAA...`             |
+| `CLOUDSCALE_REGION`                       | cloudscale.ch region           | `lpg` or `rma`                    |
+| `CLOUDSCALE_MACHINE_IMAGE`                | Server image for nodes         | `custom:ubuntu-2404-kube-v1.32.0` |
+| `CLOUDSCALE_CONTROL_PLANE_MACHINE_FLAVOR` | Flavor for control plane nodes | `flex-4-2`                        |
+| `CLOUDSCALE_WORKER_MACHINE_FLAVOR`        | Flavor for worker nodes        | `flex-4-2`                        |
+| `CLOUDSCALE_ROOT_VOLUME_SIZE`             | Root volume size in GB         | `50`                              |
 
 ## Development
 

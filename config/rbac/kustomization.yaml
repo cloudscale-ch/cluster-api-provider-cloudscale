@@ -18,17 +18,4 @@ resources:
 - metrics_auth_role.yaml
 - metrics_auth_role_binding.yaml
 - metrics_reader_role.yaml
-# For each CRD, "Admin", "Editor" and "Viewer" roles are scaffolded by
-# default, aiding admins in cluster management. Those roles are
-# not used by the cluster-api-provider-cloudscale itself. You can comment the following lines
-# if you do not want those helpers be installed with your Project.
-- cloudscalemachinetemplate_admin_role.yaml
-- cloudscalemachinetemplate_editor_role.yaml
-- cloudscalemachinetemplate_viewer_role.yaml
-- cloudscalemachine_admin_role.yaml
-- cloudscalemachine_editor_role.yaml
-- cloudscalemachine_viewer_role.yaml
-- cloudscalecluster_admin_role.yaml
-- cloudscalecluster_editor_role.yaml
-- cloudscalecluster_viewer_role.yaml
 
