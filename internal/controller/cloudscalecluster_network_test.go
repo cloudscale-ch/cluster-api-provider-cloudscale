@@ -38,7 +38,6 @@ const netUUID = "net-uuid-123"
 // --- Test helpers ---
 
 func newTestClusterScope(networkService cs.NetworkService, subnetService cs.SubnetService) *scope.ClusterScope {
-	defaultGateway := ""
 	return &scope.ClusterScope{
 		Logger: logr.Discard(),
 		Cluster: &clusterv1.Cluster{
@@ -55,9 +54,11 @@ func newTestClusterScope(networkService cs.NetworkService, subnetService cs.Subn
 			Spec: infrastructurev1beta2.CloudscaleClusterSpec{
 				Region: "rma",
 				Zone:   "rma1",
-				Network: infrastructurev1beta2.NetworkSpec{
-					CIDR:           "10.0.0.0/24",
-					GatewayAddress: &defaultGateway,
+				Networks: []infrastructurev1beta2.NetworkSpec{
+					{
+						Name: "test",
+						CIDR: "10.0.0.0/24",
+					},
 				},
 			},
 		},
@@ -101,9 +102,11 @@ func TestReconcileNetwork_CreatesBothResources(t *testing.T) {
 	err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(clusterScope.CloudscaleCluster.Status.NetworkID).To(Equal(netUUID))
-	g.Expect(clusterScope.CloudscaleCluster.Status.SubnetID).To(Equal("subnet-uuid-123"))
-	g.Expect(capturedNetReq.Name).To(Equal("test-cluster"))
+	ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus("test")
+	g.Expect(ns).ToNot(BeNil())
+	g.Expect(ns.NetworkID).To(Equal(netUUID))
+	g.Expect(ns.SubnetID).To(Equal("subnet-uuid-123"))
+	g.Expect(capturedNetReq.Name).To(Equal("test"))
 	g.Expect(capturedNetReq.Zone).To(Equal("rma1"))
 	g.Expect(capturedNetReq.AutoCreateIPV4Subnet).ToNot(BeNil())
 	g.Expect(*capturedNetReq.AutoCreateIPV4Subnet).To(BeFalse())
@@ -135,16 +138,19 @@ func TestReconcileNetwork_SkipsIfBothExist(t *testing.T) {
 	}
 
 	clusterScope := newTestClusterScope(networkService, subnetService)
-	clusterScope.CloudscaleCluster.Status.NetworkID = "existing-net"
-	clusterScope.CloudscaleCluster.Status.SubnetID = "existing-subnet"
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "test", NetworkID: "existing-net", SubnetID: "existing-subnet", Managed: true},
+	}
 
 	r := newTestReconciler()
 
 	err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(clusterScope.CloudscaleCluster.Status.NetworkID).To(Equal("existing-net"))
-	g.Expect(clusterScope.CloudscaleCluster.Status.SubnetID).To(Equal("existing-subnet"))
+	ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus("test")
+	g.Expect(ns).ToNot(BeNil())
+	g.Expect(ns.NetworkID).To(Equal("existing-net"))
+	g.Expect(ns.SubnetID).To(Equal("existing-subnet"))
 }
 
 func TestReconcileNetwork_NetworkErrorStopsSubnet(t *testing.T) {
@@ -169,7 +175,7 @@ func TestReconcileNetwork_NetworkErrorStopsSubnet(t *testing.T) {
 
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("api error"))
-	g.Expect(clusterScope.CloudscaleCluster.Status.SubnetID).To(BeEmpty())
+	g.Expect(clusterScope.CloudscaleCluster.Status.GetNetworkStatus("test")).To(BeNil())
 }
 
 func TestReconcileNetwork_SubnetErrorSurfaced(t *testing.T) {
@@ -193,12 +199,11 @@ func TestReconcileNetwork_SubnetErrorSurfaced(t *testing.T) {
 
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("subnet api error"))
-	g.Expect(clusterScope.CloudscaleCluster.Status.NetworkID).To(Equal("net-uuid"))
 }
 
-// --- Network sub-resource tests ---
+// --- Managed network sub-resource tests (via reconcileNetwork orchestrator) ---
 
-func TestReconcileNetworkResource_FindsByTag(t *testing.T) {
+func TestReconcileNetwork_FindsByTag(t *testing.T) {
 	g := NewWithT(t)
 
 	networkService := &mockNetworkService{
@@ -212,17 +217,31 @@ func TestReconcileNetworkResource_FindsByTag(t *testing.T) {
 			return nil, nil
 		},
 	}
+	subnetService := &mockSubnetService{
+		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.Subnet, error) {
+			return []cloudscale.Subnet{
+				{UUID: "found-subnet-uuid", CIDR: "10.0.0.0/24"},
+			}, nil
+		},
+		createFn: func(ctx context.Context, req *cloudscale.SubnetCreateRequest) (*cloudscale.Subnet, error) {
+			t.Fatal("Create should not be called when subnet is found by tag")
+			return nil, nil
+		},
+	}
 
-	clusterScope := newTestClusterScope(networkService, &mockSubnetService{})
+	clusterScope := newTestClusterScope(networkService, subnetService)
 	r := newTestReconciler()
 
-	err := r.reconcileNetworkResource(context.Background(), clusterScope)
+	err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(clusterScope.CloudscaleCluster.Status.NetworkID).To(Equal("found-net-uuid"))
+	ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus("test")
+	g.Expect(ns).ToNot(BeNil())
+	g.Expect(ns.NetworkID).To(Equal("found-net-uuid"))
+	g.Expect(ns.SubnetID).To(Equal("found-subnet-uuid"))
 }
 
-func TestReconcileNetworkResource_ErrorsOnMultiple(t *testing.T) {
+func TestReconcileNetwork_ErrorsOnMultipleNetworks(t *testing.T) {
 	g := NewWithT(t)
 
 	networkService := &mockNetworkService{
@@ -237,13 +256,13 @@ func TestReconcileNetworkResource_ErrorsOnMultiple(t *testing.T) {
 	clusterScope := newTestClusterScope(networkService, &mockSubnetService{})
 	r := newTestReconciler()
 
-	err := r.reconcileNetworkResource(context.Background(), clusterScope)
+	err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("found 2 networks matching tag filter"))
+	g.Expect(err.Error()).To(ContainSubstring("found 2 network/tests matching tag filter"))
 }
 
-func TestReconcileNetworkResource_RecreatesIfDeletedExternally(t *testing.T) {
+func TestReconcileNetwork_RecreatesIfDeletedExternally(t *testing.T) {
 	g := NewWithT(t)
 
 	var created bool
@@ -260,24 +279,38 @@ func TestReconcileNetworkResource_RecreatesIfDeletedExternally(t *testing.T) {
 			return &cloudscale.Network{UUID: "new-net-uuid", Name: req.Name}, nil
 		},
 	}
+	subnetService := &mockSubnetService{
+		createFn: func(ctx context.Context, req *cloudscale.SubnetCreateRequest) (*cloudscale.Subnet, error) {
+			return &cloudscale.Subnet{UUID: "new-subnet-uuid", CIDR: req.CIDR}, nil
+		},
+	}
 
-	clusterScope := newTestClusterScope(networkService, &mockSubnetService{})
-	clusterScope.CloudscaleCluster.Status.NetworkID = "deleted-net-uuid"
+	clusterScope := newTestClusterScope(networkService, subnetService)
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "test", NetworkID: "deleted-net-uuid", Managed: true},
+	}
 
 	r := newTestReconciler()
 
-	err := r.reconcileNetworkResource(context.Background(), clusterScope)
+	err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(created).To(BeTrue(), "Should create a new network when old one was deleted")
-	g.Expect(clusterScope.CloudscaleCluster.Status.NetworkID).To(Equal("new-net-uuid"))
+	ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus("test")
+	g.Expect(ns).ToNot(BeNil())
+	g.Expect(ns.NetworkID).To(Equal("new-net-uuid"))
 }
 
-// --- Subnet sub-resource tests ---
+// --- Subnet sub-resource tests (via reconcileNetwork orchestrator) ---
 
-func TestReconcileSubnet_FindsByTag(t *testing.T) {
+func TestReconcileNetwork_SubnetFindsByTag(t *testing.T) {
 	g := NewWithT(t)
 
+	networkService := &mockNetworkService{
+		createFn: func(ctx context.Context, req *cloudscale.NetworkCreateRequest) (*cloudscale.Network, error) {
+			return &cloudscale.Network{UUID: netUUID, Name: req.Name}, nil
+		},
+	}
 	subnetService := &mockSubnetService{
 		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.Subnet, error) {
 			return []cloudscale.Subnet{
@@ -290,20 +323,34 @@ func TestReconcileSubnet_FindsByTag(t *testing.T) {
 		},
 	}
 
-	clusterScope := newTestClusterScope(&mockNetworkService{}, subnetService)
-	clusterScope.CloudscaleCluster.Status.NetworkID = netUUID
+	clusterScope := newTestClusterScope(networkService, subnetService)
+	// Pre-populate network status so the network part is resolved via Get
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "test", NetworkID: netUUID, Managed: true},
+	}
+	// The networkService Get should return the existing network
+	networkService.getFn = func(ctx context.Context, id string) (*cloudscale.Network, error) {
+		return &cloudscale.Network{UUID: id}, nil
+	}
 
 	r := newTestReconciler()
 
-	err := r.reconcileSubnet(context.Background(), clusterScope)
+	err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(clusterScope.CloudscaleCluster.Status.SubnetID).To(Equal("found-subnet-uuid"))
+	ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus("test")
+	g.Expect(ns).ToNot(BeNil())
+	g.Expect(ns.SubnetID).To(Equal("found-subnet-uuid"))
 }
 
-func TestReconcileSubnet_ErrorsOnMultiple(t *testing.T) {
+func TestReconcileNetwork_SubnetErrorsOnMultiple(t *testing.T) {
 	g := NewWithT(t)
 
+	networkService := &mockNetworkService{
+		getFn: func(ctx context.Context, id string) (*cloudscale.Network, error) {
+			return &cloudscale.Network{UUID: id}, nil
+		},
+	}
 	subnetService := &mockSubnetService{
 		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.Subnet, error) {
 			return []cloudscale.Subnet{
@@ -313,22 +360,29 @@ func TestReconcileSubnet_ErrorsOnMultiple(t *testing.T) {
 		},
 	}
 
-	clusterScope := newTestClusterScope(&mockNetworkService{}, subnetService)
-	clusterScope.CloudscaleCluster.Status.NetworkID = netUUID
+	clusterScope := newTestClusterScope(networkService, subnetService)
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "test", NetworkID: netUUID, Managed: true},
+	}
 
 	r := newTestReconciler()
 
-	err := r.reconcileSubnet(context.Background(), clusterScope)
+	err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("found 2 subnets matching tag filter"))
+	g.Expect(err.Error()).To(ContainSubstring("found 2 subnet/tests matching tag filter"))
 }
 
-func TestReconcileSubnet_RecreatesIfDeletedExternally(t *testing.T) {
+func TestReconcileNetwork_SubnetRecreatesIfDeletedExternally(t *testing.T) {
 	g := NewWithT(t)
 
 	var created bool
 
+	networkService := &mockNetworkService{
+		getFn: func(ctx context.Context, id string) (*cloudscale.Network, error) {
+			return &cloudscale.Network{UUID: id}, nil
+		},
+	}
 	subnetService := &mockSubnetService{
 		getFn: func(ctx context.Context, id string) (*cloudscale.Subnet, error) {
 			return nil, &cloudscale.ErrorResponse{StatusCode: 404}
@@ -342,24 +396,32 @@ func TestReconcileSubnet_RecreatesIfDeletedExternally(t *testing.T) {
 		},
 	}
 
-	clusterScope := newTestClusterScope(&mockNetworkService{}, subnetService)
-	clusterScope.CloudscaleCluster.Status.NetworkID = netUUID
-	clusterScope.CloudscaleCluster.Status.SubnetID = "deleted-subnet-uuid"
+	clusterScope := newTestClusterScope(networkService, subnetService)
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "test", NetworkID: netUUID, SubnetID: "deleted-subnet-uuid", Managed: true},
+	}
 
 	r := newTestReconciler()
 
-	err := r.reconcileSubnet(context.Background(), clusterScope)
+	err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(created).To(BeTrue(), "Should create a new subnet when old one was deleted")
-	g.Expect(clusterScope.CloudscaleCluster.Status.SubnetID).To(Equal("new-subnet-uuid"))
+	ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus("test")
+	g.Expect(ns).ToNot(BeNil())
+	g.Expect(ns.SubnetID).To(Equal("new-subnet-uuid"))
 }
 
-func TestReconcileSubnet_CustomCIDR(t *testing.T) {
+func TestReconcileNetwork_CustomCIDR(t *testing.T) {
 	g := NewWithT(t)
 
 	var capturedReq *cloudscale.SubnetCreateRequest
 
+	networkService := &mockNetworkService{
+		createFn: func(ctx context.Context, req *cloudscale.NetworkCreateRequest) (*cloudscale.Network, error) {
+			return &cloudscale.Network{UUID: netUUID, Name: req.Name}, nil
+		},
+	}
 	subnetService := &mockSubnetService{
 		createFn: func(ctx context.Context, req *cloudscale.SubnetCreateRequest) (*cloudscale.Subnet, error) {
 			capturedReq = req
@@ -367,23 +429,27 @@ func TestReconcileSubnet_CustomCIDR(t *testing.T) {
 		},
 	}
 
-	clusterScope := newTestClusterScope(&mockNetworkService{}, subnetService)
-	clusterScope.CloudscaleCluster.Status.NetworkID = netUUID
-	clusterScope.CloudscaleCluster.Spec.Network.CIDR = "192.168.0.0/16"
+	clusterScope := newTestClusterScope(networkService, subnetService)
+	clusterScope.CloudscaleCluster.Spec.Networks[0].CIDR = "192.168.0.0/16"
 
 	r := newTestReconciler()
 
-	err := r.reconcileSubnet(context.Background(), clusterScope)
+	err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(capturedReq.CIDR).To(Equal("192.168.0.0/16"))
 }
 
-func TestReconcileSubnet_ExplicitGateway(t *testing.T) {
+func TestReconcileNetwork_ExplicitGateway(t *testing.T) {
 	g := NewWithT(t)
 
 	var capturedReq *cloudscale.SubnetCreateRequest
 
+	networkService := &mockNetworkService{
+		createFn: func(ctx context.Context, req *cloudscale.NetworkCreateRequest) (*cloudscale.Network, error) {
+			return &cloudscale.Network{UUID: netUUID, Name: req.Name}, nil
+		},
+	}
 	subnetService := &mockSubnetService{
 		createFn: func(ctx context.Context, req *cloudscale.SubnetCreateRequest) (*cloudscale.Subnet, error) {
 			capturedReq = req
@@ -391,36 +457,20 @@ func TestReconcileSubnet_ExplicitGateway(t *testing.T) {
 		},
 	}
 
-	clusterScope := newTestClusterScope(&mockNetworkService{}, subnetService)
-	clusterScope.CloudscaleCluster.Status.NetworkID = netUUID
-	gateway := "10.0.0.254"
-	clusterScope.CloudscaleCluster.Spec.Network.GatewayAddress = &gateway
+	clusterScope := newTestClusterScope(networkService, subnetService)
+	clusterScope.CloudscaleCluster.Spec.Networks[0].GatewayAddress = "10.0.0.254"
 
 	r := newTestReconciler()
 
-	err := r.reconcileSubnet(context.Background(), clusterScope)
+	err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(capturedReq.GatewayAddress).To(Equal("10.0.0.254"))
 }
 
-func TestReconcileSubnet_FailsIfNoNetwork(t *testing.T) {
-	g := NewWithT(t)
-
-	clusterScope := newTestClusterScope(&mockNetworkService{}, &mockSubnetService{})
-	clusterScope.CloudscaleCluster.Status.NetworkID = ""
-
-	r := newTestReconciler()
-
-	err := r.reconcileSubnet(context.Background(), clusterScope)
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("network must be created before subnet"))
-}
-
 // --- Delete tests ---
 
-func TestDeleteNetwork_DeletesNetworkAndClearsBothIDs(t *testing.T) {
+func TestDeleteNetwork_DeletesNetworkAndClearsStatus(t *testing.T) {
 	g := NewWithT(t)
 
 	var deletedID string
@@ -433,8 +483,9 @@ func TestDeleteNetwork_DeletesNetworkAndClearsBothIDs(t *testing.T) {
 	}
 
 	clusterScope := newTestClusterScope(networkService, &mockSubnetService{})
-	clusterScope.CloudscaleCluster.Status.NetworkID = "net-to-delete"
-	clusterScope.CloudscaleCluster.Status.SubnetID = "subnet-to-cascade"
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "test", NetworkID: "net-to-delete", SubnetID: "subnet-to-cascade", Managed: true},
+	}
 
 	r := newTestReconciler()
 
@@ -442,8 +493,7 @@ func TestDeleteNetwork_DeletesNetworkAndClearsBothIDs(t *testing.T) {
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(deletedID).To(Equal("net-to-delete"))
-	g.Expect(clusterScope.CloudscaleCluster.Status.NetworkID).To(BeEmpty())
-	g.Expect(clusterScope.CloudscaleCluster.Status.SubnetID).To(BeEmpty())
+	g.Expect(clusterScope.CloudscaleCluster.Status.Networks).To(BeNil())
 }
 
 func TestDeleteNetwork_SkipsIfNoNetwork(t *testing.T) {
@@ -475,16 +525,304 @@ func TestDeleteNetwork_IgnoresAlreadyDeleted(t *testing.T) {
 	}
 
 	clusterScope := newTestClusterScope(networkService, &mockSubnetService{})
-	clusterScope.CloudscaleCluster.Status.NetworkID = "already-deleted-net"
-	clusterScope.CloudscaleCluster.Status.SubnetID = "already-deleted-subnet"
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "test", NetworkID: "already-deleted-net", SubnetID: "already-deleted-subnet", Managed: true},
+	}
 
 	r := newTestReconciler()
 
 	err := r.deleteNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(clusterScope.CloudscaleCluster.Status.NetworkID).To(BeEmpty())
-	g.Expect(clusterScope.CloudscaleCluster.Status.SubnetID).To(BeEmpty())
+	g.Expect(clusterScope.CloudscaleCluster.Status.Networks).To(BeNil())
+}
+
+func TestDeleteNetwork_SkipsBYONetwork(t *testing.T) {
+	g := NewWithT(t)
+
+	networkService := &mockNetworkService{
+		deleteFn: func(ctx context.Context, id string) error {
+			t.Fatal("Delete should not be called for BYO networks")
+			return nil
+		},
+	}
+
+	clusterScope := newTestClusterScope(networkService, &mockSubnetService{})
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "byo", NetworkID: "byo-net", SubnetID: "byo-subnet", Managed: false},
+	}
+
+	r := newTestReconciler()
+
+	err := r.deleteNetwork(context.Background(), clusterScope)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	// BYO networks are preserved in status even during deletion
+	g.Expect(clusterScope.CloudscaleCluster.Status.Networks).To(HaveLen(1))
+	g.Expect(clusterScope.CloudscaleCluster.Status.Networks[0].Name).To(Equal("byo"))
+	g.Expect(clusterScope.CloudscaleCluster.Status.Networks[0].Managed).To(BeFalse())
+}
+
+func TestDeleteNetwork_PartialFailureKeepsFailedInStatus(t *testing.T) {
+	g := NewWithT(t)
+
+	var deletedIDs []string
+
+	networkService := &mockNetworkService{
+		deleteFn: func(ctx context.Context, id string) error {
+			if id == "net-2" {
+				return fmt.Errorf("api timeout")
+			}
+			deletedIDs = append(deletedIDs, id)
+			return nil
+		},
+	}
+
+	clusterScope := newTestClusterScope(networkService, &mockSubnetService{})
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "net-a", NetworkID: "net-1", Managed: true},
+		{Name: "net-b", NetworkID: "net-2", Managed: true},
+		{Name: "net-c", NetworkID: "net-3", Managed: true},
+	}
+
+	r := newTestReconciler()
+
+	err := r.deleteNetwork(context.Background(), clusterScope)
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("deleting network net-b"))
+
+	// net-1 and net-3 were successfully deleted
+	g.Expect(deletedIDs).To(ConsistOf("net-1", "net-3"))
+
+	// Only the failed network remains in status
+	g.Expect(clusterScope.CloudscaleCluster.Status.Networks).To(HaveLen(1))
+	g.Expect(clusterScope.CloudscaleCluster.Status.Networks[0].Name).To(Equal("net-b"))
+	g.Expect(clusterScope.CloudscaleCluster.Status.Networks[0].NetworkID).To(Equal("net-2"))
+}
+
+func TestDeleteNetwork_PartialFailurePreservesBYO(t *testing.T) {
+	g := NewWithT(t)
+
+	var deletedIDs []string
+
+	networkService := &mockNetworkService{
+		deleteFn: func(ctx context.Context, id string) error {
+			if id == "managed-net-2" {
+				return fmt.Errorf("api timeout")
+			}
+			deletedIDs = append(deletedIDs, id)
+			return nil
+		},
+	}
+
+	clusterScope := newTestClusterScope(networkService, &mockSubnetService{})
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "managed-a", NetworkID: "managed-net-1", Managed: true},
+		{Name: "managed-b", NetworkID: "managed-net-2", Managed: true},
+		{Name: "byo-net", NetworkID: "byo-net-uuid", SubnetID: "byo-subnet-uuid", Managed: false},
+	}
+
+	r := newTestReconciler()
+
+	err := r.deleteNetwork(context.Background(), clusterScope)
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("deleting network managed-b"))
+
+	// Both the failed managed network and the BYO network are preserved
+	g.Expect(clusterScope.CloudscaleCluster.Status.Networks).To(HaveLen(2))
+	g.Expect(clusterScope.CloudscaleCluster.Status.Networks[0].Name).To(Equal("managed-b"))
+	g.Expect(clusterScope.CloudscaleCluster.Status.Networks[1].Name).To(Equal("byo-net"))
+	g.Expect(clusterScope.CloudscaleCluster.Status.Networks[1].Managed).To(BeFalse())
+}
+
+// --- BYO network tests ---
+
+func TestReconcileNetwork_BYOCachedShortCircuits(t *testing.T) {
+	g := NewWithT(t)
+
+	networkService := &mockNetworkService{
+		getFn: func(ctx context.Context, id string) (*cloudscale.Network, error) {
+			t.Fatal("Get should not be called when BYO status is cached")
+			return nil, nil
+		},
+	}
+
+	clusterScope := newTestClusterScope(networkService, &mockSubnetService{})
+	clusterScope.CloudscaleCluster.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
+		{Name: "byo-net", UUID: "byo-uuid"},
+	}
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "byo-net", NetworkID: "byo-uuid", SubnetID: "byo-subnet-uuid", CIDR: "10.0.0.0/24", Managed: false},
+	}
+
+	r := newTestReconciler()
+
+	err := r.reconcileNetwork(context.Background(), clusterScope)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus("byo-net")
+	g.Expect(ns).ToNot(BeNil())
+	g.Expect(ns.NetworkID).To(Equal("byo-uuid"))
+	g.Expect(ns.SubnetID).To(Equal("byo-subnet-uuid"))
+}
+
+func TestReconcileNetwork_BYOReDiscoversWhenCIDRMissing(t *testing.T) {
+	g := NewWithT(t)
+
+	networkService := &mockNetworkService{
+		getFn: func(ctx context.Context, id string) (*cloudscale.Network, error) {
+			g.Expect(id).To(Equal("byo-uuid"))
+			return &cloudscale.Network{
+				UUID: "byo-uuid",
+				ZonalResource: cloudscale.ZonalResource{
+					Zone: cloudscale.ZoneStub{Slug: "rma1"},
+				},
+				Subnets: []cloudscale.SubnetStub{
+					{UUID: "byo-subnet-uuid", CIDR: "192.168.0.0/24"},
+				},
+			}, nil
+		},
+	}
+
+	clusterScope := newTestClusterScope(networkService, &mockSubnetService{})
+	clusterScope.CloudscaleCluster.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
+		{Name: "byo-net", UUID: "byo-uuid"},
+	}
+	// CIDR is missing — simulates stale/upgrade status
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "byo-net", NetworkID: "byo-uuid", SubnetID: "byo-subnet-uuid", Managed: false},
+	}
+
+	r := newTestReconciler()
+
+	err := r.reconcileNetwork(context.Background(), clusterScope)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus("byo-net")
+	g.Expect(ns).ToNot(BeNil())
+	g.Expect(ns.NetworkID).To(Equal("byo-uuid"))
+	g.Expect(ns.SubnetID).To(Equal("byo-subnet-uuid"))
+	g.Expect(ns.CIDR).To(Equal("192.168.0.0/24"))
+	g.Expect(ns.Managed).To(BeFalse())
+}
+
+func TestReconcileNetwork_BYOFetchesAndSetsStatus(t *testing.T) {
+	g := NewWithT(t)
+
+	networkService := &mockNetworkService{
+		getFn: func(ctx context.Context, id string) (*cloudscale.Network, error) {
+			g.Expect(id).To(Equal("byo-uuid"))
+			return &cloudscale.Network{
+				UUID: "byo-uuid",
+				ZonalResource: cloudscale.ZonalResource{
+					Zone: cloudscale.ZoneStub{Slug: "rma1"},
+				},
+				Subnets: []cloudscale.SubnetStub{
+					{UUID: "discovered-subnet-uuid"},
+				},
+			}, nil
+		},
+	}
+
+	clusterScope := newTestClusterScope(networkService, &mockSubnetService{})
+	clusterScope.CloudscaleCluster.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
+		{Name: "byo-net", UUID: "byo-uuid"},
+	}
+
+	r := newTestReconciler()
+
+	err := r.reconcileNetwork(context.Background(), clusterScope)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus("byo-net")
+	g.Expect(ns).ToNot(BeNil())
+	g.Expect(ns.NetworkID).To(Equal("byo-uuid"))
+	g.Expect(ns.SubnetID).To(Equal("discovered-subnet-uuid"))
+	g.Expect(ns.Managed).To(BeFalse())
+}
+
+func TestReconcileNetwork_BYOGetError(t *testing.T) {
+	g := NewWithT(t)
+
+	networkService := &mockNetworkService{
+		getFn: func(ctx context.Context, id string) (*cloudscale.Network, error) {
+			return nil, fmt.Errorf("network not found")
+		},
+	}
+
+	clusterScope := newTestClusterScope(networkService, &mockSubnetService{})
+	clusterScope.CloudscaleCluster.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
+		{Name: "byo-net", UUID: "byo-uuid"},
+	}
+
+	r := newTestReconciler()
+
+	err := r.reconcileNetwork(context.Background(), clusterScope)
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("network not found"))
+}
+
+func TestReconcileNetwork_BYOZoneMismatchErrors(t *testing.T) {
+	g := NewWithT(t)
+
+	networkService := &mockNetworkService{
+		getFn: func(ctx context.Context, id string) (*cloudscale.Network, error) {
+			return &cloudscale.Network{
+				UUID: "byo-uuid",
+				ZonalResource: cloudscale.ZonalResource{
+					Zone: cloudscale.ZoneStub{Slug: "lpg1"},
+				},
+				Subnets: []cloudscale.SubnetStub{
+					{UUID: "discovered-subnet-uuid"},
+				},
+			}, nil
+		},
+	}
+
+	clusterScope := newTestClusterScope(networkService, &mockSubnetService{})
+	clusterScope.CloudscaleCluster.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
+		{Name: "byo-net", UUID: "byo-uuid"},
+	}
+
+	r := newTestReconciler()
+
+	err := r.reconcileNetwork(context.Background(), clusterScope)
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("lpg1"))
+	g.Expect(err.Error()).To(ContainSubstring("rma1"))
+	g.Expect(clusterScope.CloudscaleCluster.Status.GetNetworkStatus("byo-net")).To(BeNil())
+}
+
+func TestReconcileNetwork_BYONoSubnetsErrors(t *testing.T) {
+	g := NewWithT(t)
+
+	networkService := &mockNetworkService{
+		getFn: func(ctx context.Context, id string) (*cloudscale.Network, error) {
+			return &cloudscale.Network{
+				UUID: "byo-uuid",
+				ZonalResource: cloudscale.ZonalResource{
+					Zone: cloudscale.ZoneStub{Slug: "rma1"},
+				},
+				Subnets: []cloudscale.SubnetStub{},
+			}, nil
+		},
+	}
+
+	clusterScope := newTestClusterScope(networkService, &mockSubnetService{})
+	clusterScope.CloudscaleCluster.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
+		{Name: "byo-net", UUID: "byo-uuid"},
+	}
+
+	r := newTestReconciler()
+
+	err := r.reconcileNetwork(context.Background(), clusterScope)
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("has no subnets"))
 }
 
 // --- Mock services ---

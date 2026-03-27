@@ -37,10 +37,11 @@ jobs:
       - name: Run weekly e2e tests
         env:
           CLOUDSCALE_API_TOKEN: ${{ secrets.CLOUDSCALE_API_TOKEN }}
+          CLOUDSCALE_NETWORK_UUID: ${{ secrets.CLOUDSCALE_NETWORK_UUID }}
           TAG: e2e-weekly-${{ github.sha }}
         run: |
           make test-e2e \
-            GINKGO_LABEL_FILTER="ha || upgrade || self-hosted || kcp-remediation || conformance" \
+            GINKGO_LABEL_FILTER="ha || upgrade || self-hosted || kcp-remediation || conformance || byo-networking" \
             KUBETEST_CONFIGURATION=./data/kubetest/conformance-fast.yaml
 
       - name: Install regctl

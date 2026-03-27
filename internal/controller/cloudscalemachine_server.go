@@ -33,6 +33,10 @@ import (
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/scope"
 )
 
+// InterfaceTypePublic is the cloudscale.ch SDK value for a public network interface,
+// used both as the Server.Interfaces[].Type and as InterfaceRequest.Network.
+const InterfaceTypePublic = "public"
+
 // ServerStatus represents the status of a cloudscale.ch server.
 type ServerStatus string
 
@@ -126,6 +130,12 @@ func (r *CloudscaleMachineReconciler) reconcileServer(ctx context.Context, machi
 		return ctrl.Result{}, fmt.Errorf("getting bootstrap data: %w", err)
 	}
 
+	// Build network interfaces
+	interfaces, ipFamily, err := r.buildInterfaceRequests(machineScope)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("building interface requests: %w", err)
+	}
+
 	// Build server request
 	req := &cloudscalesdk.ServerRequest{
 		Name:   machineScope.Name(),
@@ -136,7 +146,8 @@ func (r *CloudscaleMachineReconciler) reconcileServer(ctx context.Context, machi
 			Tags: r.machineCreateTags(machineScope),
 		},
 		UserData:   bootstrapData,
-		Interfaces: r.buildInterfaceRequests(machineScope),
+		Interfaces: interfaces,
+		UseIPV6:    ipFamilyToUseIPV6(ipFamily),
 		// sending nil doesn't work, we need to explicitly send an empty slice
 		SSHKeys: []string{},
 	}
@@ -208,7 +219,7 @@ func (r *CloudscaleMachineReconciler) updateMachineFromServer(machineScope *scop
 	addresses := make([]clusterv1.MachineAddress, 0, len(server.Interfaces)*2)
 	for _, iface := range server.Interfaces {
 		addressType := clusterv1.MachineInternalIP
-		if iface.Type == "public" {
+		if iface.Type == InterfaceTypePublic {
 			addressType = clusterv1.MachineExternalIP
 		}
 		for _, addr := range iface.Addresses {
@@ -271,17 +282,60 @@ func (r *CloudscaleMachineReconciler) machineLookupTag(machineScope *scope.Machi
 }
 
 // buildInterfaceRequests constructs the network interfaces for server creation.
-// All machines get both a private network interface and a public network interface.
-// The public interface is required for machines to reach the API server endpoint.
-func (r *CloudscaleMachineReconciler) buildInterfaceRequests(machineScope *scope.MachineScope) *[]cloudscalesdk.InterfaceRequest {
-	interfaces := []cloudscalesdk.InterfaceRequest{
-		{
-			Network: machineScope.CloudscaleCluster.Status.NetworkID,
-		},
-		{
-			Network: "public",
-		},
+// If spec.interfaces is empty, defaults to the first cluster network + a public interface
+// (runtime cross-resource resolution that the webhook cannot do).
+// Returns the interface requests and the IPFamily from the public interface (if any).
+func (r *CloudscaleMachineReconciler) buildInterfaceRequests(machineScope *scope.MachineScope) (*[]cloudscalesdk.InterfaceRequest, *infrastructurev1beta2.IPFamily, error) {
+	ifaceSpecs := machineScope.CloudscaleMachine.Spec.Interfaces
+
+	// Runtime default: first cluster network + public DualStack interface
+	if len(ifaceSpecs) == 0 {
+		if len(machineScope.CloudscaleCluster.Status.Networks) == 0 {
+			return nil, nil, fmt.Errorf("cluster has no networks provisioned yet")
+		}
+		firstNetwork := machineScope.CloudscaleCluster.Status.Networks[0]
+		return &[]cloudscalesdk.InterfaceRequest{
+			{Network: firstNetwork.NetworkID},
+			{Network: InterfaceTypePublic},
+		}, nil, nil
 	}
 
-	return &interfaces
+	// Build from spec
+	reqs := make([]cloudscalesdk.InterfaceRequest, 0, len(ifaceSpecs))
+	var ipFamily *infrastructurev1beta2.IPFamily
+	for _, iface := range ifaceSpecs {
+		switch {
+		case iface.Type == InterfaceTypePublic:
+			reqs = append(reqs, cloudscalesdk.InterfaceRequest{Network: InterfaceTypePublic})
+			ipFamily = iface.IPFamily
+		case iface.Network != "":
+			ns := machineScope.CloudscaleCluster.Status.GetNetworkStatus(iface.Network)
+			if ns == nil {
+				return nil, nil, fmt.Errorf("network %q not found in cluster status", iface.Network)
+			}
+			if ns.NetworkID == "" {
+				return nil, nil, fmt.Errorf("network %q not yet provisioned", iface.Network)
+			}
+			reqs = append(reqs, cloudscalesdk.InterfaceRequest{Network: ns.NetworkID})
+		default:
+			return nil, nil, fmt.Errorf("interface must have either type or network set")
+		}
+	}
+
+	return &reqs, ipFamily, nil
+}
+
+// ipFamilyToUseIPV6 maps an IPFamily value to the cloudscale API's use_ipv6 server-level setting.
+func ipFamilyToUseIPV6(ipFamily *infrastructurev1beta2.IPFamily) *bool {
+	if ipFamily == nil {
+		return nil
+	}
+	switch *ipFamily {
+	case infrastructurev1beta2.IPFamilyDualStack:
+		return ptr.To(true)
+	case infrastructurev1beta2.IPFamilyIPv4:
+		return ptr.To(false)
+	default:
+		return nil
+	}
 }

@@ -28,6 +28,16 @@ const (
 	ClusterFinalizer = "cloudscalecluster.infrastructure.cluster.x-k8s.io"
 )
 
+// IPFamily represents an IP family configuration.
+// +kubebuilder:validation:Enum=IPv4;IPv6;DualStack
+type IPFamily string
+
+const (
+	IPFamilyIPv4      IPFamily = "IPv4"
+	IPFamilyIPv6      IPFamily = "IPv6"
+	IPFamilyDualStack IPFamily = "DualStack"
+)
+
 // CloudscaleClusterSpec defines the desired state of CloudscaleCluster
 type CloudscaleClusterSpec struct {
 	// Region is the cloudscale.ch region (e.g., "rma", "lpg").
@@ -45,17 +55,32 @@ type CloudscaleClusterSpec struct {
 	CredentialsRef CloudscaleCredentialsReference `json:"credentialsRef"`
 
 	// ControlPlaneEndpoint represents the endpoint to communicate with the control plane.
-	// This is set automatically from the load balancer's VIP address.
+	// This is set automatically from the load balancer's VIP address or floating IP.
 	// +optional
 	ControlPlaneEndpoint clusterv1.APIEndpoint `json:"controlPlaneEndpoint,omitzero"`
 
-	// Network contains network configuration for the cluster.
+	// Networks define the private networks for this cluster.
+	// Referenced by name from machine interface specs and LB config.
+	// If empty, defaults to a single managed network named after the cluster.
+	// +listType=map
+	// +listMapKey=name
 	// +optional
-	Network NetworkSpec `json:"network,omitzero"`
+	Networks []NetworkSpec `json:"networks,omitempty"`
 
 	// ControlPlaneLoadBalancer configures the load balancer for the control plane.
 	// +optional
 	ControlPlaneLoadBalancer LoadBalancerSpec `json:"controlPlaneLoadBalancer,omitzero"`
+
+	// FloatingIP configures a floating IP for a stable control plane endpoint.
+	// When the load balancer is enabled (recommended), the floating IP is assigned
+	// to the LB, providing a stable IP that survives LB recreation.
+	// When using a BYO floating IP without a load balancer, the user must
+	// configure a dummy interface on the control plane servers (see cloudscale.ch docs).
+	// Managed floating IPs require the load balancer to be enabled.
+	// Floating IPs cannot be attached to a load balancer with a private VIP
+	// (i.e. one whose ControlPlaneLoadBalancer.Network is set).
+	// +optional
+	FloatingIP *FloatingIPSpec `json:"floatingIP,omitempty"`
 }
 
 // CloudscaleCredentialsReference references a Secret containing the API token.
@@ -69,28 +94,43 @@ type CloudscaleCredentialsReference struct {
 	Namespace string `json:"namespace,omitempty"`
 }
 
-// NetworkSpec defines the network configuration.
+// NetworkSpec defines a private network for the cluster.
+// Exactly one of UUID or CIDR must be specified.
 type NetworkSpec struct {
-	// CIDR is the CIDR block for the private network subnet.
-	// +kubebuilder:default="10.0.0.0/24"
+	// Name identifies this network within the cluster.
+	// Used to reference this network from machine interface specs and LB config.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`
+	// +kubebuilder:validation:MaxLength=63
+	Name string `json:"name"`
+
+	// UUID references an existing cloudscale.ch network (BYO).
+	// The network is not deleted on cluster teardown.
+	// Mutually exclusive with CIDR.
+	// +optional
+	UUID string `json:"uuid,omitempty"`
+
+	// CIDR defines the subnet for a controller-managed network.
+	// The network and subnet are created and deleted by CAPCS.
+	// Mutually exclusive with UUID.
 	// +optional
 	CIDR string `json:"cidr,omitempty"`
 
 	// GatewayAddress is the gateway IP address for the subnet.
-	// By default, no gateway is configured on the private network subnet. This ensures
-	// that outbound internet traffic uses the public network interface, which is required
-	// for the Cloud Controller Manager to reach the cloudscale.ch API.
+	// Only applicable when CIDR is set (managed network).
+	// By default, no gateway is configured on the subnet. This ensures
+	// that outbound internet traffic uses the public network interface.
 	// Set this to a specific IP address (e.g., "10.0.0.1") only if you have configured
 	// a NAT gateway or similar infrastructure on the private network.
 	// +optional
-	GatewayAddress *string `json:"gatewayAddress,omitempty"`
+	GatewayAddress string `json:"gatewayAddress,omitempty"`
 }
 
 // LoadBalancerSpec defines the load balancer configuration for the control plane.
 type LoadBalancerSpec struct {
 	// Enabled controls whether a load balancer is created for the control plane.
 	// Set to false for external control planes (e.g., hosted control plane) where the endpoint
-	// is provided externally.
+	// is provided externally, or when using a floating IP without a load balancer.
 	// +kubebuilder:default=true
 	// +optional
 	Enabled *bool `json:"enabled,omitempty"`
@@ -112,6 +152,19 @@ type LoadBalancerSpec struct {
 	// +kubebuilder:validation:Maximum=65535
 	// +optional
 	APIServerPort int32 `json:"apiServerPort,omitempty"`
+
+	// Network places the LB VIP on a private network (internal LB).
+	// References spec.networks[].name. Omit for a public LB.
+	// When multiple networks are defined this field is required so the LB
+	// pool members can be registered against a specific subnet.
+	// +optional
+	Network string `json:"network,omitempty"`
+
+	// IPFamily specifies the IP family for the LB VIP address(es).
+	// +kubebuilder:validation:Enum=IPv4;IPv6;DualStack
+	// +kubebuilder:default=DualStack
+	// +optional
+	IPFamily IPFamily `json:"ipFamily,omitempty"`
 
 	// HealthMonitor configures the load balancer health monitor.
 	// +optional
@@ -149,19 +202,39 @@ type HealthMonitorSpec struct {
 	DownThreshold int `json:"downThreshold,omitempty"`
 }
 
+// FloatingIPSpec configures a floating IP for the control plane endpoint.
+// Exactly one of IPFamily or IP must be specified.
+type FloatingIPSpec struct {
+	// IPFamily creates a new floating IP with this IP version.
+	// A floating IP is a single address, so DualStack is not valid here.
+	// Mutually exclusive with IP.
+	// +kubebuilder:validation:Enum=IPv4;IPv6
+	// +optional
+	IPFamily *IPFamily `json:"ipFamily,omitempty"`
+
+	// IP references an existing floating IP (BYO) by its address.
+	// cloudscale.ch identifies floating IPs by their IP address rather than a UUID.
+	// The floating IP is not deleted on cluster teardown.
+	// Mutually exclusive with IPFamily.
+	// +optional
+	IP string `json:"ip,omitempty"`
+}
+
 // CloudscaleClusterStatus defines the observed state of CloudscaleCluster.
 type CloudscaleClusterStatus struct {
 	// Initialization contains v1beta2 initialization tracking.
 	// +optional
 	Initialization *ClusterInitializationStatus `json:"initialization,omitempty"`
 
-	// NetworkID is the cloudscale.ch network UUID.
+	// Networks track the status of each network defined in spec.networks.
+	// +listType=map
+	// +listMapKey=name
 	// +optional
-	NetworkID string `json:"networkID,omitempty"`
+	Networks []NetworkStatus `json:"networks,omitempty"`
 
-	// SubnetID is the cloudscale.ch subnet UUID.
+	// FloatingIP is the cloudscale.ch floating IP.
 	// +optional
-	SubnetID string `json:"subnetID,omitempty"`
+	FloatingIP string `json:"floatingIP,omitempty"`
 
 	// LoadBalancerID is the cloudscale.ch load balancer UUID.
 	// +optional
@@ -184,18 +257,33 @@ type CloudscaleClusterStatus struct {
 	LoadBalancerMemberIDs []string `json:"loadBalancerMemberIDs,omitempty"`
 
 	// conditions represent the current state of the CloudscaleCluster resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// NetworkStatus tracks the provisioned state of a single network.
+type NetworkStatus struct {
+	// Name matches the logical name from spec.networks[].name.
+	Name string `json:"name"`
+
+	// NetworkID is the cloudscale.ch network UUID.
+	// +optional
+	NetworkID string `json:"networkID,omitempty"`
+
+	// SubnetID is the cloudscale.ch subnet UUID.
+	// +optional
+	SubnetID string `json:"subnetID,omitempty"`
+
+	// CIDR is the subnet CIDR block.
+	// Set from spec for managed networks or discovered from the API for BYO networks.
+	// +optional
+	CIDR string `json:"cidr,omitempty"`
+
+	// Managed indicates whether CAPCS manages this network's lifecycle.
+	// false for BYO networks (referenced by UUID), true for CAPCS-created networks (defined by CIDR).
+	Managed bool `json:"managed"`
 }
 
 // ClusterInitializationStatus contains v1beta2 initialization tracking for CloudscaleCluster.
@@ -204,6 +292,16 @@ type ClusterInitializationStatus struct {
 	// True when Network, Subnet, Load Balancer, and Control Plane Endpoint are ready.
 	// +optional
 	Provisioned *bool `json:"provisioned,omitempty"`
+}
+
+// GetNetworkStatus returns the NetworkStatus for the given network name, or nil if not found.
+func (s *CloudscaleClusterStatus) GetNetworkStatus(name string) *NetworkStatus {
+	for i := range s.Networks {
+		if s.Networks[i].Name == name {
+			return &s.Networks[i]
+		}
+	}
+	return nil
 }
 
 // +kubebuilder:object:root=true

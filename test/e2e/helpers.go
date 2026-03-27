@@ -43,14 +43,24 @@ func validateCloudscaleResources(proxy framework.ClusterProxy, namespace, cluste
 	key := client.ObjectKey{Namespace: namespace, Name: clusterName}
 	Expect(c.Get(ctx, key, cloudscaleCluster)).To(Succeed(), "Failed to get CloudscaleCluster")
 
-	// Validate network resources are created
-	Expect(cloudscaleCluster.Status.NetworkID).NotTo(BeEmpty(), "NetworkID should be set")
-	Expect(cloudscaleCluster.Status.SubnetID).NotTo(BeEmpty(), "SubnetID should be set")
+	// Validate all network resources are created
+	Expect(cloudscaleCluster.Status.Networks).NotTo(BeEmpty(), "At least one network should be defined in status")
+	for i, net := range cloudscaleCluster.Status.Networks {
+		Expect(net.NetworkID).NotTo(BeEmpty(), "Network %d (%s) should have NetworkID", i, net.Name)
+		Expect(net.SubnetID).NotTo(BeEmpty(), "Network %d (%s) should have SubnetID", i, net.Name)
+	}
+
 	// Validate load balancer resources (if enabled - default is true)
 	if ptr.Deref(cloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled, true) {
 		Expect(cloudscaleCluster.Status.LoadBalancerID).NotTo(BeEmpty(), "LoadBalancerID should be set")
 		Expect(cloudscaleCluster.Status.LoadBalancerPoolID).NotTo(BeEmpty(), "LoadBalancerPoolID should be set")
 		Expect(cloudscaleCluster.Status.LoadBalancerListenerID).NotTo(BeEmpty(), "LoadBalancerListenerID should be set")
+		Expect(cloudscaleCluster.Status.LoadBalancerHealthMonitorID).NotTo(BeEmpty(), "LoadBalancerHealthMonitorID should be set")
+	}
+
+	// Validate floating IP (if configured)
+	if cloudscaleCluster.Spec.FloatingIP != nil {
+		Expect(cloudscaleCluster.Status.FloatingIP).NotTo(BeEmpty(), "FloatingIP should be set when floating IP is configured")
 	}
 
 	// Validate provisioned status

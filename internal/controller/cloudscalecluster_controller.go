@@ -147,15 +147,16 @@ func (r *CloudscaleClusterReconciler) reconcileNormal(ctx context.Context, clust
 		return result, nil
 	}
 
+	if err := r.reconcileFloatingIP(ctx, clusterScope); err != nil {
+		return ctrl.Result{}, fmt.Errorf("reconciling floating IP: %w", err)
+	}
+
 	// Mark infrastructure as provisioned when all resources exist
 	if clusterScope.CloudscaleCluster.Status.Initialization == nil {
 		clusterScope.CloudscaleCluster.Status.Initialization = &infrastructurev1beta2.ClusterInitializationStatus{}
 	}
 	provisioned := r.isInfrastructureProvisioned(clusterScope)
 	clusterScope.CloudscaleCluster.Status.Initialization.Provisioned = ptr.To(provisioned)
-
-	// Set Ready condition based on all sub-conditions
-	r.setReadyCondition(clusterScope)
 
 	return ctrl.Result{}, nil
 }
@@ -170,7 +171,12 @@ func (r *CloudscaleClusterReconciler) reconcileDelete(ctx context.Context, clust
 	// Set Deleting condition
 	r.setCondition(clusterScope, infrastructurev1beta2.DeletingCondition, metav1.ConditionTrue, infrastructurev1beta2.DeletingReason, "Deleting infrastructure resources")
 
-	// Delete load balancer first (it depends on the subnet)
+	// Delete floating IP first (it may be assigned to the LB or a server)
+	if err := r.deleteFloatingIP(ctx, clusterScope); err != nil {
+		return ctrl.Result{}, fmt.Errorf("deleting floating IP: %w", err)
+	}
+
+	// Delete load balancer (it depends on the subnet)
 	if err := r.deleteLoadBalancer(ctx, clusterScope); err != nil {
 		return ctrl.Result{}, fmt.Errorf("deleting load balancer: %w", err)
 	}
@@ -192,12 +198,17 @@ func (r *CloudscaleClusterReconciler) reconcileDelete(ctx context.Context, clust
 }
 
 // isInfrastructureProvisioned returns true if all cluster infrastructure is ready.
-// This includes Network, Subnet, Load Balancer (with pool and listener) if enabled, and Control Plane Endpoint.
+// This includes all Networks+Subnets, Load Balancer (with pool and listener) if enabled,
+// Floating IP if configured, and Control Plane Endpoint.
 func (r *CloudscaleClusterReconciler) isInfrastructureProvisioned(clusterScope *scope.ClusterScope) bool {
-	// Network and Subnet must exist
-	if clusterScope.CloudscaleCluster.Status.NetworkID == "" ||
-		clusterScope.CloudscaleCluster.Status.SubnetID == "" {
+	// All networks must have both network and subnet IDs
+	if len(clusterScope.CloudscaleCluster.Status.Networks) == 0 {
 		return false
+	}
+	for _, ns := range clusterScope.CloudscaleCluster.Status.Networks {
+		if ns.NetworkID == "" || ns.SubnetID == "" {
+			return false
+		}
 	}
 
 	// Load balancer, pool, and listener must exist (if LB is enabled)
@@ -209,7 +220,14 @@ func (r *CloudscaleClusterReconciler) isInfrastructureProvisioned(clusterScope *
 		}
 	}
 
-	// Control plane endpoint must be set (from LB VIP or externally)
+	// Floating IP must be provisioned if configured
+	if clusterScope.CloudscaleCluster.Spec.FloatingIP != nil {
+		if clusterScope.CloudscaleCluster.Status.FloatingIP == "" {
+			return false
+		}
+	}
+
+	// Control plane endpoint must be set (from LB VIP, floating IP, or externally)
 	if clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host == "" {
 		return false
 	}
@@ -223,6 +241,7 @@ func (r *CloudscaleClusterReconciler) setReadyCondition(clusterScope *scope.Clus
 	subConditions := []string{
 		infrastructurev1beta2.NetworkReadyCondition,
 		infrastructurev1beta2.LoadBalancerReadyCondition,
+		infrastructurev1beta2.FloatingIPReadyCondition,
 	}
 
 	for _, condType := range subConditions {

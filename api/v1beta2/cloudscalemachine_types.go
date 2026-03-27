@@ -58,6 +58,37 @@ type CloudscaleMachineSpec struct {
 	// N.B.: Only **up to 4 machines** can be placed in the same server group.
 	// +optional
 	ServerGroup *ServerGroupSpec `json:"serverGroup,omitempty"`
+
+	// Interfaces define the network interfaces to attach to the server.
+	// When omitted, the controller defaults to the first cluster network and a public interface
+	// at runtime (cross-resource resolution that the webhook cannot do).
+	// +listType=atomic
+	// +optional
+	Interfaces []InterfaceSpec `json:"interfaces,omitempty"`
+}
+
+// InterfaceSpec defines a network interface to attach to a server.
+// Exactly one of Type or Network must be specified.
+type InterfaceSpec struct {
+	// Type is "public" for a public internet interface.
+	// Mutually exclusive with Network.
+	// +kubebuilder:validation:Enum=public
+	// +optional
+	Type string `json:"type,omitempty"`
+
+	// Network references a named network from CloudscaleCluster.spec.networks.
+	// Mutually exclusive with Type.
+	// +optional
+	Network string `json:"network,omitempty"`
+
+	// IPFamily controls IPv4/IPv6 for a public interface.
+	// Only valid when Type is "public".
+	// Maps to the cloudscale API's per-server use_ipv6 setting:
+	//   - IPv4: use_ipv6=false (IPv4 only)
+	//   - DualStack: use_ipv6=true (IPv4 + IPv6)
+	// +kubebuilder:validation:Enum=IPv4;DualStack
+	// +optional
+	IPFamily *IPFamily `json:"ipFamily,omitempty"`
 }
 
 // ServerGroupSpec configures server group placement for anti-affinity.

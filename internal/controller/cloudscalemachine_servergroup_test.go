@@ -138,8 +138,9 @@ func newTestMachineScopeWithServerGroup(serverGroupService cs.ServerGroupService
 				Zone:   "rma1",
 			},
 			Status: infrastructurev1beta2.CloudscaleClusterStatus{
-				NetworkID: "net-uuid-123",
-				SubnetID:  "subnet-uuid-123",
+				Networks: []infrastructurev1beta2.NetworkStatus{
+					{Name: "test", NetworkID: "net-uuid-123", SubnetID: "subnet-uuid-123", Managed: true},
+				},
 			},
 		},
 		CloudscaleMachine: cloudscaleMachine,

@@ -17,7 +17,8 @@ type getListService[T any] interface {
 }
 
 // ensureResource checks if a resource exists by its status ID, or adopts one found by tags.
-// Returns the resolved ID and nil on success. An empty ID means the caller should create the resource.
+// Returns the resource object and its ID on success. A nil resource and empty ID means
+// the caller should create the resource.
 func ensureResource[T any](
 	ctx context.Context,
 	clusterScope *scope.ClusterScope,
@@ -26,30 +27,31 @@ func ensureResource[T any](
 	svc getListService[T],
 	extractUUID func(T) string,
 	tags cloudscalesdk.TagMap,
-) (string, error) {
+) (*T, string, error) {
 	if currentID != "" {
-		_, err := svc.Get(ctx, currentID)
+		resource, err := svc.Get(ctx, currentID)
 		if err == nil {
-			return currentID, nil
+			return resource, currentID, nil
 		}
 		if !cloudscale.IsNotFound(err) {
-			return "", fmt.Errorf("getting %s: %w", resourceName, err)
+			return nil, "", fmt.Errorf("getting %s: %w", resourceName, err)
 		}
 		// Resource was deleted externally, fall through to list/recreate
 	}
 
 	items, err := svc.List(ctx, cloudscalesdk.WithTagFilter(tags))
 	if err != nil {
-		return "", fmt.Errorf("listing %ss: %w", resourceName, err)
+		return nil, "", fmt.Errorf("listing %ss: %w", resourceName, err)
 	}
 	if len(items) > 1 {
-		return "", fmt.Errorf("found %d %ss matching tag filter, expected at most 1", len(items), resourceName)
+		return nil, "", fmt.Errorf("found %d %ss matching tag filter, expected at most 1", len(items), resourceName)
 	}
 	if len(items) == 1 {
-		uuid := extractUUID(items[0])
+		item := items[0]
+		uuid := extractUUID(item)
 		clusterScope.Info("Found existing "+resourceName+" by tag", "id", uuid)
-		return uuid, nil
+		return &item, uuid, nil
 	}
 
-	return "", nil
+	return nil, "", nil
 }
