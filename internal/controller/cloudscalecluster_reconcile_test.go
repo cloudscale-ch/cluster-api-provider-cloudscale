@@ -39,7 +39,6 @@ import (
 
 // reconcileTestScope builds a ClusterScope with both network and LB services wired up.
 func reconcileTestScope(opts reconcileTestOpts) *scope.ClusterScope {
-	defaultGateway := ""
 	return &scope.ClusterScope{
 		Logger: logr.Discard(),
 		Cluster: &clusterv1.Cluster{
@@ -57,9 +56,11 @@ func reconcileTestScope(opts reconcileTestOpts) *scope.ClusterScope {
 			Spec: infrastructurev1beta2.CloudscaleClusterSpec{
 				Region: "rma",
 				Zone:   "rma1",
-				Network: infrastructurev1beta2.NetworkSpec{
-					CIDR:           "10.0.0.0/24",
-					GatewayAddress: &defaultGateway,
+				Networks: []infrastructurev1beta2.NetworkSpec{
+					{
+						Name: "test",
+						CIDR: "10.0.0.0/24",
+					},
 				},
 				ControlPlaneLoadBalancer: infrastructurev1beta2.LoadBalancerSpec{
 					Enabled:       ptr.To(opts.lbEnabled),
@@ -160,8 +161,9 @@ func TestReconcileNormal_FullyProvisionedCluster(t *testing.T) {
 
 	mocks := defaultMocks()
 	clusterScope := reconcileTestScope(mocks)
-	clusterScope.CloudscaleCluster.Status.NetworkID = "net-123"
-	clusterScope.CloudscaleCluster.Status.SubnetID = "subnet-123"
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "test", NetworkID: "net-123", SubnetID: "subnet-123", Managed: true},
+	}
 	clusterScope.CloudscaleCluster.Status.LoadBalancerID = "lb-123"
 	clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID = "pool-123"
 	clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID = "listener-123"
@@ -228,8 +230,9 @@ func TestReconcileNormal_LBErrorStopsReconciliation(t *testing.T) {
 
 	clusterScope := reconcileTestScope(mocks)
 	// Network is already provisioned
-	clusterScope.CloudscaleCluster.Status.NetworkID = "net-123"
-	clusterScope.CloudscaleCluster.Status.SubnetID = "subnet-123"
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "test", NetworkID: "net-123", SubnetID: "subnet-123", Managed: true},
+	}
 
 	r := newTestReconciler()
 
@@ -250,8 +253,9 @@ func TestReconcileNormal_LBPendingReturnsRequeue(t *testing.T) {
 	}
 
 	clusterScope := reconcileTestScope(mocks)
-	clusterScope.CloudscaleCluster.Status.NetworkID = "net-123"
-	clusterScope.CloudscaleCluster.Status.SubnetID = "subnet-123"
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "test", NetworkID: "net-123", SubnetID: "subnet-123", Managed: true},
+	}
 	clusterScope.CloudscaleCluster.Status.LoadBalancerID = "lb-123"
 
 	r := newTestReconciler()
@@ -271,8 +275,9 @@ func TestReconcileNormal_LBDisabledSetsProvisioned(t *testing.T) {
 	mocks.lbEnabled = false
 
 	clusterScope := reconcileTestScope(mocks)
-	clusterScope.CloudscaleCluster.Status.NetworkID = "net-123"
-	clusterScope.CloudscaleCluster.Status.SubnetID = "subnet-123"
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "test", NetworkID: "net-123", SubnetID: "subnet-123", Managed: true},
+	}
 	clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint = clusterv1.APIEndpoint{
 		Host: "external-cp.example.com",
 		Port: 6443,
@@ -312,8 +317,9 @@ func TestReconcileDelete_SuccessfulDeletion(t *testing.T) {
 	}
 
 	clusterScope := reconcileTestScope(mocks)
-	clusterScope.CloudscaleCluster.Status.NetworkID = "net-123"
-	clusterScope.CloudscaleCluster.Status.SubnetID = "subnet-123"
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "test", NetworkID: "net-123", SubnetID: "subnet-123", Managed: true},
+	}
 	clusterScope.CloudscaleCluster.Status.LoadBalancerID = "lb-123"
 	clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID = "pool-123"
 	clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID = "listener-123"
@@ -334,8 +340,7 @@ func TestReconcileDelete_SuccessfulDeletion(t *testing.T) {
 	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID).To(BeEmpty())
 	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID).To(BeEmpty())
 	// Verify network status cleared
-	g.Expect(clusterScope.CloudscaleCluster.Status.NetworkID).To(BeEmpty())
-	g.Expect(clusterScope.CloudscaleCluster.Status.SubnetID).To(BeEmpty())
+	g.Expect(clusterScope.CloudscaleCluster.Status.Networks).To(BeNil())
 
 	// Verify finalizer removed
 	g.Expect(clusterScope.CloudscaleCluster.Finalizers).ToNot(ContainElement(infrastructurev1beta2.ClusterFinalizer))
@@ -368,7 +373,9 @@ func TestReconcileDelete_LBDeleteErrorStopsDeletion(t *testing.T) {
 
 	clusterScope := reconcileTestScope(mocks)
 	clusterScope.CloudscaleCluster.Status.LoadBalancerID = "lb-123"
-	clusterScope.CloudscaleCluster.Status.NetworkID = "net-123"
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "test", NetworkID: "net-123", Managed: true},
+	}
 	clusterScope.CloudscaleCluster.Finalizers = []string{infrastructurev1beta2.ClusterFinalizer}
 
 	r := newTestReconciler()
@@ -398,7 +405,9 @@ func TestReconcileDelete_NetworkDeleteErrorStopsDeletion(t *testing.T) {
 
 	clusterScope := reconcileTestScope(mocks)
 	clusterScope.CloudscaleCluster.Status.LoadBalancerID = "lb-123"
-	clusterScope.CloudscaleCluster.Status.NetworkID = "net-123"
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "test", NetworkID: "net-123", Managed: true},
+	}
 	clusterScope.CloudscaleCluster.Finalizers = []string{infrastructurev1beta2.ClusterFinalizer}
 
 	r := newTestReconciler()
@@ -432,7 +441,9 @@ func TestReconcileDelete_LBDisabledSkipsLBDeletion(t *testing.T) {
 	}
 
 	clusterScope := reconcileTestScope(mocks)
-	clusterScope.CloudscaleCluster.Status.NetworkID = "net-123"
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "test", NetworkID: "net-123", Managed: true},
+	}
 	clusterScope.CloudscaleCluster.Finalizers = []string{infrastructurev1beta2.ClusterFinalizer}
 
 	r := newTestReconciler()

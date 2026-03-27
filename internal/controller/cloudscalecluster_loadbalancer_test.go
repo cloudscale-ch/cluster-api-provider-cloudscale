@@ -116,6 +116,9 @@ func newTestClusterScopeWithLB(opts lbTestScopeOptions) *scope.ClusterScope {
 			Spec: infrastructurev1beta2.CloudscaleClusterSpec{
 				Region: "rma",
 				Zone:   "rma1",
+				Networks: []infrastructurev1beta2.NetworkSpec{
+					{Name: "test", CIDR: "10.0.0.0/24"},
+				},
 				ControlPlaneLoadBalancer: infrastructurev1beta2.LoadBalancerSpec{
 					Enabled:       &opts.lbEnabled,
 					Algorithm:     opts.algorithm,
@@ -127,6 +130,11 @@ func newTestClusterScopeWithLB(opts lbTestScopeOptions) *scope.ClusterScope {
 						UpThreshold:   opts.healthMonitorUpThreshold,
 						DownThreshold: opts.healthMonitorDownThreshold,
 					},
+				},
+			},
+			Status: infrastructurev1beta2.CloudscaleClusterStatus{
+				Networks: []infrastructurev1beta2.NetworkStatus{
+					{Name: "test", NetworkID: "net-uuid", SubnetID: "subnet-uuid", Managed: true},
 				},
 			},
 		},
@@ -1146,7 +1154,7 @@ func TestReconcileLBMembers_AddsMissingMember(t *testing.T) {
 		lbEnabled:         true,
 	})
 	clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID = testPoolUUID
-	clusterScope.CloudscaleCluster.Status.SubnetID = "subnet-uuid"
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{{Name: "test", NetworkID: "net-uuid", SubnetID: "subnet-uuid", Managed: true}}
 
 	r := newTestReconcilerWithClient(k8sClient)
 
@@ -1341,7 +1349,7 @@ func TestGetDesiredLoadBalancerMembers_SkipsMachinesWithoutIP(t *testing.T) {
 	clusterScope := newTestClusterScopeWithLB(lbTestScopeOptions{
 		lbEnabled: true,
 	})
-	clusterScope.CloudscaleCluster.Status.SubnetID = "subnet-uuid"
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{{Name: "test", NetworkID: "net-uuid", SubnetID: "subnet-uuid", Managed: true}}
 
 	r := newTestReconcilerWithClient(k8sClient)
 

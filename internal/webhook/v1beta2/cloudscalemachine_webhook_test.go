@@ -240,3 +240,186 @@ func TestMachineValidateDelete_AlwaysSucceeds(t *testing.T) {
 	_, err := validator.ValidateDelete(ctx, obj)
 	g.Expect(err).NotTo(HaveOccurred())
 }
+
+// ============================================================================
+// Tests for validateInterfaces
+// ============================================================================
+
+func TestValidateInterfaces_EmptyIsValid(t *testing.T) {
+	g := NewWithT(t)
+	obj, _ := newMachineWebhookTestObjects()
+	validator := CloudscaleMachineCustomValidator{FlavorInfo: newTestFlavorInfo()}
+
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).NotTo(HaveOccurred())
+}
+
+func TestValidateInterfaces_SinglePublic(t *testing.T) {
+	g := NewWithT(t)
+	obj, _ := newMachineWebhookTestObjects()
+	obj.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
+		{Type: "public"},
+	}
+	validator := CloudscaleMachineCustomValidator{FlavorInfo: newTestFlavorInfo()}
+
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).NotTo(HaveOccurred())
+}
+
+func TestValidateInterfaces_SingleNetwork(t *testing.T) {
+	g := NewWithT(t)
+	obj, _ := newMachineWebhookTestObjects()
+	obj.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
+		{Network: "my-network"},
+	}
+	validator := CloudscaleMachineCustomValidator{FlavorInfo: newTestFlavorInfo()}
+
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).NotTo(HaveOccurred())
+}
+
+func TestValidateInterfaces_BothTypeAndNetworkSet(t *testing.T) {
+	g := NewWithT(t)
+	obj, _ := newMachineWebhookTestObjects()
+	obj.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
+		{Type: "public", Network: "my-network"},
+	}
+	validator := CloudscaleMachineCustomValidator{FlavorInfo: newTestFlavorInfo()}
+
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("exactly one of type or network"))
+}
+
+func TestValidateInterfaces_NeitherTypeNorNetwork(t *testing.T) {
+	g := NewWithT(t)
+	obj, _ := newMachineWebhookTestObjects()
+	obj.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
+		{},
+	}
+	validator := CloudscaleMachineCustomValidator{FlavorInfo: newTestFlavorInfo()}
+
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("exactly one of type or network"))
+}
+
+func TestValidateInterfaces_IPFamilyOnNonPublic(t *testing.T) {
+	g := NewWithT(t)
+	obj, _ := newMachineWebhookTestObjects()
+	dualStack := infrastructurev1beta2.IPFamilyDualStack
+	obj.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
+		{Network: "my-network", IPFamily: &dualStack},
+	}
+	validator := CloudscaleMachineCustomValidator{FlavorInfo: newTestFlavorInfo()}
+
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("ipFamily can only be set on public interfaces"))
+}
+
+func TestValidateInterfaces_MultiplePublic(t *testing.T) {
+	g := NewWithT(t)
+	obj, _ := newMachineWebhookTestObjects()
+	obj.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
+		{Type: "public"},
+		{Type: "public"},
+	}
+	validator := CloudscaleMachineCustomValidator{FlavorInfo: newTestFlavorInfo()}
+
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("Too many"))
+}
+
+func TestValidateInterfaces_MixedValid(t *testing.T) {
+	g := NewWithT(t)
+	obj, _ := newMachineWebhookTestObjects()
+	dualStack := infrastructurev1beta2.IPFamilyDualStack
+	obj.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
+		{Network: "my-network"},
+		{Type: "public", IPFamily: &dualStack},
+	}
+	validator := CloudscaleMachineCustomValidator{FlavorInfo: newTestFlavorInfo()}
+
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).NotTo(HaveOccurred())
+}
+
+func TestValidateInterfaces_UpdateImmutable(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj := newMachineWebhookTestObjects()
+	oldObj.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
+		{Type: "public"},
+	}
+	obj.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
+		{Network: "my-network"},
+	}
+	validator := CloudscaleMachineCustomValidator{FlavorInfo: newTestFlavorInfo()}
+
+	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("spec.interfaces"))
+}
+
+// ============================================================================
+// Tests for defaultInterfaceIPFamily
+// ============================================================================
+
+func TestDefaultInterfaceIPFamily_PublicNilDefaultsToDualStack(t *testing.T) {
+	g := NewWithT(t)
+	interfaces := []infrastructurev1beta2.InterfaceSpec{
+		{Type: "public"},
+	}
+
+	defaultInterfaceIPFamily(interfaces)
+
+	g.Expect(interfaces[0].IPFamily).ToNot(BeNil())
+	g.Expect(*interfaces[0].IPFamily).To(Equal(infrastructurev1beta2.IPFamilyDualStack))
+}
+
+func TestDefaultInterfaceIPFamily_PublicExplicitNotOverridden(t *testing.T) {
+	g := NewWithT(t)
+	ipv4 := infrastructurev1beta2.IPFamilyIPv4
+	interfaces := []infrastructurev1beta2.InterfaceSpec{
+		{Type: "public", IPFamily: &ipv4},
+	}
+
+	defaultInterfaceIPFamily(interfaces)
+
+	g.Expect(*interfaces[0].IPFamily).To(Equal(infrastructurev1beta2.IPFamilyIPv4))
+}
+
+func TestDefaultInterfaceIPFamily_NonPublicNotModified(t *testing.T) {
+	g := NewWithT(t)
+	interfaces := []infrastructurev1beta2.InterfaceSpec{
+		{Network: "my-network"},
+	}
+
+	defaultInterfaceIPFamily(interfaces)
+
+	g.Expect(interfaces[0].IPFamily).To(BeNil())
+}
+
+func TestDefaultInterfaceIPFamily_EmptyList(t *testing.T) {
+	g := NewWithT(t)
+	interfaces := []infrastructurev1beta2.InterfaceSpec{}
+
+	defaultInterfaceIPFamily(interfaces)
+
+	g.Expect(interfaces).To(BeEmpty())
+}
+
+func TestDefaultInterfaceIPFamily_MixedInterfaces(t *testing.T) {
+	g := NewWithT(t)
+	interfaces := []infrastructurev1beta2.InterfaceSpec{
+		{Network: "my-network"},
+		{Type: "public"},
+	}
+
+	defaultInterfaceIPFamily(interfaces)
+
+	g.Expect(interfaces[0].IPFamily).To(BeNil())
+	g.Expect(interfaces[1].IPFamily).ToNot(BeNil())
+	g.Expect(*interfaces[1].IPFamily).To(Equal(infrastructurev1beta2.IPFamilyDualStack))
+}

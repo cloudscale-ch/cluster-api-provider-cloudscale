@@ -150,8 +150,9 @@ func newTestMachineScopeWithServer(serverService cs.ServerService) *scope.Machin
 				Zone:   "rma1",
 			},
 			Status: infrastructurev1beta2.CloudscaleClusterStatus{
-				NetworkID: "net-uuid-123",
-				SubnetID:  "subnet-uuid-123",
+				Networks: []infrastructurev1beta2.NetworkStatus{
+					{Name: "test", NetworkID: "net-uuid-123", SubnetID: "subnet-uuid-123", Managed: true},
+				},
 			},
 		},
 		CloudscaleMachine: cloudscaleMachine,
@@ -607,4 +608,279 @@ func TestReconcileServer_NoServerGroupWhenStatusEmpty(t *testing.T) {
 	g.Expect(result).To(Equal(ctrl.Result{}))
 	g.Expect(capturedReq).ToNot(BeNil())
 	g.Expect(capturedReq.ServerGroups).To(BeNil())
+}
+
+// --- buildInterfaceRequests tests ---
+
+func TestBuildInterfaceRequests_DefaultsToFirstNetworkPlusPublic(t *testing.T) {
+	g := NewWithT(t)
+
+	machineScope := newTestMachineScopeWithServer(&mockServerService{})
+	// No interfaces in spec → uses runtime defaults
+
+	r := &CloudscaleMachineReconciler{}
+
+	reqs, ipFamily, err := r.buildInterfaceRequests(machineScope)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(reqs).ToNot(BeNil())
+	g.Expect(*reqs).To(HaveLen(2))
+	g.Expect((*reqs)[0].Network).To(Equal("net-uuid-123"))
+	g.Expect((*reqs)[1].Network).To(Equal(InterfaceTypePublic))
+	g.Expect(ipFamily).To(BeNil(), "runtime default path should not return ipFamily")
+}
+
+func TestBuildInterfaceRequests_NoClusterNetworksErrors(t *testing.T) {
+	g := NewWithT(t)
+
+	machineScope := newTestMachineScopeWithServer(&mockServerService{})
+	machineScope.CloudscaleCluster.Status.Networks = nil
+
+	r := &CloudscaleMachineReconciler{}
+
+	_, _, err := r.buildInterfaceRequests(machineScope)
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("no networks provisioned"))
+}
+
+func TestBuildInterfaceRequests_PublicInterface(t *testing.T) {
+	g := NewWithT(t)
+
+	machineScope := newTestMachineScopeWithServer(&mockServerService{})
+	machineScope.CloudscaleMachine.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
+		{Type: "public"},
+	}
+
+	r := &CloudscaleMachineReconciler{}
+
+	reqs, _, err := r.buildInterfaceRequests(machineScope)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(*reqs).To(HaveLen(1))
+	g.Expect((*reqs)[0].Network).To(Equal(InterfaceTypePublic))
+}
+
+func TestBuildInterfaceRequests_NamedNetworkFound(t *testing.T) {
+	g := NewWithT(t)
+
+	machineScope := newTestMachineScopeWithServer(&mockServerService{})
+	machineScope.CloudscaleMachine.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
+		{Network: "test"},
+	}
+
+	r := &CloudscaleMachineReconciler{}
+
+	reqs, _, err := r.buildInterfaceRequests(machineScope)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(*reqs).To(HaveLen(1))
+	g.Expect((*reqs)[0].Network).To(Equal("net-uuid-123"))
+}
+
+func TestBuildInterfaceRequests_NamedNetworkNotFound(t *testing.T) {
+	g := NewWithT(t)
+
+	machineScope := newTestMachineScopeWithServer(&mockServerService{})
+	machineScope.CloudscaleMachine.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
+		{Network: "nonexistent"},
+	}
+
+	r := &CloudscaleMachineReconciler{}
+
+	_, _, err := r.buildInterfaceRequests(machineScope)
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("not found in cluster status"))
+}
+
+func TestBuildInterfaceRequests_NamedNetworkNotProvisioned(t *testing.T) {
+	g := NewWithT(t)
+
+	machineScope := newTestMachineScopeWithServer(&mockServerService{})
+	machineScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "test", NetworkID: "", SubnetID: "subnet-uuid-123", Managed: true},
+	}
+	machineScope.CloudscaleMachine.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
+		{Network: "test"},
+	}
+
+	r := &CloudscaleMachineReconciler{}
+
+	_, _, err := r.buildInterfaceRequests(machineScope)
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("not yet provisioned"))
+}
+
+func TestBuildInterfaceRequests_MixedPublicAndNetwork(t *testing.T) {
+	g := NewWithT(t)
+
+	machineScope := newTestMachineScopeWithServer(&mockServerService{})
+	machineScope.CloudscaleMachine.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
+		{Network: "test"},
+		{Type: "public"},
+	}
+
+	r := &CloudscaleMachineReconciler{}
+
+	reqs, _, err := r.buildInterfaceRequests(machineScope)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(*reqs).To(HaveLen(2))
+	g.Expect((*reqs)[0].Network).To(Equal("net-uuid-123"))
+	g.Expect((*reqs)[1].Network).To(Equal(InterfaceTypePublic))
+}
+
+func TestBuildInterfaceRequests_InvalidInterfaceErrors(t *testing.T) {
+	g := NewWithT(t)
+
+	machineScope := newTestMachineScopeWithServer(&mockServerService{})
+	machineScope.CloudscaleMachine.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
+		{}, // neither type nor network
+	}
+
+	r := &CloudscaleMachineReconciler{}
+
+	_, _, err := r.buildInterfaceRequests(machineScope)
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("must have either type or network"))
+}
+
+func TestBuildInterfaceRequests_ReturnsIPFamilyFromPublicInterface(t *testing.T) {
+	g := NewWithT(t)
+
+	dualStack := infrastructurev1beta2.IPFamilyDualStack
+	machineScope := newTestMachineScopeWithServer(&mockServerService{})
+	machineScope.CloudscaleMachine.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
+		{Network: "test"},
+		{Type: "public", IPFamily: &dualStack},
+	}
+
+	r := &CloudscaleMachineReconciler{}
+
+	_, ipFamily, err := r.buildInterfaceRequests(machineScope)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(ipFamily).ToNot(BeNil())
+	g.Expect(*ipFamily).To(Equal(infrastructurev1beta2.IPFamilyDualStack))
+}
+
+func TestBuildInterfaceRequests_NilIPFamilyWhenNoPublicInterface(t *testing.T) {
+	g := NewWithT(t)
+
+	machineScope := newTestMachineScopeWithServer(&mockServerService{})
+	machineScope.CloudscaleMachine.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
+		{Network: "test"},
+	}
+
+	r := &CloudscaleMachineReconciler{}
+
+	_, ipFamily, err := r.buildInterfaceRequests(machineScope)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(ipFamily).To(BeNil())
+}
+
+// --- ipFamilyToUseIPV6 tests ---
+
+func TestIPFamilyToUseIPV6_DualStack(t *testing.T) {
+	g := NewWithT(t)
+	dualStack := infrastructurev1beta2.IPFamilyDualStack
+	result := ipFamilyToUseIPV6(&dualStack)
+	g.Expect(result).ToNot(BeNil())
+	g.Expect(*result).To(BeTrue())
+}
+
+func TestIPFamilyToUseIPV6_IPv4(t *testing.T) {
+	g := NewWithT(t)
+	ipv4 := infrastructurev1beta2.IPFamilyIPv4
+	result := ipFamilyToUseIPV6(&ipv4)
+	g.Expect(result).ToNot(BeNil())
+	g.Expect(*result).To(BeFalse())
+}
+
+func TestIPFamilyToUseIPV6_Nil(t *testing.T) {
+	g := NewWithT(t)
+	result := ipFamilyToUseIPV6(nil)
+	g.Expect(result).To(BeNil())
+}
+
+// --- UseIPV6 integration via reconcileServer ---
+
+func TestReconcileServer_SetsUseIPV6DualStack(t *testing.T) {
+	g := NewWithT(t)
+	var capturedReq *cloudscalesdk.ServerRequest
+
+	serverService := &mockServerService{
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
+			return nil, nil
+		},
+		createFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
+			capturedReq = req
+			return &cloudscalesdk.Server{
+				UUID:          "server-uuid-ipv6",
+				Name:          req.Name,
+				Status:        "running",
+				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
+			}, nil
+		},
+	}
+
+	dualStack := infrastructurev1beta2.IPFamilyDualStack
+	machineScope := newTestMachineScopeWithServer(serverService)
+	machineScope.CloudscaleMachine.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
+		{Network: "test"},
+		{Type: "public", IPFamily: &dualStack},
+	}
+
+	r := &CloudscaleMachineReconciler{
+		recorder: events.NewFakeRecorder(10),
+	}
+
+	_, err := r.reconcileServer(context.Background(), machineScope)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(capturedReq).ToNot(BeNil())
+	g.Expect(capturedReq.UseIPV6).ToNot(BeNil())
+	g.Expect(*capturedReq.UseIPV6).To(BeTrue())
+}
+
+func TestReconcileServer_SetsUseIPV6IPv4Only(t *testing.T) {
+	g := NewWithT(t)
+	var capturedReq *cloudscalesdk.ServerRequest
+
+	serverService := &mockServerService{
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
+			return nil, nil
+		},
+		createFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
+			capturedReq = req
+			return &cloudscalesdk.Server{
+				UUID:          "server-uuid-ipv4",
+				Name:          req.Name,
+				Status:        "running",
+				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
+			}, nil
+		},
+	}
+
+	ipv4 := infrastructurev1beta2.IPFamilyIPv4
+	machineScope := newTestMachineScopeWithServer(serverService)
+	machineScope.CloudscaleMachine.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
+		{Network: "test"},
+		{Type: "public", IPFamily: &ipv4},
+	}
+
+	r := &CloudscaleMachineReconciler{
+		recorder: events.NewFakeRecorder(10),
+	}
+
+	_, err := r.reconcileServer(context.Background(), machineScope)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(capturedReq).ToNot(BeNil())
+	g.Expect(capturedReq.UseIPV6).ToNot(BeNil())
+	g.Expect(*capturedReq.UseIPV6).To(BeFalse())
 }

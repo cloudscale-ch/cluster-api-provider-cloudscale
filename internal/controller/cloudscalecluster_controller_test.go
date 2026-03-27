@@ -95,8 +95,9 @@ func TestCloudscaleClusterReconciler_IsInfrastructureProvisioned_LBEnabledAllRes
 				},
 			},
 			Status: infrastructurev1beta2.CloudscaleClusterStatus{
-				NetworkID:              "network-123",
-				SubnetID:               "subnet-123",
+				Networks: []infrastructurev1beta2.NetworkStatus{{
+					Name: "test", NetworkID: "network-123", SubnetID: "subnet-123", Managed: true,
+				}},
 				LoadBalancerID:         "lb-123",
 				LoadBalancerPoolID:     "pool-123",
 				LoadBalancerListenerID: "listener-123",
@@ -123,8 +124,9 @@ func TestCloudscaleClusterReconciler_IsInfrastructureProvisioned_LBEnabledMissin
 				},
 			},
 			Status: infrastructurev1beta2.CloudscaleClusterStatus{
-				NetworkID: "network-123",
-				SubnetID:  "subnet-123",
+				Networks: []infrastructurev1beta2.NetworkStatus{{
+					Name: "test", NetworkID: "network-123", SubnetID: "subnet-123", Managed: true,
+				}},
 				// LB resources missing
 			},
 		},
@@ -149,8 +151,9 @@ func TestCloudscaleClusterReconciler_IsInfrastructureProvisioned_LBDisabledExter
 				},
 			},
 			Status: infrastructurev1beta2.CloudscaleClusterStatus{
-				NetworkID: "network-123",
-				SubnetID:  "subnet-123",
+				Networks: []infrastructurev1beta2.NetworkStatus{{
+					Name: "test", NetworkID: "network-123", SubnetID: "subnet-123", Managed: true,
+				}},
 				// No LB resources needed
 			},
 		},
@@ -172,8 +175,9 @@ func TestCloudscaleClusterReconciler_IsInfrastructureProvisioned_LBDisabledNoEnd
 				// ControlPlaneEndpoint not set
 			},
 			Status: infrastructurev1beta2.CloudscaleClusterStatus{
-				NetworkID: "network-123",
-				SubnetID:  "subnet-123",
+				Networks: []infrastructurev1beta2.NetworkStatus{{
+					Name: "test", NetworkID: "network-123", SubnetID: "subnet-123", Managed: true,
+				}},
 			},
 		},
 	}
@@ -202,6 +206,12 @@ func TestCloudscaleClusterReconciler_SetReadyCondition_AllTrue(t *testing.T) {
 					},
 					{
 						Type:               infrastructurev1beta2.LoadBalancerReadyCondition,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Provisioned",
+						ObservedGeneration: 1,
+					},
+					{
+						Type:               infrastructurev1beta2.FloatingIPReadyCondition,
 						Status:             metav1.ConditionTrue,
 						Reason:             "Provisioned",
 						ObservedGeneration: 1,

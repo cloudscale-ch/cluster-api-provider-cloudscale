@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
@@ -30,8 +31,8 @@ import (
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/scope"
 )
 
-// reconcileNetwork orchestrates network and subnet provisioning.
-// A single NetworkReadyCondition covers both resources.
+// reconcileNetwork orchestrates network and subnet provisioning for all networks
+// defined in spec.networks. A single NetworkReadyCondition covers all networks.
 func (r *CloudscaleClusterReconciler) reconcileNetwork(ctx context.Context, clusterScope *scope.ClusterScope) (reterr error) {
 	defer func() {
 		if reterr != nil {
@@ -41,136 +42,204 @@ func (r *CloudscaleClusterReconciler) reconcileNetwork(ctx context.Context, clus
 		}
 	}()
 
-	if err := r.reconcileNetworkResource(ctx, clusterScope); err != nil {
-		return fmt.Errorf("reconciling network: %w", err)
+	if len(clusterScope.CloudscaleCluster.Spec.Networks) == 0 {
+		return fmt.Errorf("no networks defined in spec")
 	}
 
-	if err := r.reconcileSubnet(ctx, clusterScope); err != nil {
-		return fmt.Errorf("reconciling subnet: %w", err)
+	for _, netSpec := range clusterScope.CloudscaleCluster.Spec.Networks {
+		if netSpec.UUID != "" {
+			if err := r.reconcileBYONetwork(ctx, clusterScope, netSpec); err != nil {
+				return fmt.Errorf("reconciling BYO network %q: %w", netSpec.Name, err)
+			}
+		} else {
+			if err := r.reconcileManagedNetwork(ctx, clusterScope, netSpec); err != nil {
+				return fmt.Errorf("reconciling managed network %q: %w", netSpec.Name, err)
+			}
+		}
 	}
 
 	return nil
 }
 
-// reconcileNetworkResource ensures the network exists.
-func (r *CloudscaleClusterReconciler) reconcileNetworkResource(ctx context.Context, clusterScope *scope.ClusterScope) error {
-	id, err := ensureResource(ctx, clusterScope,
-		clusterScope.CloudscaleCluster.Status.NetworkID,
-		"network",
+// reconcileBYONetwork validates a BYO network exists and discovers its subnet.
+// The subnet is discovered once and cached in status. Subsequent reconciles
+// short-circuit if the network and subnet IDs are already populated.
+// This is intentional: BYO networks are managed externally, so CAPCS does not
+// re-verify them. If the network/subnet is reconfigured externally, the next
+// machine creation will fail at the cloudscale API level.
+func (r *CloudscaleClusterReconciler) reconcileBYONetwork(ctx context.Context, clusterScope *scope.ClusterScope, netSpec infrastructurev1beta2.NetworkSpec) error {
+	ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus(netSpec.Name)
+	if ns != nil && ns.NetworkID != "" && ns.SubnetID != "" {
+		return nil
+	}
+
+	network, err := clusterScope.CloudscaleClient.Networks.Get(ctx, netSpec.UUID)
+	if err != nil {
+		return fmt.Errorf("getting BYO network %s: %w", netSpec.UUID, err)
+	}
+
+	if len(network.Subnets) == 0 {
+		return fmt.Errorf("BYO network %s has no subnets", netSpec.UUID)
+	}
+
+	r.setNetworkStatus(clusterScope, netSpec.Name, network.UUID, network.Subnets[0].UUID, false)
+	clusterScope.Info("Discovered BYO network", "name", netSpec.Name, "networkID", network.UUID, "subnetID", network.Subnets[0].UUID)
+
+	return nil
+}
+
+// reconcileManagedNetwork ensures a managed network and its subnet exist.
+func (r *CloudscaleClusterReconciler) reconcileManagedNetwork(ctx context.Context, clusterScope *scope.ClusterScope, netSpec infrastructurev1beta2.NetworkSpec) error {
+	ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus(netSpec.Name)
+
+	// Reconcile the network resource
+	var networkID string
+	if ns != nil {
+		networkID = ns.NetworkID
+	}
+
+	tags := r.networkTags(clusterScope, netSpec.Name)
+
+	_, resolvedNetworkID, err := ensureResource(ctx, clusterScope,
+		networkID,
+		fmt.Sprintf("network/%s", netSpec.Name),
 		clusterScope.CloudscaleClient.Networks,
 		func(n cloudscalesdk.Network) string { return n.UUID },
-		clusterOwnershipTags(clusterScope.CloudscaleCluster),
+		tags,
 	)
 	if err != nil {
 		return err
 	}
-	clusterScope.CloudscaleCluster.Status.NetworkID = id
-	if id != "" {
-		return nil
+
+	if resolvedNetworkID == "" {
+		// Create new network
+		clusterScope.Info("Creating network", "name", netSpec.Name)
+		network, err := clusterScope.CloudscaleClient.Networks.Create(ctx, &cloudscalesdk.NetworkCreateRequest{
+			Name:                 netSpec.Name,
+			AutoCreateIPV4Subnet: ptr.To(false),
+			ZonalResourceRequest: cloudscalesdk.ZonalResourceRequest{
+				Zone: clusterScope.CloudscaleCluster.Spec.Zone,
+			},
+			TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
+				Tags: ptr.To(tags),
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("creating network: %w", err)
+		}
+		resolvedNetworkID = network.UUID
+		clusterScope.Info("Created network", "name", netSpec.Name, "networkID", network.UUID)
+		r.recorder.Eventf(clusterScope.CloudscaleCluster, nil, corev1.EventTypeNormal, "NetworkCreated", "CreateNetwork",
+			"Created network %s (%s) in zone %s", netSpec.Name, network.UUID, clusterScope.CloudscaleCluster.Spec.Zone)
 	}
 
-	// Create new network
-	clusterScope.Info("Creating network")
-
-	network, err := clusterScope.CloudscaleClient.Networks.Create(ctx, &cloudscalesdk.NetworkCreateRequest{
-		Name:                 clusterScope.Name(),
-		AutoCreateIPV4Subnet: ptr.To(false),
-		ZonalResourceRequest: cloudscalesdk.ZonalResourceRequest{
-			Zone: clusterScope.CloudscaleCluster.Spec.Zone,
-		},
-		TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-			Tags: ptr.To(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("creating network: %w", err)
+	// Reconcile the subnet
+	var subnetID string
+	if ns != nil {
+		subnetID = ns.SubnetID
 	}
 
-	clusterScope.CloudscaleCluster.Status.NetworkID = network.UUID
-	clusterScope.Info("Created network", "networkID", network.UUID)
-	r.recorder.Eventf(clusterScope.CloudscaleCluster, nil, corev1.EventTypeNormal, "NetworkCreated", "CreateNetwork",
-		"Created network %s in zone %s", network.UUID, clusterScope.CloudscaleCluster.Spec.Zone)
-
-	return nil
-}
-
-// reconcileSubnet ensures the subnet exists within the network.
-func (r *CloudscaleClusterReconciler) reconcileSubnet(ctx context.Context, clusterScope *scope.ClusterScope) error {
-	if clusterScope.CloudscaleCluster.Status.NetworkID == "" {
-		return fmt.Errorf("network must be created before subnet")
-	}
-
-	id, err := ensureResource(ctx, clusterScope,
-		clusterScope.CloudscaleCluster.Status.SubnetID,
-		"subnet",
+	_, resolvedSubnetID, err := ensureResource(ctx, clusterScope,
+		subnetID,
+		fmt.Sprintf("subnet/%s", netSpec.Name),
 		clusterScope.CloudscaleClient.Subnets,
 		func(s cloudscalesdk.Subnet) string { return s.UUID },
-		clusterOwnershipTags(clusterScope.CloudscaleCluster),
+		tags,
 	)
 	if err != nil {
 		return err
 	}
-	clusterScope.CloudscaleCluster.Status.SubnetID = id
-	if id != "" {
-		return nil
+
+	if resolvedSubnetID == "" {
+		// Create new subnet
+		clusterScope.Info("Creating subnet", "name", netSpec.Name, "cidr", netSpec.CIDR, "gateway", netSpec.GatewayAddress)
+		subnet, err := clusterScope.CloudscaleClient.Subnets.Create(ctx, &cloudscalesdk.SubnetCreateRequest{
+			Network:        resolvedNetworkID,
+			CIDR:           netSpec.CIDR,
+			GatewayAddress: netSpec.GatewayAddress,
+			TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
+				Tags: ptr.To(tags),
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("creating subnet: %w", err)
+		}
+		resolvedSubnetID = subnet.UUID
+		clusterScope.Info("Created subnet", "name", netSpec.Name, "subnetID", subnet.UUID)
+		r.recorder.Eventf(clusterScope.CloudscaleCluster, nil, corev1.EventTypeNormal, "SubnetCreated", "CreateSubnet",
+			"Created subnet %s (%s) with CIDR %s", netSpec.Name, subnet.UUID, netSpec.CIDR)
 	}
 
-	// Create new subnet
-	// GatewayAddress is defaulted by the webhook (empty string = no gateway)
-	spec := &clusterScope.CloudscaleCluster.Spec.Network
-	clusterScope.Info("Creating subnet", "cidr", spec.CIDR, "gateway", *spec.GatewayAddress)
-
-	subnet, err := clusterScope.CloudscaleClient.Subnets.Create(ctx, &cloudscalesdk.SubnetCreateRequest{
-		Network:        clusterScope.CloudscaleCluster.Status.NetworkID,
-		CIDR:           spec.CIDR,
-		GatewayAddress: *spec.GatewayAddress,
-		TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-			Tags: ptr.To(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("creating subnet: %w", err)
-	}
-
-	clusterScope.CloudscaleCluster.Status.SubnetID = subnet.UUID
-	clusterScope.Info("Created subnet", "subnetID", subnet.UUID)
-	r.recorder.Eventf(clusterScope.CloudscaleCluster, nil, corev1.EventTypeNormal, "SubnetCreated", "CreateSubnet",
-		"Created subnet %s with CIDR %s", subnet.UUID, clusterScope.CloudscaleCluster.Spec.Network.CIDR)
-
+	r.setNetworkStatus(clusterScope, netSpec.Name, resolvedNetworkID, resolvedSubnetID, true)
 	return nil
 }
 
-// deleteNetwork deletes the network. Subnets are cascade-deleted by the cloudscale.ch API
-// when their parent network is deleted, so only the network needs explicit deletion.
+// deleteNetwork deletes all managed networks. BYO networks are left untouched.
+// Subnets are cascade-deleted by the cloudscale.ch API when their parent network is deleted.
+// On partial failure, successfully deleted networks are removed from status so that
+// only undeleted networks remain for the next reconcile attempt.
 func (r *CloudscaleClusterReconciler) deleteNetwork(ctx context.Context, clusterScope *scope.ClusterScope) (reterr error) {
 	defer func() {
 		if reterr != nil {
 			r.setCondition(clusterScope, infrastructurev1beta2.NetworkReadyCondition, metav1.ConditionFalse, infrastructurev1beta2.NetworkErrorReason, fmt.Sprintf("Failed to delete network: %v", reterr))
 		} else {
-			r.setCondition(clusterScope, infrastructurev1beta2.NetworkReadyCondition, metav1.ConditionFalse, infrastructurev1beta2.NetworkDeletingReason, "Network has been deleted")
+			r.setCondition(clusterScope, infrastructurev1beta2.NetworkReadyCondition, metav1.ConditionFalse, infrastructurev1beta2.NetworkDeletingReason, "Networks have been deleted")
 		}
 	}()
 
-	if clusterScope.CloudscaleCluster.Status.NetworkID == "" {
-		return nil
-	}
+	var remaining []infrastructurev1beta2.NetworkStatus
+	var errs []error
 
-	networkID := clusterScope.CloudscaleCluster.Status.NetworkID
-	clusterScope.Info("Deleting network", "networkID", networkID)
-
-	if err := clusterScope.CloudscaleClient.Networks.Delete(ctx, networkID); err != nil {
-		// Ignore 404 - network was already deleted externally
-		if !cloudscale.IsNotFound(err) {
-			return fmt.Errorf("deleting network: %w", err)
+	for _, ns := range clusterScope.CloudscaleCluster.Status.Networks {
+		if !ns.Managed {
+			clusterScope.Info("Skipping BYO network deletion", "name", ns.Name, "networkID", ns.NetworkID)
+			continue
 		}
-		clusterScope.Info("Network already deleted", "networkID", networkID)
+
+		if ns.NetworkID == "" {
+			continue
+		}
+
+		clusterScope.Info("Deleting network", "name", ns.Name, "networkID", ns.NetworkID)
+		if err := clusterScope.CloudscaleClient.Networks.Delete(ctx, ns.NetworkID); err != nil {
+			if !cloudscale.IsNotFound(err) {
+				remaining = append(remaining, ns)
+				errs = append(errs, fmt.Errorf("deleting network %s: %w", ns.Name, err))
+				continue
+			}
+			clusterScope.Info("Network already deleted", "name", ns.Name, "networkID", ns.NetworkID)
+		}
+
+		r.recorder.Eventf(clusterScope.CloudscaleCluster, nil, corev1.EventTypeNormal, "NetworkDeleted", "DeleteNetwork",
+			"Deleted network %s (%s)", ns.Name, ns.NetworkID)
 	}
 
-	r.recorder.Eventf(clusterScope.CloudscaleCluster, nil, corev1.EventTypeNormal, "NetworkDeleted", "DeleteNetwork",
-		"Deleted network %s", networkID)
+	clusterScope.CloudscaleCluster.Status.Networks = remaining
+	return errors.Join(errs...)
+}
 
-	// Clear both IDs (subnet is cascade-deleted with the network)
-	clusterScope.CloudscaleCluster.Status.NetworkID = ""
-	clusterScope.CloudscaleCluster.Status.SubnetID = ""
-	return nil
+// setNetworkStatus updates or appends the network status entry for the given name.
+func (r *CloudscaleClusterReconciler) setNetworkStatus(clusterScope *scope.ClusterScope, name, networkID, subnetID string, managed bool) {
+	for i, ns := range clusterScope.CloudscaleCluster.Status.Networks {
+		if ns.Name == name {
+			clusterScope.CloudscaleCluster.Status.Networks[i].NetworkID = networkID
+			clusterScope.CloudscaleCluster.Status.Networks[i].SubnetID = subnetID
+			clusterScope.CloudscaleCluster.Status.Networks[i].Managed = managed
+			return
+		}
+	}
+	clusterScope.CloudscaleCluster.Status.Networks = append(clusterScope.CloudscaleCluster.Status.Networks, infrastructurev1beta2.NetworkStatus{
+		Name:      name,
+		NetworkID: networkID,
+		SubnetID:  subnetID,
+		Managed:   managed,
+	})
+}
+
+// networkTags returns the tags for a specific named network, combining cluster ownership with network name.
+func (r *CloudscaleClusterReconciler) networkTags(clusterScope *scope.ClusterScope, networkName string) cloudscalesdk.TagMap {
+	tags := cloudscalesdk.TagMap{
+		infrastructurev1beta2.NameCloudscaleProviderOwned + clusterScope.Cluster.Name: networkName,
+	}
+	return tags
 }

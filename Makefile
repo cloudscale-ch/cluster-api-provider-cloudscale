@@ -125,17 +125,20 @@ generate-e2e-cni: ## Regenerate Cilium CNI manifest from Helm chart
 generate-e2e-ccm: ## Regenerate cloudscale CCM manifest
 	@CCM_VERSION=$(CCM_VERSION) hack/generate-e2e-ccm.sh
 
+E2E_CLUSTER_TEMPLATES := cluster-template \
+	cluster-template-ha \
+	cluster-template-upgrades \
+	cluster-template-md-remediation \
+	cluster-template-byo-network \
+	cluster-template-public-lb-private-nodes \
+	cluster-template-fip
+
 .PHONY: generate-e2e-templates
 generate-e2e-templates: $(KUSTOMIZE) generate-e2e-cni generate-e2e-ccm ## Generate e2e cluster templates using kustomize overlays
 	@mkdir -p $(E2E_TEMPLATES)/main
-	@echo "Generating cluster-template.yaml..."
-	@"$(KUSTOMIZE)" build --load-restrictor LoadRestrictionsNone $(E2E_TEMPLATES)/cluster-template > $(E2E_TEMPLATES)/main/cluster-template.yaml
-	@echo "Generating cluster-template-ha.yaml..."
-	@"$(KUSTOMIZE)" build --load-restrictor LoadRestrictionsNone $(E2E_TEMPLATES)/cluster-template-ha > $(E2E_TEMPLATES)/main/cluster-template-ha.yaml
-	@echo "Generating cluster-template-upgrades.yaml..."
-	@"$(KUSTOMIZE)" build --load-restrictor LoadRestrictionsNone $(E2E_TEMPLATES)/cluster-template-upgrades > $(E2E_TEMPLATES)/main/cluster-template-upgrades.yaml
-	@echo "Generating cluster-template-md-remediation.yaml..."
-	@"$(KUSTOMIZE)" build --load-restrictor LoadRestrictionsNone $(E2E_TEMPLATES)/cluster-template-md-remediation > $(E2E_TEMPLATES)/main/cluster-template-md-remediation.yaml
+	@$(foreach tmpl,$(E2E_CLUSTER_TEMPLATES),\
+		echo "Generating $(tmpl).yaml..." && \
+		"$(KUSTOMIZE)" build --load-restrictor LoadRestrictionsNone $(E2E_TEMPLATES)/$(tmpl) > $(E2E_TEMPLATES)/main/$(tmpl).yaml &&) true
 	@echo "Templates generated successfully."
 
 .PHONY: generate-e2e-config
@@ -216,6 +219,19 @@ test-e2e-md-remediation: $(GINKGO) generate-e2e-templates generate-e2e-config do
 		--label-filter="md-remediation" \
 		--timeout=90m \
 		--output-dir="$(E2E_ARTIFACTS_FOLDER)" --junit-report="junit.e2e_md_remediation.xml" \
+		./test/e2e -- \
+		-e2e.config=$(E2E_CONF_FILE) \
+		-e2e.artifacts-folder=$(E2E_ARTIFACTS_FOLDER) \
+		-e2e.skip-resource-cleanup=$(SKIP_RESOURCE_CLEANUP) \
+		-e2e.use-existing-cluster=$(USE_EXISTING_CLUSTER)
+
+.PHONY: test-e2e-byo-networking
+test-e2e-byo-networking: $(GINKGO) generate-e2e-templates generate-e2e-config docker-build ## Run BYO networking e2e tests
+	$(GINKGO) -v --trace --tags=e2e \
+		--nodes=$(GINKGO_NODES) \
+		--label-filter="byo-networking" \
+		--timeout=90m \
+		--output-dir="$(E2E_ARTIFACTS_FOLDER)" --junit-report="junit.e2e_byo_networking.xml" \
 		./test/e2e -- \
 		-e2e.config=$(E2E_CONF_FILE) \
 		-e2e.artifacts-folder=$(E2E_ARTIFACTS_FOLDER) \

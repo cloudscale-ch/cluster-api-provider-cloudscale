@@ -8,8 +8,9 @@ for [cloudscale.ch](https://www.cloudscale.ch).
 
 ## Features
 
-- **CloudscaleCluster**: Network, Subnet, Load Balancer management
-- **CloudscaleMachine**: Server provisioning with cloud-init
+- **CloudscaleCluster**: Multi-network management (managed or BYO), Load Balancer (public or private VIP), Floating IP
+  support
+- **CloudscaleMachine**: Server provisioning with cloud-init and configurable network interfaces
 - **CloudscaleMachineTemplate**: Immutable machine templates for KubeadmControlPlane/MachineDeployment
 
 ## Prerequisites
@@ -42,6 +43,9 @@ clusterctl generate cluster my-cluster \
   | kubectl apply -f -
 ```
 
+This uses the default template (public nodes, managed network). See [Cluster Templates](#cluster-templates) for other
+network topologies.
+
 Watch the cluster come up:
 
 ```bash
@@ -50,15 +54,40 @@ clusterctl describe cluster my-cluster
 
 ## Environment Variables
 
-| Variable                                  | Description                    | Example                           |
-|-------------------------------------------|--------------------------------|-----------------------------------|
-| `CLOUDSCALE_API_TOKEN`                    | cloudscale.ch API token        | `abc123...`                       |
-| `CLOUDSCALE_SSH_PUBLIC_KEY`               | SSH public key added to nodes  | `ssh-ed25519 AAAA...`             |
-| `CLOUDSCALE_REGION`                       | cloudscale.ch region           | `lpg` or `rma`                    |
-| `CLOUDSCALE_MACHINE_IMAGE`                | Server image for nodes         | `custom:ubuntu-2404-kube-v1.xx.x` |
-| `CLOUDSCALE_CONTROL_PLANE_MACHINE_FLAVOR` | Flavor for control plane nodes | `flex-4-2`                        |
-| `CLOUDSCALE_WORKER_MACHINE_FLAVOR`        | Flavor for worker nodes        | `flex-4-2`                        |
-| `CLOUDSCALE_ROOT_VOLUME_SIZE`             | Root volume size in GB         | `50`                              |
+| Variable                                  | Description                               | Example                           |
+|-------------------------------------------|-------------------------------------------|-----------------------------------|
+| `CLOUDSCALE_API_TOKEN`                    | cloudscale.ch API token                   | `abc123...`                       |
+| `CLOUDSCALE_SSH_PUBLIC_KEY`               | SSH public key added to nodes             | `ssh-ed25519 AAAA...`             |
+| `CLOUDSCALE_REGION`                       | cloudscale.ch region                      | `lpg` or `rma`                    |
+| `CLOUDSCALE_MACHINE_IMAGE`                | Server image for nodes                    | `custom:ubuntu-2404-kube-v1.xx.x` |
+| `CLOUDSCALE_CONTROL_PLANE_MACHINE_FLAVOR` | Flavor for control plane nodes            | `flex-4-2`                        |
+| `CLOUDSCALE_WORKER_MACHINE_FLAVOR`        | Flavor for worker nodes                   | `flex-4-2`                        |
+| `CLOUDSCALE_ROOT_VOLUME_SIZE`             | Root volume size in GB                    | `50`                              |
+| `CLOUDSCALE_NETWORK_UUID`                 | Existing cloudscale.ch network UUID (BYO) | `2db69ba3-...`                    |
+
+> **Note:** `CLOUDSCALE_NETWORK_UUID` is required by the `fip`, `public-lb-private-nodes`, and `byo-network`
+> template flavors. It is not needed for the default template.
+
+## Cluster Templates
+
+CAPCS ships several cluster templates for different network topologies. Use `clusterctl generate cluster` with the
+`--flavor` flag to select one:
+
+```bash
+clusterctl generate cluster my-cluster \
+  --kubernetes-version v1.32.0 \
+  --control-plane-machine-count 1 \
+  --worker-machine-count 2 \
+  --flavor <flavor-name> \
+  | kubectl apply -f -
+```
+
+| Flavor                    | Network                   | CP Endpoint           | Node Connectivity | Extra Env Vars            | Notes                |
+|---------------------------|---------------------------|-----------------------|-------------------|---------------------------|----------------------|
+| *(default)*               | Managed (`10.100.0.0/24`) | Public LB (DualStack) | Public + cluster  | —                         |                      |
+| `fip`                     | BYO                       | Floating IP (IPv4)    | Public + cluster  | `CLOUDSCALE_NETWORK_UUID` |                      |
+| `public-lb-private-nodes` | BYO + NAT                 | Public LB             | Private only      | `CLOUDSCALE_NETWORK_UUID` | Requires NAT gateway |
+| `byo-network`             | BYO                       | Public LB (DualStack) | Public + cluster  | `CLOUDSCALE_NETWORK_UUID` |                      |
 
 ## Development
 
@@ -92,6 +121,7 @@ filtering and are split into suites of increasing cost, scheduled accordingly:
 | Cluster upgrade    | `upgrade`        | Rolling K8s version upgrade (v1.34 → v1.35)                                              | < 10 min  | Weekly   | `test-e2e-upgrade`          |
 | Self-hosted        | `self-hosted`    | clusterctl move (pivot) to workload cluster. Requires container image in public registry | < 15 min  | Weekly   | `test-e2e-self-hosted`      |
 | MD remediation     | `md-remediation` | MachineHealthCheck auto-replacement of unhealthy workers                                 | < 10 min  | Weekly   | `test-e2e-md-remediation`   |
+| BYO networking     | `byo-networking` | BYO network: public-LB + private-nodes and floating-IP variants                          | < 10 min  | Weekly   | `test-e2e-byo-networking`   |
 | Conformance (fast) | `conformance`    | K8s conformance, skip Serial tests                                                       | < 60 min  | Weekly   | `test-e2e-conformance-fast` |
 | Conformance (full) | `conformance`    | Full K8s conformance including Serial tests                                              | < 120 min | Biweekly | `test-e2e-conformance`      |
 
@@ -99,7 +129,8 @@ Durations are approximate from a real CI run; conformance varies with cluster si
 
 **Why this split?** The single-CP lifecycle test is the cheapest smoke test and runs
 nightly to catch regressions early. HA, upgrade, self-hosted, and remediation tests are more
-resource-intensive and run weekly. Full K8s conformance is the most expensive and runs biweekly
+resource-intensive and run weekly. Private networking tests require `CLOUDSCALE_NETWORK_UUID` to be set and are
+skipped otherwise. Full K8s conformance is the most expensive and runs biweekly
 (1st + 15th of month). All suites can be triggered manually via the `test-e2e.yml` workflow
 dispatch. E2E tests share a concurrency group so only one suite runs at a time.
 
@@ -143,6 +174,8 @@ kustomize_substitutions:
   CLOUDSCALE_WORKER_MACHINE_FLAVOR: "flex-4-2"
   CLOUDSCALE_MACHINE_IMAGE: "IMAGE_NAME"
   CLOUDSCALE_ROOT_VOLUME_SIZE: "50"
+  # Required for BYO network flavors (fip, public-lb-private-nodes, byo-network):
+  # CLOUDSCALE_NETWORK_UUID: "UUID_HERE"
 extra_args:
   cloudscale:
     - "--zap-log-level=5"

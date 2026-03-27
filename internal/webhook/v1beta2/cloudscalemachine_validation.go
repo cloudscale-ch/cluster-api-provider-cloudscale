@@ -17,6 +17,7 @@ limitations under the License.
 package v1beta2
 
 import (
+	"reflect"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -24,6 +25,16 @@ import (
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
 )
+
+// defaultInterfaceIPFamily defaults the IPFamily of public interfaces to DualStack.
+func defaultInterfaceIPFamily(interfaces []infrastructurev1beta2.InterfaceSpec) {
+	for i := range interfaces {
+		if interfaces[i].Type == "public" && interfaces[i].IPFamily == nil {
+			dualStack := infrastructurev1beta2.IPFamilyDualStack
+			interfaces[i].IPFamily = &dualStack
+		}
+	}
+}
 
 // validateMachineSpec validates a CloudscaleMachineSpec at creation time.
 func validateMachineSpec(spec *infrastructurev1beta2.CloudscaleMachineSpec, flavorInfo *cloudscale.FlavorInfo, fldPath *field.Path) field.ErrorList {
@@ -35,6 +46,7 @@ func validateMachineSpec(spec *infrastructurev1beta2.CloudscaleMachineSpec, flav
 			"unknown flavor"))
 	}
 	allErrs = append(allErrs, validateTags(spec.Tags, fldPath.Child("tags"))...)
+	allErrs = append(allErrs, validateInterfaces(spec.Interfaces, fldPath.Child("interfaces"))...)
 	return allErrs
 }
 
@@ -74,8 +86,55 @@ func validateMachineSpecUpdate(newSpec, oldSpec *infrastructurev1beta2.Cloudscal
 		}
 	}
 
+	// Interfaces are immutable (changing requires server recreation)
+	if !reflect.DeepEqual(newSpec.Interfaces, oldSpec.Interfaces) {
+		allErrs = append(allErrs, field.Forbidden(
+			fldPath.Child("interfaces"),
+			"field is immutable"))
+	}
+
 	// Tags are mutable but still validated for reserved prefix
 	allErrs = append(allErrs, validateTags(newSpec.Tags, fldPath.Child("tags"))...)
+
+	return allErrs
+}
+
+// validateInterfaces validates the interface spec list.
+func validateInterfaces(interfaces []infrastructurev1beta2.InterfaceSpec, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+
+	if len(interfaces) == 0 {
+		// Empty is valid — controller applies runtime defaults
+		return nil
+	}
+
+	publicCount := 0
+	for i, iface := range interfaces {
+		ifacePath := fldPath.Index(i)
+
+		hasType := iface.Type != ""
+		hasNetwork := iface.Network != ""
+
+		// Exactly one of type or network
+		if hasType == hasNetwork {
+			allErrs = append(allErrs, field.Invalid(ifacePath, "",
+				"exactly one of type or network must be specified"))
+		}
+
+		if iface.Type == "public" {
+			publicCount++
+		}
+
+		// IPFamily only valid on public interfaces
+		if iface.IPFamily != nil && iface.Type != "public" {
+			allErrs = append(allErrs, field.Invalid(ifacePath.Child("ipFamily"), *iface.IPFamily,
+				"ipFamily can only be set on public interfaces (type: public)"))
+		}
+	}
+
+	if publicCount > 1 {
+		allErrs = append(allErrs, field.TooMany(fldPath, publicCount, 1))
+	}
 
 	return allErrs
 }

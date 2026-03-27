@@ -65,21 +65,19 @@ const defaultSubnetCIDR = "10.0.0.0/24"
 func (d *CloudscaleClusterCustomDefaulter) Default(_ context.Context, cluster *infrastructurev1beta2.CloudscaleCluster) error {
 	cloudscaleclusterlog.Info("Defaulting for CloudscaleCluster", "name", cluster.GetName())
 
-	// Default network zone to region's default zone if not set
+	// Default zone to region's default zone if not set
 	if cluster.Spec.Zone == "" {
 		cluster.Spec.Zone = d.RegionInfo.GetDefaultZoneForRegion(cluster.Spec.Region)
 	}
 
-	// Default network CIDR if not set
-	if cluster.Spec.Network.CIDR == "" {
-		cluster.Spec.Network.CIDR = defaultSubnetCIDR
-	}
-
-	// Default gateway address to empty string (no gateway)
-	// This ensures outbound internet traffic uses the public interface,
-	// which is required for CCM to reach the cloudscale.ch API.
-	if cluster.Spec.Network.GatewayAddress == nil {
-		cluster.Spec.Network.GatewayAddress = ptr.To("")
+	// Default networks: if empty, create one managed network named after the cluster
+	if len(cluster.Spec.Networks) == 0 {
+		cluster.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
+			{
+				Name: cluster.Name,
+				CIDR: defaultSubnetCIDR,
+			},
+		}
 	}
 
 	// Default load balancer settings
@@ -95,8 +93,8 @@ func (d *CloudscaleClusterCustomDefaulter) Default(_ context.Context, cluster *i
 	if cluster.Spec.ControlPlaneLoadBalancer.APIServerPort == 0 {
 		cluster.Spec.ControlPlaneLoadBalancer.APIServerPort = 6443
 	}
-	if cluster.Spec.ControlPlaneLoadBalancer.Algorithm == "" {
-		cluster.Spec.ControlPlaneLoadBalancer.Algorithm = "round_robin"
+	if cluster.Spec.ControlPlaneLoadBalancer.IPFamily == "" {
+		cluster.Spec.ControlPlaneLoadBalancer.IPFamily = infrastructurev1beta2.IPFamilyDualStack
 	}
 
 	if cluster.Spec.ControlPlaneLoadBalancer.HealthMonitor.DelayS == 0 {
@@ -110,6 +108,12 @@ func (d *CloudscaleClusterCustomDefaulter) Default(_ context.Context, cluster *i
 	}
 	if cluster.Spec.ControlPlaneLoadBalancer.HealthMonitor.DownThreshold == 0 {
 		cluster.Spec.ControlPlaneLoadBalancer.HealthMonitor.DownThreshold = 3
+	}
+
+	// Default floating IP: if set but both fields empty, default to IPv4
+	if cluster.Spec.FloatingIP != nil && cluster.Spec.FloatingIP.IPFamily == nil && cluster.Spec.FloatingIP.UUID == "" {
+		ipv4 := infrastructurev1beta2.IPFamilyIPv4
+		cluster.Spec.FloatingIP.IPFamily = &ipv4
 	}
 
 	return nil
@@ -142,14 +146,24 @@ func (v *CloudscaleClusterCustomValidator) ValidateCreate(_ context.Context, clu
 		}
 	}
 
-	// Validate gateway address is within CIDR if specified
-	if cluster.Spec.Network.GatewayAddress != nil && *cluster.Spec.Network.GatewayAddress != "" {
-		allErrs = append(allErrs, validateGatewayInCIDR(
-			cluster.Spec.Network.CIDR,
-			*cluster.Spec.Network.GatewayAddress,
-			field.NewPath("spec", "network", "gatewayAddress"),
+	// Validate networks
+	allErrs = append(allErrs, validateNetworks(cluster.Spec.Networks, field.NewPath("spec", "networks"))...)
+
+	// Validate LB network reference
+	if cluster.Spec.ControlPlaneLoadBalancer.Network != "" {
+		allErrs = append(allErrs, validateNetworkReference(
+			cluster.Spec.ControlPlaneLoadBalancer.Network,
+			cluster.Spec.Networks,
+			field.NewPath("spec", "controlPlaneLoadBalancer", "network"),
 		)...)
 	}
+
+	// Validate floating IP
+	if cluster.Spec.FloatingIP != nil {
+		allErrs = append(allErrs, validateFloatingIP(cluster.Spec.FloatingIP, field.NewPath("spec", "floatingIP"))...)
+	}
+
+	allErrs = append(allErrs, validateFloatingIPRequiresLBOrBYO(cluster)...)
 
 	if len(allErrs) > 0 {
 		return nil, apierrors.NewInvalid(
@@ -173,25 +187,41 @@ func (v *CloudscaleClusterCustomValidator) ValidateUpdate(_ context.Context, old
 			"field is immutable after cluster creation"))
 	}
 
-	// Network zone is immutable
+	// Zone is immutable
 	if newCluster.Spec.Zone != oldCluster.Spec.Zone {
 		allErrs = append(allErrs, field.Forbidden(
 			field.NewPath("spec", "zone"),
 			"field is immutable after cluster creation"))
 	}
 
-	// Network CIDR is immutable
-	if newCluster.Spec.Network.CIDR != oldCluster.Spec.Network.CIDR {
-		allErrs = append(allErrs, field.Forbidden(
-			field.NewPath("spec", "network", "cidr"),
-			"field is immutable after cluster creation"))
-	}
+	// Network immutability: existing networks cannot be modified or removed
+	allErrs = append(allErrs, validateNetworkImmutability(oldCluster.Spec.Networks, newCluster.Spec.Networks, field.NewPath("spec", "networks"))...)
+
+	// Validate new networks (new entries must still pass creation validation)
+	allErrs = append(allErrs, validateNetworks(newCluster.Spec.Networks, field.NewPath("spec", "networks"))...)
 
 	// LoadBalancer Enabled is immutable
 	if ptr.Deref(newCluster.Spec.ControlPlaneLoadBalancer.Enabled, true) != ptr.Deref(oldCluster.Spec.ControlPlaneLoadBalancer.Enabled, true) {
 		allErrs = append(allErrs, field.Forbidden(
 			field.NewPath("spec", "controlPlaneLoadBalancer", "enabled"),
 			"field is immutable after cluster creation"))
+	}
+
+	// LB network is immutable once set
+	if oldCluster.Spec.ControlPlaneLoadBalancer.Network != "" &&
+		newCluster.Spec.ControlPlaneLoadBalancer.Network != oldCluster.Spec.ControlPlaneLoadBalancer.Network {
+		allErrs = append(allErrs, field.Forbidden(
+			field.NewPath("spec", "controlPlaneLoadBalancer", "network"),
+			"field is immutable once set"))
+	}
+
+	// Validate LB network reference (for new or existing)
+	if newCluster.Spec.ControlPlaneLoadBalancer.Network != "" {
+		allErrs = append(allErrs, validateNetworkReference(
+			newCluster.Spec.ControlPlaneLoadBalancer.Network,
+			newCluster.Spec.Networks,
+			field.NewPath("spec", "controlPlaneLoadBalancer", "network"),
+		)...)
 	}
 
 	// ControlPlaneEndpoint is immutable once set
@@ -208,20 +238,15 @@ func (v *CloudscaleClusterCustomValidator) ValidateUpdate(_ context.Context, old
 		}
 	}
 
-	// GatewayAddress is immutable
-	oldGateway := ""
-	newGateway := ""
-	if oldCluster.Spec.Network.GatewayAddress != nil {
-		oldGateway = *oldCluster.Spec.Network.GatewayAddress
+	// FloatingIP is immutable once set
+	allErrs = append(allErrs, validateFloatingIPImmutability(oldCluster.Spec.FloatingIP, newCluster.Spec.FloatingIP, field.NewPath("spec", "floatingIP"))...)
+
+	// Validate floating IP if set
+	if newCluster.Spec.FloatingIP != nil {
+		allErrs = append(allErrs, validateFloatingIP(newCluster.Spec.FloatingIP, field.NewPath("spec", "floatingIP"))...)
 	}
-	if newCluster.Spec.Network.GatewayAddress != nil {
-		newGateway = *newCluster.Spec.Network.GatewayAddress
-	}
-	if oldGateway != newGateway {
-		allErrs = append(allErrs, field.Forbidden(
-			field.NewPath("spec", "network", "gatewayAddress"),
-			"field is immutable after cluster creation"))
-	}
+
+	allErrs = append(allErrs, validateFloatingIPRequiresLBOrBYO(newCluster)...)
 
 	if len(allErrs) > 0 {
 		return nil, apierrors.NewInvalid(
@@ -236,6 +261,181 @@ func (v *CloudscaleClusterCustomValidator) ValidateUpdate(_ context.Context, old
 func (v *CloudscaleClusterCustomValidator) ValidateDelete(_ context.Context, obj *infrastructurev1beta2.CloudscaleCluster) (admission.Warnings, error) {
 	cloudscaleclusterlog.Info("Validation for CloudscaleCluster upon deletion", "name", obj.GetName())
 	return nil, nil
+}
+
+// validateNetworks validates the network list.
+func validateNetworks(networks []infrastructurev1beta2.NetworkSpec, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+
+	names := make(map[string]bool)
+	for i, netSpec := range networks {
+		netPath := fldPath.Index(i)
+
+		// Unique names
+		if names[netSpec.Name] {
+			allErrs = append(allErrs, field.Duplicate(netPath.Child("name"), netSpec.Name))
+		}
+		names[netSpec.Name] = true
+
+		// Exactly one of UUID or CIDR
+		hasUUID := netSpec.UUID != ""
+		hasCIDR := netSpec.CIDR != ""
+		if hasUUID == hasCIDR {
+			allErrs = append(allErrs, field.Invalid(netPath, netSpec.Name,
+				"exactly one of uuid or cidr must be specified"))
+		}
+
+		// Validate CIDR format
+		if hasCIDR {
+			if _, _, err := net.ParseCIDR(netSpec.CIDR); err != nil {
+				allErrs = append(allErrs, field.Invalid(netPath.Child("cidr"), netSpec.CIDR,
+					fmt.Sprintf("invalid CIDR: %v", err)))
+			}
+		}
+
+		// GatewayAddress only valid with CIDR
+		if netSpec.GatewayAddress != "" && !hasCIDR {
+			allErrs = append(allErrs, field.Invalid(netPath.Child("gatewayAddress"), netSpec.GatewayAddress,
+				"gatewayAddress can only be set when cidr is specified"))
+		}
+
+		// Validate gateway is within CIDR
+		if netSpec.GatewayAddress != "" && hasCIDR {
+			allErrs = append(allErrs, validateGatewayInCIDR(
+				netSpec.CIDR,
+				netSpec.GatewayAddress,
+				netPath.Child("gatewayAddress"),
+			)...)
+		}
+	}
+
+	return allErrs
+}
+
+// validateNetworkReference validates that a network name references a defined network.
+func validateNetworkReference(networkName string, networks []infrastructurev1beta2.NetworkSpec, fldPath *field.Path) field.ErrorList {
+	for _, n := range networks {
+		if n.Name == networkName {
+			return nil
+		}
+	}
+	return field.ErrorList{
+		field.NotFound(fldPath, networkName),
+	}
+}
+
+// validateNetworkImmutability checks that existing networks are not modified or removed.
+func validateNetworkImmutability(oldNetworks, newNetworks []infrastructurev1beta2.NetworkSpec, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+
+	// Build lookup for new networks
+	newByName := make(map[string]*infrastructurev1beta2.NetworkSpec)
+	for i := range newNetworks {
+		newByName[newNetworks[i].Name] = &newNetworks[i]
+	}
+
+	for i, oldNet := range oldNetworks {
+		newNet, exists := newByName[oldNet.Name]
+		if !exists {
+			allErrs = append(allErrs, field.Forbidden(
+				fldPath,
+				fmt.Sprintf("removing network %q is not allowed", oldNet.Name)))
+			continue
+		}
+
+		// CIDR immutable
+		if newNet.CIDR != oldNet.CIDR {
+			allErrs = append(allErrs, field.Forbidden(
+				fldPath.Index(i).Child("cidr"),
+				"field is immutable after cluster creation"))
+		}
+
+		// UUID immutable
+		if newNet.UUID != oldNet.UUID {
+			allErrs = append(allErrs, field.Forbidden(
+				fldPath.Index(i).Child("uuid"),
+				"field is immutable after cluster creation"))
+		}
+
+		// GatewayAddress immutable
+		if newNet.GatewayAddress != oldNet.GatewayAddress {
+			allErrs = append(allErrs, field.Forbidden(
+				fldPath.Index(i).Child("gatewayAddress"),
+				"field is immutable after cluster creation"))
+		}
+	}
+
+	return allErrs
+}
+
+// validateFloatingIPRequiresLBOrBYO rejects managed floating IPs when the load balancer is disabled.
+// cloudscale.ch floating IPs require a dummy interface on the target server.
+// With a BYO FIP, the user knows the address upfront and can configure
+// the dummy interface in KubeadmControlPlane preKubeadmCommands.
+// With a managed FIP, the address isn't known until creation,
+// so the dummy interface can't be pre-configured.
+func validateFloatingIPRequiresLBOrBYO(cluster *infrastructurev1beta2.CloudscaleCluster) field.ErrorList {
+	var allErrs field.ErrorList
+
+	if cluster.Spec.FloatingIP != nil &&
+		cluster.Spec.FloatingIP.UUID == "" &&
+		!ptr.Deref(cluster.Spec.ControlPlaneLoadBalancer.Enabled, true) {
+		allErrs = append(allErrs, field.Invalid(
+			field.NewPath("spec", "floatingIP"),
+			"",
+			"managed floating IP requires the load balancer to be enabled; use a BYO floating IP if you need a floating IP without a load balancer"))
+	}
+
+	return allErrs
+}
+
+// validateFloatingIP validates the floating IP spec.
+func validateFloatingIP(fip *infrastructurev1beta2.FloatingIPSpec, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+
+	hasIPFamily := fip.IPFamily != nil
+	hasUUID := fip.UUID != ""
+
+	if hasIPFamily == hasUUID {
+		allErrs = append(allErrs, field.Invalid(fldPath, "",
+			"exactly one of ipFamily or uuid must be specified"))
+	}
+
+	return allErrs
+}
+
+// validateFloatingIPImmutability checks that the floating IP config is immutable once set.
+func validateFloatingIPImmutability(oldFIP, newFIP *infrastructurev1beta2.FloatingIPSpec, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+
+	if oldFIP == nil && newFIP == nil {
+		return nil
+	}
+
+	// Cannot add or remove floating IP after creation.
+	// After the both-nil early return above, at least one is non-nil.
+	if oldFIP == nil {
+		allErrs = append(allErrs, field.Forbidden(fldPath,
+			"floating IP cannot be added after cluster creation"))
+		return allErrs
+	}
+	if newFIP == nil {
+		allErrs = append(allErrs, field.Forbidden(fldPath,
+			"floating IP cannot be removed after cluster creation"))
+		return allErrs
+	}
+
+	// Cannot switch between managed and BYO
+	if oldFIP.UUID != newFIP.UUID {
+		allErrs = append(allErrs, field.Forbidden(fldPath.Child("uuid"),
+			"field is immutable once set"))
+	}
+	if ptr.Deref(oldFIP.IPFamily, "") != ptr.Deref(newFIP.IPFamily, "") {
+		allErrs = append(allErrs, field.Forbidden(fldPath.Child("ipFamily"),
+			"field is immutable once set"))
+	}
+
+	return allErrs
 }
 
 // validateGatewayInCIDR validates that the gateway address is within the specified CIDR.

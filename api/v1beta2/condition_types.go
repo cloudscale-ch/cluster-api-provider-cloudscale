@@ -30,6 +30,10 @@ const (
 	// True when the pause annotation is present on the resource or parent cluster.
 	PausedCondition = "Paused"
 
+	// FloatingIPReadyCondition indicates whether the floating IP has been provisioned and assigned.
+	// Only applicable to CloudscaleCluster when spec.floatingIP is set.
+	FloatingIPReadyCondition = "FloatingIPReady"
+
 	// DeletingCondition indicates the resource is being deleted.
 	// True when DeletionTimestamp is set on the resource.
 	DeletingCondition = "Deleting"
@@ -60,6 +64,18 @@ const (
 
 	// LoadBalancerDeletingReason indicates the load balancer is being deleted.
 	LoadBalancerDeletingReason = "LoadBalancerDeleting"
+
+	// FloatingIPProvisionedReason indicates the floating IP has been successfully provisioned and assigned.
+	FloatingIPProvisionedReason = "FloatingIPProvisioned"
+
+	// FloatingIPDisabledReason indicates no floating IP is configured.
+	FloatingIPDisabledReason = "FloatingIPDisabled"
+
+	// FloatingIPErrorReason indicates an error occurred during floating IP operations.
+	FloatingIPErrorReason = "FloatingIPError"
+
+	// FloatingIPDeletingReason indicates the floating IP is being deleted.
+	FloatingIPDeletingReason = "FloatingIPDeleting"
 )
 
 // Condition reasons for CloudscaleMachine.

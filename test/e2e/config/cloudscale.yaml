@@ -38,7 +38,7 @@ providers:
         files:
           - sourcePath: "../data/shared/v1beta2/metadata.yaml"
 
-  - name: cloudscale
+  - name: cloudscale-ch-cloudscale
     type: InfrastructureProvider
     versions:
       - name: v0.99.99 # dev version, always higher than any release
@@ -53,6 +53,9 @@ providers:
           - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-ha.yaml"
           - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-upgrades.yaml"
           - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-md-remediation.yaml"
+          - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-byo-network.yaml"
+          - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-public-lb-private-nodes.yaml"
+          - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-fip.yaml"
           - sourcePath: "../data/infrastructure-cloudscale/main/metadata.yaml"
             targetName: metadata.yaml
 

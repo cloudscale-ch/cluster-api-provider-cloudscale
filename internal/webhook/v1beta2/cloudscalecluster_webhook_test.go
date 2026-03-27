@@ -82,40 +82,30 @@ func TestClusterDefaulting_ExplicitZoneNotOverridden(t *testing.T) {
 	g.Expect(obj.Spec.Zone).To(Equal(ZoneRma1))
 }
 
-func TestClusterDefaulting_CIDR(t *testing.T) {
+func TestClusterDefaulting_NetworksDefaultToClusterName(t *testing.T) {
 	g := NewWithT(t)
 	obj, _, _, defaulter := newClusterWebhookTestObjects()
-	obj.Spec.Network.CIDR = ""
+	obj.Name = "my-cluster"
+	obj.Spec.Region = RegionRma
 
 	g.Expect(defaulter.Default(ctx, obj)).To(Succeed())
-	g.Expect(obj.Spec.Network.CIDR).To(Equal(defaultSubnetCIDR))
+	g.Expect(obj.Spec.Networks).To(HaveLen(1))
+	g.Expect(obj.Spec.Networks[0].Name).To(Equal("my-cluster"))
+	g.Expect(obj.Spec.Networks[0].CIDR).To(Equal(defaultSubnetCIDR))
 }
 
-func TestClusterDefaulting_ExplicitCIDRNotOverridden(t *testing.T) {
+func TestClusterDefaulting_ExplicitNetworksNotOverridden(t *testing.T) {
 	g := NewWithT(t)
 	obj, _, _, defaulter := newClusterWebhookTestObjects()
-	obj.Spec.Network.CIDR = "10.1.0.0/16"
+	obj.Spec.Region = RegionRma
+	obj.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
+		{Name: "custom", CIDR: "10.1.0.0/16"},
+	}
 
 	g.Expect(defaulter.Default(ctx, obj)).To(Succeed())
-	g.Expect(obj.Spec.Network.CIDR).To(Equal("10.1.0.0/16"))
-}
-
-func TestClusterDefaulting_GatewayToEmptyString(t *testing.T) {
-	g := NewWithT(t)
-	obj, _, _, defaulter := newClusterWebhookTestObjects()
-	obj.Spec.Network.GatewayAddress = nil
-
-	g.Expect(defaulter.Default(ctx, obj)).To(Succeed())
-	g.Expect(obj.Spec.Network.GatewayAddress).To(Equal(ptr.To("")))
-}
-
-func TestClusterDefaulting_ExplicitGatewayNotOverridden(t *testing.T) {
-	g := NewWithT(t)
-	obj, _, _, defaulter := newClusterWebhookTestObjects()
-	obj.Spec.Network.GatewayAddress = ptr.To("10.0.0.1")
-
-	g.Expect(defaulter.Default(ctx, obj)).To(Succeed())
-	g.Expect(obj.Spec.Network.GatewayAddress).To(Equal(ptr.To("10.0.0.1")))
+	g.Expect(obj.Spec.Networks).To(HaveLen(1))
+	g.Expect(obj.Spec.Networks[0].Name).To(Equal("custom"))
+	g.Expect(obj.Spec.Networks[0].CIDR).To(Equal("10.1.0.0/16"))
 }
 
 func TestClusterDefaulting_LBEnabledToTrue(t *testing.T) {
@@ -163,6 +153,15 @@ func TestClusterDefaulting_APIServerPort(t *testing.T) {
 	g.Expect(obj.Spec.ControlPlaneLoadBalancer.APIServerPort).To(Equal(int32(6443)))
 }
 
+func TestClusterDefaulting_LBIPFamily(t *testing.T) {
+	g := NewWithT(t)
+	obj, _, _, defaulter := newClusterWebhookTestObjects()
+	obj.Spec.ControlPlaneLoadBalancer.IPFamily = ""
+
+	g.Expect(defaulter.Default(ctx, obj)).To(Succeed())
+	g.Expect(obj.Spec.ControlPlaneLoadBalancer.IPFamily).To(Equal(infrastructurev1beta2.IPFamilyDualStack))
+}
+
 func TestClusterDefaulting_HealthMonitorFields(t *testing.T) {
 	g := NewWithT(t)
 	obj, _, _, defaulter := newClusterWebhookTestObjects()
@@ -189,20 +188,44 @@ func TestClusterDefaulting_ExplicitHealthMonitorNotOverridden(t *testing.T) {
 	g.Expect(obj.Spec.ControlPlaneLoadBalancer.HealthMonitor.DownThreshold).To(Equal(8))
 }
 
+func TestClusterDefaulting_FloatingIPDefaultsToIPv4(t *testing.T) {
+	g := NewWithT(t)
+	obj, _, _, defaulter := newClusterWebhookTestObjects()
+	obj.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{}
+
+	g.Expect(defaulter.Default(ctx, obj)).To(Succeed())
+	g.Expect(obj.Spec.FloatingIP.IPFamily).To(Equal(ptr.To(infrastructurev1beta2.IPFamilyIPv4)))
+}
+
+func TestClusterDefaulting_FloatingIPExplicitNotOverridden(t *testing.T) {
+	g := NewWithT(t)
+	obj, _, _, defaulter := newClusterWebhookTestObjects()
+	obj.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{
+		UUID: "existing-fip-uuid",
+	}
+
+	g.Expect(defaulter.Default(ctx, obj)).To(Succeed())
+	g.Expect(obj.Spec.FloatingIP.IPFamily).To(BeNil())
+	g.Expect(obj.Spec.FloatingIP.UUID).To(Equal("existing-fip-uuid"))
+}
+
 func TestClusterDefaulting_AllDefaultsApplied(t *testing.T) {
 	g := NewWithT(t)
 	obj, _, _, defaulter := newClusterWebhookTestObjects()
+	obj.Name = "test-cluster"
 	obj.Spec.Region = RegionRma
 
 	g.Expect(defaulter.Default(ctx, obj)).To(Succeed())
 
 	g.Expect(obj.Spec.Zone).To(Equal(ZoneRma1))
-	g.Expect(obj.Spec.Network.CIDR).To(Equal(defaultSubnetCIDR))
-	g.Expect(obj.Spec.Network.GatewayAddress).To(Equal(ptr.To("")))
+	g.Expect(obj.Spec.Networks).To(HaveLen(1))
+	g.Expect(obj.Spec.Networks[0].Name).To(Equal("test-cluster"))
+	g.Expect(obj.Spec.Networks[0].CIDR).To(Equal(defaultSubnetCIDR))
 	g.Expect(obj.Spec.ControlPlaneLoadBalancer.Enabled).To(Equal(ptr.To(true)))
 	g.Expect(obj.Spec.ControlPlaneLoadBalancer.Algorithm).To(Equal("round_robin"))
 	g.Expect(obj.Spec.ControlPlaneLoadBalancer.Flavor).To(Equal("lb-standard"))
 	g.Expect(obj.Spec.ControlPlaneLoadBalancer.APIServerPort).To(Equal(int32(6443)))
+	g.Expect(obj.Spec.ControlPlaneLoadBalancer.IPFamily).To(Equal(infrastructurev1beta2.IPFamilyDualStack))
 	g.Expect(obj.Spec.ControlPlaneLoadBalancer.HealthMonitor.DelayS).To(Equal(5))
 	g.Expect(obj.Spec.ControlPlaneLoadBalancer.HealthMonitor.TimeoutS).To(Equal(3))
 	g.Expect(obj.Spec.ControlPlaneLoadBalancer.HealthMonitor.UpThreshold).To(Equal(2))
@@ -218,6 +241,9 @@ func TestClusterValidateCreate_ValidCluster(t *testing.T) {
 	obj, _, validator, _ := newClusterWebhookTestObjects()
 	obj.Spec.Region = RegionRma
 	obj.Spec.Zone = ZoneRma1
+	obj.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
+		{Name: "main", CIDR: defaultSubnetCIDR},
+	}
 
 	_, err := validator.ValidateCreate(ctx, obj)
 	g.Expect(err).NotTo(HaveOccurred())
@@ -255,13 +281,57 @@ func TestClusterValidateCreate_EmptyZone(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 }
 
+func TestClusterValidateCreate_NetworkMustHaveUUIDOrCIDR(t *testing.T) {
+	g := NewWithT(t)
+	obj, _, validator, _ := newClusterWebhookTestObjects()
+	obj.Spec.Region = RegionRma
+	obj.Spec.Zone = ZoneRma1
+	obj.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
+		{Name: "bad"}, // neither UUID nor CIDR
+	}
+
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("exactly one of uuid or cidr"))
+}
+
+func TestClusterValidateCreate_NetworkBothUUIDAndCIDR(t *testing.T) {
+	g := NewWithT(t)
+	obj, _, validator, _ := newClusterWebhookTestObjects()
+	obj.Spec.Region = RegionRma
+	obj.Spec.Zone = ZoneRma1
+	obj.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
+		{Name: "bad", UUID: "some-uuid", CIDR: "10.0.0.0/24"},
+	}
+
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("exactly one of uuid or cidr"))
+}
+
+func TestClusterValidateCreate_DuplicateNetworkNames(t *testing.T) {
+	g := NewWithT(t)
+	obj, _, validator, _ := newClusterWebhookTestObjects()
+	obj.Spec.Region = RegionRma
+	obj.Spec.Zone = ZoneRma1
+	obj.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
+		{Name: "dup", CIDR: "10.0.0.0/24"},
+		{Name: "dup", CIDR: "10.1.0.0/24"},
+	}
+
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("Duplicate"))
+}
+
 func TestClusterValidateCreate_GatewayWithinCIDR(t *testing.T) {
 	g := NewWithT(t)
 	obj, _, validator, _ := newClusterWebhookTestObjects()
 	obj.Spec.Region = RegionRma
 	obj.Spec.Zone = ZoneRma1
-	obj.Spec.Network.CIDR = defaultSubnetCIDR
-	obj.Spec.Network.GatewayAddress = ptr.To("10.0.0.1")
+	obj.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
+		{Name: "main", CIDR: defaultSubnetCIDR, GatewayAddress: "10.0.0.1"},
+	}
 
 	_, err := validator.ValidateCreate(ctx, obj)
 	g.Expect(err).NotTo(HaveOccurred())
@@ -272,12 +342,13 @@ func TestClusterValidateCreate_GatewayOutsideCIDR(t *testing.T) {
 	obj, _, validator, _ := newClusterWebhookTestObjects()
 	obj.Spec.Region = RegionRma
 	obj.Spec.Zone = ZoneRma1
-	obj.Spec.Network.CIDR = defaultSubnetCIDR
-	obj.Spec.Network.GatewayAddress = ptr.To("192.168.1.1")
+	obj.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
+		{Name: "main", CIDR: defaultSubnetCIDR, GatewayAddress: "192.168.1.1"},
+	}
 
 	_, err := validator.ValidateCreate(ctx, obj)
 	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("spec.network.gatewayAddress"))
+	g.Expect(err.Error()).To(ContainSubstring("gatewayAddress"))
 }
 
 func TestClusterValidateCreate_InvalidGatewayIP(t *testing.T) {
@@ -285,31 +356,122 @@ func TestClusterValidateCreate_InvalidGatewayIP(t *testing.T) {
 	obj, _, validator, _ := newClusterWebhookTestObjects()
 	obj.Spec.Region = RegionRma
 	obj.Spec.Zone = ZoneRma1
-	obj.Spec.Network.CIDR = defaultSubnetCIDR
-	obj.Spec.Network.GatewayAddress = ptr.To("notanip")
+	obj.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
+		{Name: "main", CIDR: defaultSubnetCIDR, GatewayAddress: "notanip"},
+	}
 
 	_, err := validator.ValidateCreate(ctx, obj)
 	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("spec.network.gatewayAddress"))
+	g.Expect(err.Error()).To(ContainSubstring("gatewayAddress"))
 }
 
-func TestClusterValidateCreate_EmptyGatewayString(t *testing.T) {
+func TestClusterValidateCreate_GatewayOnBYONetworkRejected(t *testing.T) {
 	g := NewWithT(t)
 	obj, _, validator, _ := newClusterWebhookTestObjects()
 	obj.Spec.Region = RegionRma
 	obj.Spec.Zone = ZoneRma1
-	obj.Spec.Network.GatewayAddress = ptr.To("")
+	obj.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
+		{Name: "byo", UUID: "some-uuid", GatewayAddress: "10.0.0.1"},
+	}
+
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("gatewayAddress"))
+}
+
+func TestClusterValidateCreate_LBNetworkReference(t *testing.T) {
+	g := NewWithT(t)
+	obj, _, validator, _ := newClusterWebhookTestObjects()
+	obj.Spec.Region = RegionRma
+	obj.Spec.Zone = ZoneRma1
+	obj.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
+		{Name: "main", CIDR: defaultSubnetCIDR},
+	}
+	obj.Spec.ControlPlaneLoadBalancer.Network = "main"
 
 	_, err := validator.ValidateCreate(ctx, obj)
 	g.Expect(err).NotTo(HaveOccurred())
 }
 
-func TestClusterValidateCreate_NilGateway(t *testing.T) {
+func TestClusterValidateCreate_LBNetworkReferenceInvalid(t *testing.T) {
 	g := NewWithT(t)
 	obj, _, validator, _ := newClusterWebhookTestObjects()
 	obj.Spec.Region = RegionRma
 	obj.Spec.Zone = ZoneRma1
-	obj.Spec.Network.GatewayAddress = nil
+	obj.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
+		{Name: "main", CIDR: defaultSubnetCIDR},
+	}
+	obj.Spec.ControlPlaneLoadBalancer.Network = "nonexistent"
+
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("controlPlaneLoadBalancer.network"))
+}
+
+func TestClusterValidateCreate_FloatingIPValid(t *testing.T) {
+	g := NewWithT(t)
+	obj, _, validator, _ := newClusterWebhookTestObjects()
+	obj.Spec.Region = RegionRma
+	obj.Spec.Zone = ZoneRma1
+	obj.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{
+		IPFamily: ptr.To(infrastructurev1beta2.IPFamilyIPv4),
+	}
+
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).NotTo(HaveOccurred())
+}
+
+func TestClusterValidateCreate_FloatingIPBothFieldsInvalid(t *testing.T) {
+	g := NewWithT(t)
+	obj, _, validator, _ := newClusterWebhookTestObjects()
+	obj.Spec.Region = RegionRma
+	obj.Spec.Zone = ZoneRma1
+	obj.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{
+		IPFamily: ptr.To(infrastructurev1beta2.IPFamilyIPv4),
+		UUID:     "some-uuid",
+	}
+
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("floatingIP"))
+}
+
+func TestClusterValidateCreate_FloatingIPNeitherFieldInvalid(t *testing.T) {
+	g := NewWithT(t)
+	obj, _, validator, _ := newClusterWebhookTestObjects()
+	obj.Spec.Region = RegionRma
+	obj.Spec.Zone = ZoneRma1
+	obj.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{}
+
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("floatingIP"))
+}
+
+func TestClusterValidateCreate_ManagedFloatingIPWithoutLBRejected(t *testing.T) {
+	g := NewWithT(t)
+	obj, _, validator, _ := newClusterWebhookTestObjects()
+	obj.Spec.Region = RegionRma
+	obj.Spec.Zone = ZoneRma1
+	obj.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(false)
+	obj.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{
+		IPFamily: ptr.To(infrastructurev1beta2.IPFamilyIPv4),
+	}
+
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("managed floating IP"))
+}
+
+func TestClusterValidateCreate_BYOFloatingIPWithoutLBAllowed(t *testing.T) {
+	g := NewWithT(t)
+	obj, _, validator, _ := newClusterWebhookTestObjects()
+	obj.Spec.Region = RegionRma
+	obj.Spec.Zone = ZoneRma1
+	obj.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(false)
+	obj.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{
+		UUID: "existing-fip-uuid",
+	}
 
 	_, err := validator.ValidateCreate(ctx, obj)
 	g.Expect(err).NotTo(HaveOccurred())
@@ -325,17 +487,21 @@ func setupUpdateTestObjects() (
 	validator CloudscaleClusterCustomValidator,
 ) {
 	obj, oldObj, validator, _ = newClusterWebhookTestObjects()
+	networks := []infrastructurev1beta2.NetworkSpec{
+		{Name: "main", CIDR: defaultSubnetCIDR},
+	}
+
 	oldObj.Spec.Region = RegionRma
 	oldObj.Spec.Zone = ZoneRma1
-	oldObj.Spec.Network.CIDR = defaultSubnetCIDR
+	oldObj.Spec.Networks = networks
 	oldObj.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(true)
-	oldObj.Spec.Network.GatewayAddress = ptr.To("")
 
 	obj.Spec.Region = RegionRma
 	obj.Spec.Zone = ZoneRma1
-	obj.Spec.Network.CIDR = defaultSubnetCIDR
+	obj.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
+		{Name: "main", CIDR: defaultSubnetCIDR},
+	}
 	obj.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(true)
-	obj.Spec.Network.GatewayAddress = ptr.To("")
 	return
 }
 
@@ -367,14 +533,35 @@ func TestClusterValidateUpdate_ZoneChange(t *testing.T) {
 	g.Expect(err.Error()).To(ContainSubstring("spec.zone"))
 }
 
-func TestClusterValidateUpdate_CIDRChange(t *testing.T) {
+func TestClusterValidateUpdate_NetworkCIDRChange(t *testing.T) {
 	g := NewWithT(t)
 	obj, oldObj, validator := setupUpdateTestObjects()
-	obj.Spec.Network.CIDR = "10.1.0.0/24"
+	obj.Spec.Networks[0].CIDR = "10.1.0.0/24"
 
 	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
 	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("spec.network.cidr"))
+	g.Expect(err.Error()).To(ContainSubstring("cidr"))
+}
+
+func TestClusterValidateUpdate_NetworkRemoved(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj, validator := setupUpdateTestObjects()
+	obj.Spec.Networks = nil
+
+	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("removing network"))
+}
+
+func TestClusterValidateUpdate_NetworkAdded(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj, validator := setupUpdateTestObjects()
+	obj.Spec.Networks = append(obj.Spec.Networks, infrastructurev1beta2.NetworkSpec{
+		Name: "extra", CIDR: "10.1.0.0/24",
+	})
+
+	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+	g.Expect(err).NotTo(HaveOccurred())
 }
 
 func TestClusterValidateUpdate_LBEnabledChange(t *testing.T) {
@@ -385,6 +572,17 @@ func TestClusterValidateUpdate_LBEnabledChange(t *testing.T) {
 	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("spec.controlPlaneLoadBalancer.enabled"))
+}
+
+func TestClusterValidateUpdate_LBNetworkImmutable(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj, validator := setupUpdateTestObjects()
+	oldObj.Spec.ControlPlaneLoadBalancer.Network = "main"
+	obj.Spec.ControlPlaneLoadBalancer.Network = "other"
+
+	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("controlPlaneLoadBalancer.network"))
 }
 
 func TestClusterValidateUpdate_EndpointHostChange(t *testing.T) {
@@ -419,36 +617,29 @@ func TestClusterValidateUpdate_EndpointSetWhenEmpty(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 }
 
-func TestClusterValidateUpdate_GatewayChange(t *testing.T) {
+func TestClusterValidateUpdate_FloatingIPCannotBeAdded(t *testing.T) {
 	g := NewWithT(t)
 	obj, oldObj, validator := setupUpdateTestObjects()
-	oldObj.Spec.Network.GatewayAddress = ptr.To("")
-	obj.Spec.Network.GatewayAddress = ptr.To("10.0.0.1")
+	obj.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{
+		IPFamily: ptr.To(infrastructurev1beta2.IPFamilyIPv4),
+	}
 
 	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
 	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("spec.network.gatewayAddress"))
+	g.Expect(err.Error()).To(ContainSubstring("floatingIP"))
 }
 
-func TestClusterValidateUpdate_GatewayNilToValue(t *testing.T) {
+func TestClusterValidateUpdate_FloatingIPCannotBeRemoved(t *testing.T) {
 	g := NewWithT(t)
 	obj, oldObj, validator := setupUpdateTestObjects()
-	oldObj.Spec.Network.GatewayAddress = nil
-	obj.Spec.Network.GatewayAddress = ptr.To("10.0.0.1")
+	oldObj.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{
+		IPFamily: ptr.To(infrastructurev1beta2.IPFamilyIPv4),
+	}
+	obj.Spec.FloatingIP = nil
 
 	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
 	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("spec.network.gatewayAddress"))
-}
-
-func TestClusterValidateUpdate_GatewayNilToNil(t *testing.T) {
-	g := NewWithT(t)
-	obj, oldObj, validator := setupUpdateTestObjects()
-	oldObj.Spec.Network.GatewayAddress = nil
-	obj.Spec.Network.GatewayAddress = nil
-
-	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("floatingIP"))
 }
 
 func TestClusterValidateUpdate_MutableFieldsChange(t *testing.T) {
@@ -468,13 +659,13 @@ func TestClusterValidateUpdate_MultipleImmutableChanges(t *testing.T) {
 	obj, oldObj, validator := setupUpdateTestObjects()
 	obj.Spec.Region = "lpg"
 	obj.Spec.Zone = "lpg1"
-	obj.Spec.Network.CIDR = "10.1.0.0/24"
+	obj.Spec.Networks[0].CIDR = "10.1.0.0/24"
 
 	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("spec.region"))
 	g.Expect(err.Error()).To(ContainSubstring("spec.zone"))
-	g.Expect(err.Error()).To(ContainSubstring("spec.network.cidr"))
+	g.Expect(err.Error()).To(ContainSubstring("cidr"))
 }
 
 // ============================================================================
@@ -495,25 +686,25 @@ func TestClusterValidateDelete_AlwaysSucceeds(t *testing.T) {
 
 func TestValidateGatewayInCIDR_ValidGateway(t *testing.T) {
 	g := NewWithT(t)
-	errs := validateGatewayInCIDR(defaultSubnetCIDR, "10.0.0.1", field.NewPath("spec", "network", "gatewayAddress"))
+	errs := validateGatewayInCIDR(defaultSubnetCIDR, "10.0.0.1", field.NewPath("spec", "networks", "gatewayAddress"))
 	g.Expect(errs).To(BeEmpty())
 }
 
 func TestValidateGatewayInCIDR_OutsideCIDR(t *testing.T) {
 	g := NewWithT(t)
-	errs := validateGatewayInCIDR(defaultSubnetCIDR, "192.168.1.1", field.NewPath("spec", "network", "gatewayAddress"))
+	errs := validateGatewayInCIDR(defaultSubnetCIDR, "192.168.1.1", field.NewPath("spec", "networks", "gatewayAddress"))
 	g.Expect(errs).To(HaveLen(1))
 }
 
 func TestValidateGatewayInCIDR_InvalidIP(t *testing.T) {
 	g := NewWithT(t)
-	errs := validateGatewayInCIDR(defaultSubnetCIDR, "invalid", field.NewPath("spec", "network", "gatewayAddress"))
+	errs := validateGatewayInCIDR(defaultSubnetCIDR, "invalid", field.NewPath("spec", "networks", "gatewayAddress"))
 	g.Expect(errs).To(HaveLen(1))
 	g.Expect(errs[0].Detail).To(ContainSubstring("invalid IP"))
 }
 
 func TestValidateGatewayInCIDR_InvalidCIDR(t *testing.T) {
 	g := NewWithT(t)
-	errs := validateGatewayInCIDR("notacidr", "10.0.0.1", field.NewPath("spec", "network", "gatewayAddress"))
+	errs := validateGatewayInCIDR("notacidr", "10.0.0.1", field.NewPath("spec", "networks", "gatewayAddress"))
 	g.Expect(errs).To(BeEmpty())
 }

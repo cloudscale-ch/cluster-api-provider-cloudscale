@@ -96,6 +96,14 @@ type LoadBalancerHealthMonitorService interface {
 	Update(ctx context.Context, id string, req *cloudscalesdk.LoadBalancerHealthMonitorRequest) error
 }
 
+type FloatingIPService interface {
+	Create(ctx context.Context, req *cloudscalesdk.FloatingIPCreateRequest) (*cloudscalesdk.FloatingIP, error)
+	Get(ctx context.Context, id string) (*cloudscalesdk.FloatingIP, error)
+	List(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.FloatingIP, error)
+	Update(ctx context.Context, id string, req *cloudscalesdk.FloatingIPUpdateRequest) error
+	Delete(ctx context.Context, id string) error
+}
+
 type FlavorService interface {
 	List(ctx context.Context) ([]cloudscalesdk.Flavor, error)
 }

@@ -236,7 +236,7 @@ func TestClusterScope_Close(t *testing.T) {
 	g.Expect(err).ToNot(HaveOccurred())
 
 	// Modify status to verify patch happens
-	scope.CloudscaleCluster.Status.NetworkID = "patched-network-id"
+	scope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{{Name: "test", NetworkID: "patched-network-id", Managed: true}}
 
 	err = scope.Close(context.Background())
 	g.Expect(err).ToNot(HaveOccurred())
@@ -248,5 +248,6 @@ func TestClusterScope_Close(t *testing.T) {
 		Namespace: cloudscaleCluster.Namespace,
 	}, updated)
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(updated.Status.NetworkID).To(Equal("patched-network-id"))
+	g.Expect(updated.Status.Networks).To(HaveLen(1))
+	g.Expect(updated.Status.Networks[0].NetworkID).To(Equal("patched-network-id"))
 }
