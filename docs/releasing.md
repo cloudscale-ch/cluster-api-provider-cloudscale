@@ -48,6 +48,6 @@ After the workflow completes:
 2. **Verify the container image** exists
    on [quay.io](https://quay.io/repository/cloudscalech/cluster-api-cloudscale-controller)
 3. **Verify the GitHub release** has all 3 artifacts attached
-4. **Test installation** on a fresh management cluster. 
+4. **Test installation** on a fresh management cluster.
 
 See [Testing Releases](testing-releases.md) for detailed testing instructions.
