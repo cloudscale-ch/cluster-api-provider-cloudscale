@@ -54,7 +54,7 @@ clusterctl describe cluster my-cluster
 | `CLOUDSCALE_API_TOKEN`                    | cloudscale.ch API token        | `abc123...`                       |
 | `CLOUDSCALE_SSH_PUBLIC_KEY`               | SSH public key added to nodes  | `ssh-ed25519 AAAA...`             |
 | `CLOUDSCALE_REGION`                       | cloudscale.ch region           | `lpg` or `rma`                    |
-| `CLOUDSCALE_MACHINE_IMAGE`                | Server image for nodes         | `custom:ubuntu-2404-kube-v1.32.0` |
+| `CLOUDSCALE_MACHINE_IMAGE`                | Server image for nodes         | `custom:ubuntu-2404-kube-v1.xx.x` |
 | `CLOUDSCALE_CONTROL_PLANE_MACHINE_FLAVOR` | Flavor for control plane nodes | `flex-4-2`                        |
 | `CLOUDSCALE_WORKER_MACHINE_FLAVOR`        | Flavor for worker nodes        | `flex-4-2`                        |
 | `CLOUDSCALE_ROOT_VOLUME_SIZE`             | Root volume size in GB         | `50`                              |
