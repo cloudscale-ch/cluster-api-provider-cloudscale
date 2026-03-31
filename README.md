@@ -17,7 +17,8 @@ for [cloudscale.ch](https://www.cloudscale.ch).
 - A Kubernetes cluster to use as a management cluster ([kind](https://kind.sigs.k8s.io/) works)
 - [clusterctl](https://cluster-api.sigs.k8s.io/user/quick-start#install-clusterctl)
 - A [cloudscale.ch](https://www.cloudscale.ch) account and API token
-- A custom image imported into cloudscale. Images can e.g. be generated using [image-builder Openstack](https://image-builder.sigs.k8s.io/)
+- A custom image imported into cloudscale. Images can e.g. be generated
+  using [image-builder Openstack](https://image-builder.sigs.k8s.io/)
 
 ## Quickstart
 
