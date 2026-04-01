@@ -153,7 +153,7 @@ func (v *CloudscaleClusterCustomValidator) ValidateCreate(_ context.Context, clu
 
 	if len(allErrs) > 0 {
 		return nil, apierrors.NewInvalid(
-			schema.GroupKind{Group: infrastructurev1beta2.GroupVersion.Group, Kind: "CloudscaleCluster"},
+			schema.GroupKind{Group: infrastructurev1beta2.SchemeGroupVersion.Group, Kind: "CloudscaleCluster"},
 			cluster.Name, allErrs)
 	}
 
@@ -225,7 +225,7 @@ func (v *CloudscaleClusterCustomValidator) ValidateUpdate(_ context.Context, old
 
 	if len(allErrs) > 0 {
 		return nil, apierrors.NewInvalid(
-			schema.GroupKind{Group: infrastructurev1beta2.GroupVersion.Group, Kind: "CloudscaleCluster"},
+			schema.GroupKind{Group: infrastructurev1beta2.SchemeGroupVersion.Group, Kind: "CloudscaleCluster"},
 			newCluster.Name, allErrs)
 	}
 
