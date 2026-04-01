@@ -266,7 +266,7 @@ func (r *CloudscaleMachineReconciler) SetupWithManager(ctx context.Context, mgr 
 		WithEventFilter(predicates.ResourceIsNotExternallyManaged(r.Scheme, logger)).
 		Watches(
 			&clusterv1.Machine{},
-			handler.EnqueueRequestsFromMapFunc(util.MachineToInfrastructureMapFunc(infrastructurev1beta2.GroupVersion.WithKind("CloudscaleMachine"))),
+			handler.EnqueueRequestsFromMapFunc(util.MachineToInfrastructureMapFunc(infrastructurev1beta2.SchemeGroupVersion.WithKind("CloudscaleMachine"))),
 		).
 		Watches(
 			&clusterv1.Cluster{},

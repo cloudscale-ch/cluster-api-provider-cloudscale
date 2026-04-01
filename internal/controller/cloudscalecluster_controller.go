@@ -267,7 +267,7 @@ func (r *CloudscaleClusterReconciler) SetupWithManager(ctx context.Context, mgr 
 		WithEventFilter(predicates.ResourceIsNotExternallyManaged(r.Scheme, logger)).
 		Watches(
 			&clusterv1.Cluster{},
-			handler.EnqueueRequestsFromMapFunc(util.ClusterToInfrastructureMapFunc(ctx, infrastructurev1beta2.GroupVersion.WithKind("CloudscaleCluster"), mgr.GetClient(), &infrastructurev1beta2.CloudscaleCluster{})),
+			handler.EnqueueRequestsFromMapFunc(util.ClusterToInfrastructureMapFunc(ctx, infrastructurev1beta2.SchemeGroupVersion.WithKind("CloudscaleCluster"), mgr.GetClient(), &infrastructurev1beta2.CloudscaleCluster{})),
 		).
 		Watches(
 			&infrastructurev1beta2.CloudscaleMachine{},

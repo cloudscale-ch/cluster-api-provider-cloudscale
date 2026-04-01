@@ -76,7 +76,7 @@ func (v *CloudscaleMachineCustomValidator) ValidateCreate(_ context.Context, obj
 	allErrs := validateMachineSpec(&obj.Spec, v.FlavorInfo, field.NewPath("spec"))
 	if len(allErrs) > 0 {
 		return nil, apierrors.NewInvalid(
-			schema.GroupKind{Group: infrastructurev1beta2.GroupVersion.Group, Kind: "CloudscaleMachine"},
+			schema.GroupKind{Group: infrastructurev1beta2.SchemeGroupVersion.Group, Kind: "CloudscaleMachine"},
 			obj.Name, allErrs)
 	}
 
@@ -90,7 +90,7 @@ func (v *CloudscaleMachineCustomValidator) ValidateUpdate(_ context.Context, old
 	allErrs := validateMachineSpecUpdate(&newObj.Spec, &oldObj.Spec, field.NewPath("spec"))
 	if len(allErrs) > 0 {
 		return nil, apierrors.NewInvalid(
-			schema.GroupKind{Group: infrastructurev1beta2.GroupVersion.Group, Kind: "CloudscaleMachine"},
+			schema.GroupKind{Group: infrastructurev1beta2.SchemeGroupVersion.Group, Kind: "CloudscaleMachine"},
 			newObj.Name, allErrs)
 	}
 

@@ -77,7 +77,7 @@ func (v *CloudscaleMachineTemplateCustomValidator) ValidateCreate(_ context.Cont
 	allErrs := validateMachineSpec(&obj.Spec.Template.Spec, v.FlavorInfo, field.NewPath("spec", "template", "spec"))
 	if len(allErrs) > 0 {
 		return nil, apierrors.NewInvalid(
-			schema.GroupKind{Group: infrastructurev1beta2.GroupVersion.Group, Kind: "CloudscaleMachineTemplate"},
+			schema.GroupKind{Group: infrastructurev1beta2.SchemeGroupVersion.Group, Kind: "CloudscaleMachineTemplate"},
 			obj.Name, allErrs)
 	}
 
@@ -95,7 +95,7 @@ func (v *CloudscaleMachineTemplateCustomValidator) ValidateUpdate(_ context.Cont
 			field.NewPath("spec", "template", "spec"),
 			"field is immutable"))
 		return nil, apierrors.NewInvalid(
-			schema.GroupKind{Group: infrastructurev1beta2.GroupVersion.Group, Kind: "CloudscaleMachineTemplate"},
+			schema.GroupKind{Group: infrastructurev1beta2.SchemeGroupVersion.Group, Kind: "CloudscaleMachineTemplate"},
 			newObj.Name, allErrs)
 	}
 

@@ -26,8 +26,12 @@ import (
 )
 
 var (
-	// GroupVersion is group version used to register these objects.
-	GroupVersion = schema.GroupVersion{Group: "infrastructure.cluster.x-k8s.io", Version: "v1beta2"}
+	// SchemeGroupVersion is group version used to register these objects.
+	// This name is used by applyconfiguration generators (e.g. controller-gen).
+	SchemeGroupVersion = schema.GroupVersion{Group: "infrastructure.cluster.x-k8s.io", Version: "v1beta2"}
+
+	// GroupVersion is an alias for SchemeGroupVersion, for backward compatibility.
+	GroupVersion = SchemeGroupVersion
 
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme.
 	schemeBuilder = runtime.NewSchemeBuilder(addKnownTypes)
@@ -39,7 +43,7 @@ var (
 )
 
 func addKnownTypes(scheme *runtime.Scheme) error {
-	scheme.AddKnownTypes(GroupVersion, objectTypes...)
-	metav1.AddToGroupVersion(scheme, GroupVersion)
+	scheme.AddKnownTypes(SchemeGroupVersion, objectTypes...)
+	metav1.AddToGroupVersion(scheme, SchemeGroupVersion)
 	return nil
 }
