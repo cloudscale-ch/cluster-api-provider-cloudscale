@@ -271,7 +271,7 @@ docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
 
 .PHONY: clean-e2e-images
-clean-e2e-images: ## Delete e2e-* tags older than 7 days from capcs-staging (requires QUAY_E2E_TOKEN)
+clean-e2e-images: ## Delete e2e-* tags older than 7 days from capcs-staging (requires regctl + quay.io auth)
 	@./hack/clean-e2e-images.sh
 
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
