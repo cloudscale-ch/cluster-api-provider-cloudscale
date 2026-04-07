@@ -43,15 +43,17 @@ jobs:
             GINKGO_LABEL_FILTER="ha || upgrade || self-hosted || kcp-remediation || conformance" \
             KUBETEST_CONFIGURATION=./data/kubetest/conformance-fast.yaml
 
+      - name: Install regctl
+        if: always()
+        run: |
+          curl -sL https://github.com/regclient/regclient/releases/download/v0.11.2/regctl-linux-amd64 -o /usr/local/bin/regctl
+          chmod +x /usr/local/bin/regctl
+
       - name: Clean up e2e image
         if: always()
-        env:
-          QUAY_E2E_TOKEN: ${{ secrets.QUAY_E2E_TOKEN }}
-          TAG: e2e-weekly-${{ github.sha }}
         run: |
-          curl -s -X DELETE \
-            -H "Authorization: Bearer ${QUAY_E2E_TOKEN}" \
-            "https://quay.io/api/v1/repository/cloudscalech/capcs-staging/tag/${TAG}"
+          TAG="e2e-$(git rev-parse --short HEAD)"
+          regctl tag delete "quay.io/cloudscalech/capcs-staging:${TAG}" || true
 
       - name: Redact secrets from artifacts
         if: always()

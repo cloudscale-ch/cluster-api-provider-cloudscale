@@ -19,7 +19,13 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install regctl
+        run: |
+          curl -sL https://github.com/regclient/regclient/releases/download/v0.11.2/regctl-linux-amd64 -o /usr/local/bin/regctl
+          chmod +x /usr/local/bin/regctl
+
       - name: Clean up e2e-* tags from capcs-staging
         env:
-          QUAY_E2E_TOKEN: ${{ secrets.QUAY_E2E_TOKEN }}
+          QUAY_E2E_USERNAME: ${{ secrets.QUAY_E2E_USERNAME }}
+          QUAY_E2E_PASSWORD: ${{ secrets.QUAY_E2E_PASSWORD }}
         run: make clean-e2e-images
