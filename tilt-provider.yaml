@@ -1,4 +1,4 @@
-name: cloudscale
+name: cloudscale-ch-cloudscale
 config:
   image: quay.io/cloudscalech/capcs-staging:latest
   label: CAPCS

@@ -12,7 +12,7 @@ namePrefix: capcs-
 labels:
   - includeSelectors: true
     pairs:
-      cluster.x-k8s.io/provider: infrastructure-cloudscale
+      cluster.x-k8s.io/provider: infrastructure-cloudscale-ch-cloudscale
 
 resources:
 - ../crd
