@@ -16,7 +16,7 @@ require (
 	k8s.io/client-go v0.35.3
 	k8s.io/klog/v2 v2.140.0
 	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4
-	sigs.k8s.io/cluster-api v1.13.0-beta.0
+	sigs.k8s.io/cluster-api v1.13.0-rc.0
 	sigs.k8s.io/cluster-api/test v1.13.0-beta.0
 	sigs.k8s.io/controller-runtime v0.23.3
 )
@@ -47,7 +47,7 @@ require (
 	github.com/drone/envsubst/v2 v2.0.0-20210730161058-179042472c46 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
-	github.com/fatih/color v1.18.0 // indirect
+	github.com/fatih/color v1.19.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
@@ -140,7 +140,7 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/apiserver v0.35.3 // indirect
-	k8s.io/cluster-bootstrap v0.35.2 // indirect
+	k8s.io/cluster-bootstrap v0.35.3 // indirect
 	k8s.io/component-base v0.35.3 // indirect
 	k8s.io/kube-openapi v0.0.0-20250910181357-589584f1c912 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.31.2 // indirect
