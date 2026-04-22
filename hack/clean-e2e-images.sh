@@ -21,7 +21,7 @@ if [[ -n "${QUAY_E2E_USERNAME:-}" && -n "${QUAY_E2E_PASSWORD:-}" ]]; then
 fi
 
 # Calculate cutoff timestamp
-cutoff=$(date -u -v-${MAX_AGE_DAYS}d +%s 2>/dev/null || date -u -d "${MAX_AGE_DAYS} days ago" +%s)
+cutoff=$(date -u -v-"${MAX_AGE_DAYS}"d +%s 2>/dev/null || date -u -d "${MAX_AGE_DAYS} days ago" +%s)
 
 if [[ "${DRY_RUN}" == "true" ]]; then
   echo "DRY RUN: will list tags without deleting them"
@@ -38,17 +38,18 @@ fi
 
 deleted=0
 while IFS= read -r name; do
-  # Get the image creation timestamp (RFC3339 format)
-  created=$(regctl image config "${REPO}:${name}" --format '{{.Created}}' 2>/dev/null || true)
+  # Get the image creation timestamp in RFC3339 format using jsonPretty to ensure quotes and T/Z separators
+  created=$(regctl image config "${REPO}:${name}" --format '{{jsonPretty .Created}}' 2>/dev/null | sed 's/^"//;s/"$//' || true)
 
   if [[ -z "${created}" ]]; then
     echo "Warning: could not get creation time for tag ${name}, skipping"
     continue
   fi
 
-  # Convert RFC3339 to epoch (strip fractional seconds and Z suffix for macOS compatibility)
-  stripped=$(echo "${created}" | sed 's/\.[0-9]*Z$//' | sed 's/Z$//')
-  created_ts=$(date -u -jf "%Y-%m-%dT%H:%M:%S" "${stripped}" +%s 2>/dev/null \
+  # Convert to a format that date can parse (handle both RFC3339 and 'YYYY-MM-DD HH:MM:SS...' formats)
+  normalized=$(echo "${created}" | sed 's/ /T/' | sed 's/ UTC$//')
+  created_ts=$(date -u -jf "%Y-%m-%dT%H:%M:%S" "${normalized%.*}" +%s 2>/dev/null \
+    || date -u -d "${normalized}" +%s 2>/dev/null \
     || date -u -d "${created}" +%s 2>/dev/null \
     || true)
 
