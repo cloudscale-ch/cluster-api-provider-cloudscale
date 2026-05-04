@@ -129,7 +129,7 @@ E2E_CLUSTER_TEMPLATES := cluster-template \
 	cluster-template-ha \
 	cluster-template-upgrades \
 	cluster-template-md-remediation \
-	cluster-template-byo-network \
+	cluster-template-pre-existing-network \
 	cluster-template-public-lb-private-nodes \
 	cluster-template-fip
 
@@ -225,13 +225,13 @@ test-e2e-md-remediation: $(GINKGO) generate-e2e-templates generate-e2e-config do
 		-e2e.skip-resource-cleanup=$(SKIP_RESOURCE_CLEANUP) \
 		-e2e.use-existing-cluster=$(USE_EXISTING_CLUSTER)
 
-.PHONY: test-e2e-byo-networking
-test-e2e-byo-networking: $(GINKGO) generate-e2e-templates generate-e2e-config docker-build ## Run BYO networking e2e tests
+.PHONY: test-e2e-pre-existing-networking
+test-e2e-pre-existing-networking: $(GINKGO) generate-e2e-templates generate-e2e-config docker-build ## Run pre-existing networking e2e tests
 	$(GINKGO) -v --trace --tags=e2e \
 		--nodes=$(GINKGO_NODES) \
-		--label-filter="byo-networking" \
+		--label-filter="pre-existing-networking" \
 		--timeout=90m \
-		--output-dir="$(E2E_ARTIFACTS_FOLDER)" --junit-report="junit.e2e_byo_networking.xml" \
+		--output-dir="$(E2E_ARTIFACTS_FOLDER)" --junit-report="junit.e2e_pre-existing_networking.xml" \
 		./test/e2e -- \
 		-e2e.config=$(E2E_CONF_FILE) \
 		-e2e.artifacts-folder=$(E2E_ARTIFACTS_FOLDER) \
@@ -314,9 +314,9 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 	"$(KUSTOMIZE)" build config/default > dist/infrastructure-components.yaml
 
 .PHONY: release-manifests
-release-manifests: build-installer ## Build all release artifacts into dist/ (infrastructure-components.yaml, metadata.yaml, cluster-template.yaml).
+release-manifests: build-installer ## Build all release artifacts into dist/ (infrastructure-components.yaml, metadata.yaml, cluster templates).
 	cp metadata.yaml dist/metadata.yaml
-	cp templates/cluster-template.yaml dist/cluster-template.yaml
+	cp templates/cluster-template*.yaml dist/
 
 ##@ Deployment
 

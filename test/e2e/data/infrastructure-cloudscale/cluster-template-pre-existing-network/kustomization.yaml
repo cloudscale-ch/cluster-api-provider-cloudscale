@@ -6,4 +6,4 @@ resources:
   - ../bases/ccm.yaml
   - ../bases/cni.yaml
 patches:
-  - path: byo-network.yaml
+  - path: pre-existing-network.yaml

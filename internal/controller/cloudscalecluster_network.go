@@ -48,8 +48,8 @@ func (r *CloudscaleClusterReconciler) reconcileNetwork(ctx context.Context, clus
 
 	for _, netSpec := range clusterScope.CloudscaleCluster.Spec.Networks {
 		if netSpec.UUID != "" {
-			if err := r.reconcileBYONetwork(ctx, clusterScope, netSpec); err != nil {
-				return fmt.Errorf("reconciling BYO network %q: %w", netSpec.Name, err)
+			if err := r.reconcilePreExistingNetwork(ctx, clusterScope, netSpec); err != nil {
+				return fmt.Errorf("reconciling pre-existing network %q: %w", netSpec.Name, err)
 			}
 		} else {
 			if err := r.reconcileManagedNetwork(ctx, clusterScope, netSpec); err != nil {
@@ -61,13 +61,13 @@ func (r *CloudscaleClusterReconciler) reconcileNetwork(ctx context.Context, clus
 	return nil
 }
 
-// reconcileBYONetwork validates a BYO network exists and discovers its subnet.
+// reconcilePreExistingNetwork validates a pre-existing network exists and discovers its subnet.
 // The subnet is discovered once and cached in status. Subsequent reconciles
 // short-circuit if the network and subnet IDs are already populated.
-// This is intentional: BYO networks are managed externally, so CAPCS does not
+// This is intentional: pre-existing networks are managed externally, so CAPCS does not
 // re-verify them. If the network/subnet is reconfigured externally, the next
 // machine creation will fail at the cloudscale API level.
-func (r *CloudscaleClusterReconciler) reconcileBYONetwork(ctx context.Context, clusterScope *scope.ClusterScope, netSpec infrastructurev1beta2.NetworkSpec) error {
+func (r *CloudscaleClusterReconciler) reconcilePreExistingNetwork(ctx context.Context, clusterScope *scope.ClusterScope, netSpec infrastructurev1beta2.NetworkSpec) error {
 	ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus(netSpec.Name)
 	if ns != nil && ns.NetworkID != "" && ns.SubnetID != "" && ns.CIDR != "" {
 		return nil
@@ -75,19 +75,19 @@ func (r *CloudscaleClusterReconciler) reconcileBYONetwork(ctx context.Context, c
 
 	network, err := clusterScope.CloudscaleClient.Networks.Get(ctx, netSpec.UUID)
 	if err != nil {
-		return fmt.Errorf("getting BYO network %s: %w", netSpec.UUID, err)
+		return fmt.Errorf("getting pre-existing network %s: %w", netSpec.UUID, err)
 	}
 
 	if network.Zone.Slug != clusterScope.CloudscaleCluster.Spec.Zone {
-		return fmt.Errorf("BYO network %s is in zone %q, expected zone %q", netSpec.UUID, network.Zone.Slug, clusterScope.CloudscaleCluster.Spec.Zone)
+		return fmt.Errorf("pre-existing network %s is in zone %q, expected zone %q", netSpec.UUID, network.Zone.Slug, clusterScope.CloudscaleCluster.Spec.Zone)
 	}
 
 	if len(network.Subnets) == 0 {
-		return fmt.Errorf("BYO network %s has no subnets", netSpec.UUID)
+		return fmt.Errorf("pre-existing network %s has no subnets", netSpec.UUID)
 	}
 
 	r.setNetworkStatus(clusterScope, netSpec.Name, network.UUID, network.Subnets[0].UUID, network.Subnets[0].CIDR, false)
-	clusterScope.Info("Discovered BYO network", "name", netSpec.Name, "networkID", network.UUID, "subnetID", network.Subnets[0].UUID, "cidr", network.Subnets[0].CIDR)
+	clusterScope.Info("Discovered pre-existing network", "name", netSpec.Name, "networkID", network.UUID, "subnetID", network.Subnets[0].UUID, "cidr", network.Subnets[0].CIDR)
 
 	return nil
 }
@@ -178,7 +178,7 @@ func (r *CloudscaleClusterReconciler) reconcileManagedNetwork(ctx context.Contex
 	return nil
 }
 
-// deleteNetwork deletes all managed networks. BYO networks are left untouched.
+// deleteNetwork deletes all managed networks. Pre-existing networks are left untouched.
 // Subnets are cascade-deleted by the cloudscale.ch API when their parent network is deleted.
 // On partial failure, successfully deleted networks are removed from status so that
 // only undeleted networks remain for the next reconcile attempt.
@@ -196,7 +196,7 @@ func (r *CloudscaleClusterReconciler) deleteNetwork(ctx context.Context, cluster
 
 	for _, ns := range clusterScope.CloudscaleCluster.Status.Networks {
 		if !ns.Managed {
-			clusterScope.Info("Skipping BYO network deletion", "name", ns.Name, "networkID", ns.NetworkID)
+			clusterScope.Info("Skipping pre-existing network deletion", "name", ns.Name, "networkID", ns.NetworkID)
 			remaining = append(remaining, ns)
 			continue
 		}

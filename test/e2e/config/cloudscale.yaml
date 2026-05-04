@@ -53,7 +53,7 @@ providers:
           - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-ha.yaml"
           - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-upgrades.yaml"
           - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-md-remediation.yaml"
-          - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-byo-network.yaml"
+          - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-pre-existing-network.yaml"
           - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-public-lb-private-nodes.yaml"
           - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-fip.yaml"
           - sourcePath: "../data/infrastructure-cloudscale/main/metadata.yaml"

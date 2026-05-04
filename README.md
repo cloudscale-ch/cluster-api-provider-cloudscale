@@ -8,7 +8,8 @@ for [cloudscale.ch](https://www.cloudscale.ch).
 
 ## Features
 
-- **CloudscaleCluster**: Multi-network management (managed or BYO), Load Balancer (public or private VIP), Floating IP
+- **CloudscaleCluster**: Multi-network management (managed or pre-existing), Load Balancer (public or private VIP),
+  Floating IP
   support
 - **CloudscaleMachine**: Server provisioning with cloud-init and configurable network interfaces
 - **CloudscaleMachineTemplate**: Immutable machine templates for KubeadmControlPlane/MachineDeployment
@@ -54,18 +55,18 @@ clusterctl describe cluster my-cluster
 
 ## Environment Variables
 
-| Variable                                  | Description                               | Example                           |
-|-------------------------------------------|-------------------------------------------|-----------------------------------|
-| `CLOUDSCALE_API_TOKEN`                    | cloudscale.ch API token                   | `abc123...`                       |
-| `CLOUDSCALE_SSH_PUBLIC_KEY`               | SSH public key added to nodes             | `ssh-ed25519 AAAA...`             |
-| `CLOUDSCALE_REGION`                       | cloudscale.ch region                      | `lpg` or `rma`                    |
-| `CLOUDSCALE_MACHINE_IMAGE`                | Server image for nodes                    | `custom:ubuntu-2404-kube-v1.xx.x` |
-| `CLOUDSCALE_CONTROL_PLANE_MACHINE_FLAVOR` | Flavor for control plane nodes            | `flex-4-2`                        |
-| `CLOUDSCALE_WORKER_MACHINE_FLAVOR`        | Flavor for worker nodes                   | `flex-4-2`                        |
-| `CLOUDSCALE_ROOT_VOLUME_SIZE`             | Root volume size in GB                    | `50`                              |
-| `CLOUDSCALE_NETWORK_UUID`                 | Existing cloudscale.ch network UUID (BYO) | `2db69ba3-...`                    |
+| Variable                                  | Description                             | Example                           |
+|-------------------------------------------|-----------------------------------------|-----------------------------------|
+| `CLOUDSCALE_API_TOKEN`                    | cloudscale.ch API token                 | `abc123...`                       |
+| `CLOUDSCALE_SSH_PUBLIC_KEY`               | SSH public key added to nodes           | `ssh-ed25519 AAAA...`             |
+| `CLOUDSCALE_REGION`                       | cloudscale.ch region                    | `lpg` or `rma`                    |
+| `CLOUDSCALE_MACHINE_IMAGE`                | Server image for nodes                  | `custom:ubuntu-2404-kube-v1.xx.x` |
+| `CLOUDSCALE_CONTROL_PLANE_MACHINE_FLAVOR` | Flavor for control plane nodes          | `flex-4-2`                        |
+| `CLOUDSCALE_WORKER_MACHINE_FLAVOR`        | Flavor for worker nodes                 | `flex-4-2`                        |
+| `CLOUDSCALE_ROOT_VOLUME_SIZE`             | Root volume size in GB                  | `50`                              |
+| `CLOUDSCALE_NETWORK_UUID`                 | Pre-Existing cloudscale.ch network UUID | `2db69ba3-...`                    |
 
-> **Note:** `CLOUDSCALE_NETWORK_UUID` is required by the `fip`, `public-lb-private-nodes`, and `byo-network`
+> **Note:** `CLOUDSCALE_NETWORK_UUID` is required by the `fip`, `public-lb-private-nodes`, and `pre-existing-network`
 > template flavors. It is not needed for the default template.
 
 ## Cluster Templates
@@ -85,9 +86,9 @@ clusterctl generate cluster my-cluster \
 | Flavor                    | Network                   | CP Endpoint           | Node Connectivity | Extra Env Vars            | Notes                |
 |---------------------------|---------------------------|-----------------------|-------------------|---------------------------|----------------------|
 | *(default)*               | Managed (`10.100.0.0/24`) | Public LB (DualStack) | Public + cluster  | —                         |                      |
-| `fip`                     | BYO                       | Floating IP (IPv4)    | Public + cluster  | `CLOUDSCALE_NETWORK_UUID` |                      |
-| `public-lb-private-nodes` | BYO + NAT                 | Public LB             | Private only      | `CLOUDSCALE_NETWORK_UUID` | Requires NAT gateway |
-| `byo-network`             | BYO                       | Public LB (DualStack) | Public + cluster  | `CLOUDSCALE_NETWORK_UUID` |                      |
+| `fip`                     | Pre-Existing              | Floating IP (IPv4)    | Public + cluster  | `CLOUDSCALE_NETWORK_UUID` |                      |
+| `public-lb-private-nodes` | Pre-Existing + NAT        | Public LB             | Private only      | `CLOUDSCALE_NETWORK_UUID` | Requires NAT gateway |
+| `pre-existing-network`    | Pre-Existing              | Public LB (DualStack) | Public + cluster  | `CLOUDSCALE_NETWORK_UUID` |                      |
 
 ## Development
 
@@ -114,16 +115,16 @@ E2E tests are built on the [CAPI e2e test framework](https://pkg.go.dev/sigs.k8s
 (Ginkgo-based) and provision real clusters on cloudscale.ch. Tests use Ginkgo labels for
 filtering and are split into suites of increasing cost, scheduled accordingly:
 
-| Suite              | Label            | Description                                                                              | ~Duration | Schedule | Make target                 |
-|--------------------|------------------|------------------------------------------------------------------------------------------|-----------|----------|-----------------------------|
-| Lifecycle          | `lifecycle`      | 1 CP + 1 worker: create, validate cloudscale resources, delete                           | < 5 min   | Nightly  | `test-e2e-lifecycle`        |
-| HA lifecycle       | `ha`             | 3 CP + 2 workers with anti-affinity server groups                                        | < 10 min  | Weekly   | `test-e2e-ha`               |
-| Cluster upgrade    | `upgrade`        | Rolling K8s version upgrade (v1.34 → v1.35)                                              | < 10 min  | Weekly   | `test-e2e-upgrade`          |
-| Self-hosted        | `self-hosted`    | clusterctl move (pivot) to workload cluster. Requires container image in public registry | < 15 min  | Weekly   | `test-e2e-self-hosted`      |
-| MD remediation     | `md-remediation` | MachineHealthCheck auto-replacement of unhealthy workers                                 | < 10 min  | Weekly   | `test-e2e-md-remediation`   |
-| BYO networking     | `byo-networking` | BYO network: public-LB + private-nodes and floating-IP variants                          | < 10 min  | Weekly   | `test-e2e-byo-networking`   |
-| Conformance (fast) | `conformance`    | K8s conformance, skip Serial tests                                                       | < 60 min  | Weekly   | `test-e2e-conformance-fast` |
-| Conformance (full) | `conformance`    | Full K8s conformance including Serial tests                                              | < 120 min | Biweekly | `test-e2e-conformance`      |
+| Suite                   | Label                     | Description                                                                              | ~Duration | Schedule | Make target                        |
+|-------------------------|---------------------------|------------------------------------------------------------------------------------------|-----------|----------|------------------------------------|
+| Lifecycle               | `lifecycle`               | 1 CP + 1 worker: create, validate cloudscale resources, delete                           | < 5 min   | Nightly  | `test-e2e-lifecycle`               |
+| HA lifecycle            | `ha`                      | 3 CP + 2 workers with anti-affinity server groups                                        | < 10 min  | Weekly   | `test-e2e-ha`                      |
+| Cluster upgrade         | `upgrade`                 | Rolling K8s version upgrade (v1.34 → v1.35)                                              | < 10 min  | Weekly   | `test-e2e-upgrade`                 |
+| Self-hosted             | `self-hosted`             | clusterctl move (pivot) to workload cluster. Requires container image in public registry | < 15 min  | Weekly   | `test-e2e-self-hosted`             |
+| MD remediation          | `md-remediation`          | MachineHealthCheck auto-replacement of unhealthy workers                                 | < 10 min  | Weekly   | `test-e2e-md-remediation`          |
+| Pre-Existing networking | `pre-existing-networking` | Pre-Existing network: public-LB + private-nodes and floating-IP variants                 | < 10 min  | Weekly   | `test-e2e-pre-existing-networking` |
+| Conformance (fast)      | `conformance`             | K8s conformance, skip Serial tests                                                       | < 60 min  | Weekly   | `test-e2e-conformance-fast`        |
+| Conformance (full)      | `conformance`             | Full K8s conformance including Serial tests                                              | < 120 min | Biweekly | `test-e2e-conformance`             |
 
 Durations are approximate from a real CI run; conformance varies with cluster size.
 
@@ -174,7 +175,7 @@ kustomize_substitutions:
   CLOUDSCALE_WORKER_MACHINE_FLAVOR: "flex-4-2"
   CLOUDSCALE_MACHINE_IMAGE: "IMAGE_NAME"
   CLOUDSCALE_ROOT_VOLUME_SIZE: "50"
-  # Required for BYO network flavors (fip, public-lb-private-nodes, byo-network):
+  # Required for pre-existing network flavors (fip, public-lb-private-nodes, pre-existing-network):
   # CLOUDSCALE_NETWORK_UUID: "UUID_HERE"
 extra_args:
   cloudscale:

@@ -111,7 +111,7 @@ func (d *CloudscaleClusterCustomDefaulter) Default(_ context.Context, cluster *i
 	}
 
 	// Default floating IP: if set but both fields empty, default to IPv4
-	if cluster.Spec.FloatingIP != nil && cluster.Spec.FloatingIP.IPFamily == nil && cluster.Spec.FloatingIP.IP == "" {
+	if cluster.Spec.FloatingIP != nil && cluster.Spec.FloatingIP.IPFamily == nil && cluster.Spec.FloatingIP.Address == "" {
 		ipv4 := infrastructurev1beta2.IPFamilyIPv4
 		cluster.Spec.FloatingIP.IPFamily = &ipv4
 	}
@@ -163,7 +163,7 @@ func (v *CloudscaleClusterCustomValidator) ValidateCreate(_ context.Context, clu
 		allErrs = append(allErrs, validateFloatingIP(cluster.Spec.FloatingIP, field.NewPath("spec", "floatingIP"))...)
 	}
 
-	allErrs = append(allErrs, validateFloatingIPRequiresLBOrBYO(cluster)...)
+	allErrs = append(allErrs, validateFloatingIPRequiresLBOrPreExisting(cluster)...)
 	allErrs = append(allErrs, validateFloatingIPRequiresPublicLB(cluster)...)
 	allErrs = append(allErrs, validateLBPoolMemberNetworkResolvable(cluster)...)
 
@@ -256,7 +256,7 @@ func (v *CloudscaleClusterCustomValidator) ValidateUpdate(_ context.Context, old
 		allErrs = append(allErrs, validateFloatingIP(newCluster.Spec.FloatingIP, field.NewPath("spec", "floatingIP"))...)
 	}
 
-	allErrs = append(allErrs, validateFloatingIPRequiresLBOrBYO(newCluster)...)
+	allErrs = append(allErrs, validateFloatingIPRequiresLBOrPreExisting(newCluster)...)
 	allErrs = append(allErrs, validateFloatingIPRequiresPublicLB(newCluster)...)
 	allErrs = append(allErrs, validateLBPoolMemberNetworkResolvable(newCluster)...)
 
@@ -383,22 +383,22 @@ func validateNetworkImmutability(oldNetworks, newNetworks []infrastructurev1beta
 	return allErrs
 }
 
-// validateFloatingIPRequiresLBOrBYO rejects managed floating IPs when the load balancer is disabled.
+// validateFloatingIPRequiresLBOrPreExisting rejects managed floating IPs when the load balancer is disabled.
 // cloudscale.ch floating IPs require a dummy interface on the target server.
-// With a BYO FIP, the user knows the address upfront and can configure
+// With a pre-existing FIP, the user knows the address upfront and can configure
 // the dummy interface in KubeadmControlPlane preKubeadmCommands.
 // With a managed FIP, the address isn't known until creation,
 // so the dummy interface can't be pre-configured.
-func validateFloatingIPRequiresLBOrBYO(cluster *infrastructurev1beta2.CloudscaleCluster) field.ErrorList {
+func validateFloatingIPRequiresLBOrPreExisting(cluster *infrastructurev1beta2.CloudscaleCluster) field.ErrorList {
 	var allErrs field.ErrorList
 
 	if cluster.Spec.FloatingIP != nil &&
-		cluster.Spec.FloatingIP.IP == "" &&
+		cluster.Spec.FloatingIP.Address == "" &&
 		!ptr.Deref(cluster.Spec.ControlPlaneLoadBalancer.Enabled, true) {
 		allErrs = append(allErrs, field.Invalid(
 			field.NewPath("spec", "floatingIP"),
 			"",
-			"managed floating IP requires the load balancer to be enabled; use a BYO floating IP if you need a floating IP without a load balancer"))
+			"managed floating IP requires the load balancer to be enabled; use a pre-existing floating IP if you need a floating IP without a load balancer"))
 	}
 
 	return allErrs
@@ -485,15 +485,15 @@ func validateFloatingIP(fip *infrastructurev1beta2.FloatingIPSpec, fldPath *fiel
 	var allErrs field.ErrorList
 
 	hasIPFamily := fip.IPFamily != nil
-	hasIP := fip.IP != ""
+	hasIP := fip.Address != ""
 
 	if hasIPFamily == hasIP {
 		allErrs = append(allErrs, field.Invalid(fldPath, "",
 			"exactly one of ipFamily or ip must be specified"))
 	}
 
-	if hasIP && net.ParseIP(fip.IP) == nil {
-		allErrs = append(allErrs, field.Invalid(fldPath.Child("ip"), fip.IP,
+	if hasIP && net.ParseIP(fip.Address) == nil {
+		allErrs = append(allErrs, field.Invalid(fldPath.Child("ip"), fip.Address,
 			"must be a valid IP address"))
 	}
 
@@ -521,8 +521,8 @@ func validateFloatingIPImmutability(oldFIP, newFIP *infrastructurev1beta2.Floati
 		return allErrs
 	}
 
-	// Cannot switch between managed and BYO
-	if oldFIP.IP != newFIP.IP {
+	// Cannot switch between managed and pre-existing
+	if oldFIP.Address != newFIP.Address {
 		allErrs = append(allErrs, field.Forbidden(fldPath.Child("ip"),
 			"field is immutable once set"))
 	}

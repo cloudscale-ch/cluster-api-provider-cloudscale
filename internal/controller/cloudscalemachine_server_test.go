@@ -612,7 +612,7 @@ func TestReconcileServer_NoServerGroupWhenStatusEmpty(t *testing.T) {
 
 // --- buildInterfaceRequests tests ---
 
-func TestBuildInterfaceRequests_DefaultsToFirstNetworkPlusPublic(t *testing.T) {
+func TestBuildInterfaceRequests_DefaultsToPublicPlusFirstNetwork(t *testing.T) {
 	g := NewWithT(t)
 
 	machineScope := newTestMachineScopeWithServer(&mockServerService{})
@@ -625,8 +625,8 @@ func TestBuildInterfaceRequests_DefaultsToFirstNetworkPlusPublic(t *testing.T) {
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(reqs).ToNot(BeNil())
 	g.Expect(*reqs).To(HaveLen(2))
-	g.Expect((*reqs)[0].Network).To(Equal("net-uuid-123"))
-	g.Expect((*reqs)[1].Network).To(Equal(InterfaceTypePublic))
+	g.Expect((*reqs)[0].Network).To(Equal(InterfaceTypePublic))
+	g.Expect((*reqs)[1].Network).To(Equal("net-uuid-123"))
 	g.Expect(ipFamily).To(BeNil(), "runtime default path should not return ipFamily")
 }
 

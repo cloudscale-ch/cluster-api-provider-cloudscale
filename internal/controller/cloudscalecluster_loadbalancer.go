@@ -429,7 +429,7 @@ func (r *CloudscaleClusterReconciler) getDesiredLoadBalancerMembers(ctx context.
 }
 
 // getMemberSubnetCIDR resolves the subnet UUID used for LB pool members to its CIDR.
-// The CIDR is read from status (set during network reconciliation) so that BYO subnets
+// The CIDR is read from status (set during network reconciliation) so that pre-existing subnets
 // are discovered once and cached, avoiding repeated API calls.
 func (r *CloudscaleClusterReconciler) getMemberSubnetCIDR(clusterScope *scope.ClusterScope, subnetID string) (string, error) {
 	for _, ns := range clusterScope.CloudscaleCluster.Status.Networks {

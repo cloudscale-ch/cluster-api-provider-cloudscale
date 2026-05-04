@@ -113,8 +113,8 @@ var _ = SynchronizedBeforeSuite(func() []byte {
 
 	cloudscaleClient = newCloudscaleClient(apiToken)
 
-	// Optional: BYO network for private networking tests.
-	// If not set, tests requiring a BYO network will be skipped.
+	// Optional: Pre-existing network for private networking tests.
+	// If not set, tests requiring a pre-existing network will be skipped.
 	if networkUUID := os.Getenv("CLOUDSCALE_NETWORK_UUID"); networkUUID != "" {
 		e2eConfig.Variables["CLOUDSCALE_NETWORK_UUID"] = networkUUID
 	}

@@ -18,7 +18,7 @@ on:
           - test-e2e-upgrade
           - test-e2e-self-hosted
           - test-e2e-md-remediation
-          - test-e2e-byo-networking
+          - test-e2e-pre-existing-networking
           - test-e2e-conformance
           - test-e2e-conformance-fast
 
