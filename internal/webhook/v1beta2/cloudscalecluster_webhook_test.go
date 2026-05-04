@@ -201,12 +201,12 @@ func TestClusterDefaulting_FloatingIPExplicitNotOverridden(t *testing.T) {
 	g := NewWithT(t)
 	obj, _, _, defaulter := newClusterWebhookTestObjects()
 	obj.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{
-		IP: "1.2.3.4",
+		Address: "1.2.3.4",
 	}
 
 	g.Expect(defaulter.Default(ctx, obj)).To(Succeed())
 	g.Expect(obj.Spec.FloatingIP.IPFamily).To(BeNil())
-	g.Expect(obj.Spec.FloatingIP.IP).To(Equal("1.2.3.4"))
+	g.Expect(obj.Spec.FloatingIP.Address).To(Equal("1.2.3.4"))
 }
 
 func TestClusterDefaulting_AllDefaultsApplied(t *testing.T) {
@@ -365,13 +365,13 @@ func TestClusterValidateCreate_InvalidGatewayIP(t *testing.T) {
 	g.Expect(err.Error()).To(ContainSubstring("gatewayAddress"))
 }
 
-func TestClusterValidateCreate_GatewayOnBYONetworkRejected(t *testing.T) {
+func TestClusterValidateCreate_GatewayOnPreExistingNetworkRejected(t *testing.T) {
 	g := NewWithT(t)
 	obj, _, validator, _ := newClusterWebhookTestObjects()
 	obj.Spec.Region = RegionRma
 	obj.Spec.Zone = ZoneRma1
 	obj.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
-		{Name: "byo", UUID: "some-uuid", GatewayAddress: "10.0.0.1"},
+		{Name: "pre-existing", UUID: "some-uuid", GatewayAddress: "10.0.0.1"},
 	}
 
 	_, err := validator.ValidateCreate(ctx, obj)
@@ -465,7 +465,7 @@ func TestClusterValidateCreate_FloatingIPBothFieldsInvalid(t *testing.T) {
 	obj.Spec.Zone = ZoneRma1
 	obj.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{
 		IPFamily: ptr.To(infrastructurev1beta2.IPFamilyIPv4),
-		IP:       "1.2.3.4",
+		Address:  "1.2.3.4",
 	}
 
 	_, err := validator.ValidateCreate(ctx, obj)
@@ -475,13 +475,13 @@ func TestClusterValidateCreate_FloatingIPBothFieldsInvalid(t *testing.T) {
 	g.Expect(err.Error()).To(ContainSubstring("ip"))
 }
 
-func TestClusterValidateCreate_BYOFloatingIPInvalidIP(t *testing.T) {
+func TestClusterValidateCreate_PreExistingFloatingIPInvalidIP(t *testing.T) {
 	g := NewWithT(t)
 	obj, _, validator, _ := newClusterWebhookTestObjects()
 	obj.Spec.Region = RegionRma
 	obj.Spec.Zone = ZoneRma1
 	obj.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{
-		IP: "not-an-ip",
+		Address: "not-an-ip",
 	}
 
 	_, err := validator.ValidateCreate(ctx, obj)
@@ -516,14 +516,14 @@ func TestClusterValidateCreate_ManagedFloatingIPWithoutLBRejected(t *testing.T) 
 	g.Expect(err.Error()).To(ContainSubstring("managed floating IP"))
 }
 
-func TestClusterValidateCreate_BYOFloatingIPWithoutLBAllowed(t *testing.T) {
+func TestClusterValidateCreate_PreExistingFloatingIPWithoutLBAllowed(t *testing.T) {
 	g := NewWithT(t)
 	obj, _, validator, _ := newClusterWebhookTestObjects()
 	obj.Spec.Region = RegionRma
 	obj.Spec.Zone = ZoneRma1
 	obj.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(false)
 	obj.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{
-		IP: "1.2.3.4",
+		Address: "1.2.3.4",
 	}
 
 	_, err := validator.ValidateCreate(ctx, obj)

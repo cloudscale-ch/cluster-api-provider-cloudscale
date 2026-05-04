@@ -66,19 +66,19 @@ var _ = Describe("Workload cluster lifecycle", Label("lifecycle"), func() {
 	})
 })
 
-// BYO networking tests verify cluster provisioning against a pre-existing (BYO) network.
-// All contexts are skipped when CLOUDSCALE_NETWORK_UUID is not set. The BYO network must
+// Pre-existing networking tests verify cluster provisioning against a pre-existing network.
+// All contexts are skipped when CLOUDSCALE_NETWORK_UUID is not set. The pre-existing network must
 // provide internet egress (e.g. Support-arranged NAT) for the private-nodes contexts,
 // otherwise kubeadm bootstrap hangs.
-var _ = Describe("BYO networking", Label("byo-networking"), func() {
+var _ = Describe("Pre-existing networking", Label("pre-existing-networking"), func() {
 	BeforeEach(func() {
 		if _, ok := e2eConfig.Variables["CLOUDSCALE_NETWORK_UUID"]; !ok {
-			Skip("CLOUDSCALE_NETWORK_UUID not set, skipping BYO networking tests")
+			Skip("CLOUDSCALE_NETWORK_UUID not set, skipping pre-existing networking tests")
 		}
 	})
 
-	// With BYO network: public LB, machines dual-attached (BYO + public).
-	Context("With BYO network", func() {
+	// With pre-existing network: public LB, machines dual-attached (pre-existing network + public interfaces).
+	Context("With pre-existing network", func() {
 		capi_e2e.QuickStartSpec(ctx, func() capi_e2e.QuickStartSpecInput {
 			return capi_e2e.QuickStartSpecInput{
 				E2EConfig:                e2eConfig,
@@ -87,7 +87,7 @@ var _ = Describe("BYO networking", Label("byo-networking"), func() {
 				ArtifactFolder:           artifactFolder,
 				SkipCleanup:              skipCleanup,
 				InfrastructureProvider:   ptr.To("cloudscale-ch-cloudscale"),
-				Flavor:                   ptr.To("byo-network"),
+				Flavor:                   ptr.To("pre-existing-network"),
 				ControlPlaneMachineCount: ptr.To[int64](1),
 				WorkerMachineCount:       ptr.To[int64](1),
 				PostMachinesProvisioned:  validateCloudscaleResources,
@@ -95,7 +95,7 @@ var _ = Describe("BYO networking", Label("byo-networking"), func() {
 		})
 	})
 
-	// With public LB, machines attached only to the BYO network (no public interface).
+	// With public LB, machines attached only to the pre-existing network (no public interface).
 	Context("With public LB, private nodes", func() {
 		capi_e2e.QuickStartSpec(ctx, func() capi_e2e.QuickStartSpecInput {
 			return capi_e2e.QuickStartSpecInput{

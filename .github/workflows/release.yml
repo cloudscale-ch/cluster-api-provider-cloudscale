@@ -53,8 +53,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          ls dist/cluster-template*.yaml >/dev/null || { echo "No cluster templates found in dist/"; exit 1; }
           gh release create "$TAG" \
             --generate-notes \
             dist/infrastructure-components.yaml \
             dist/metadata.yaml \
-            dist/cluster-template.yaml
+            dist/cluster-template*.yaml

@@ -39,7 +39,7 @@ spec:
   region: "${CLOUDSCALE_REGION}"
   networks:
   - name: "${CLUSTER_NAME}"
-    uuid: "${CLOUDSCALE_NETWORK_UUID}" # BYO network
+    uuid: "${CLOUDSCALE_NETWORK_UUID}" # Pre-existing network
   floatingIP:
     ipFamily: IPv4
   credentialsRef:

@@ -62,6 +62,9 @@ type CloudscaleMachineSpec struct {
 	// Interfaces define the network interfaces to attach to the server.
 	// When omitted, the controller defaults to the first cluster network and a public interface
 	// at runtime (cross-resource resolution that the webhook cannot do).
+	// If the cluster uses a floating IP without a load balancer, the control-plane
+	// machine template must explicitly include a public interface ({type: public}).
+	// cloudscale.ch requires a public IPv4 address on the server to assign a floating IP.
 	// +listType=atomic
 	// +optional
 	Interfaces []InterfaceSpec `json:"interfaces,omitempty"`

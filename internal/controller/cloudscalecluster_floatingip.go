@@ -49,24 +49,24 @@ func (r *CloudscaleClusterReconciler) reconcileFloatingIP(ctx context.Context, c
 		}
 	}()
 
-	// BYO floating IP: just look it up and use its address
-	if fipSpec.IP != "" {
-		return r.reconcileBYOFloatingIP(ctx, clusterScope, fipSpec.IP)
+	// Pre-existing floating IP: just look it up and use its address
+	if fipSpec.Address != "" {
+		return r.reconcilePreExistingFloatingIP(ctx, clusterScope, fipSpec.Address)
 	}
 
 	// Managed floating IP: create if needed, then assign
 	return r.reconcileManagedFloatingIP(ctx, clusterScope, fipSpec)
 }
 
-func (r *CloudscaleClusterReconciler) reconcileBYOFloatingIP(ctx context.Context, clusterScope *scope.ClusterScope, ip string) error {
+func (r *CloudscaleClusterReconciler) reconcilePreExistingFloatingIP(ctx context.Context, clusterScope *scope.ClusterScope, ip string) error {
 	fip, err := clusterScope.CloudscaleClient.FloatingIPs.Get(ctx, ip)
 	if err != nil {
-		return fmt.Errorf("getting BYO floating IP %s: %w", ip, err)
+		return fmt.Errorf("getting pre-existing floating IP %s: %w", ip, err)
 	}
 
 	// fip.Region is nil for global FIPs, which are valid for any cluster region.
 	if fip.Region != nil && fip.Region.Slug != clusterScope.CloudscaleCluster.Spec.Region {
-		return fmt.Errorf("BYO floating IP %s is in region %q, expected region %q", ip, fip.Region.Slug, clusterScope.CloudscaleCluster.Spec.Region)
+		return fmt.Errorf("pre-existing floating IP %s is in region %q, expected region %q", ip, fip.Region.Slug, clusterScope.CloudscaleCluster.Spec.Region)
 	}
 
 	clusterScope.CloudscaleCluster.Status.FloatingIP = fip.IP()
@@ -170,7 +170,7 @@ func (r *CloudscaleClusterReconciler) getFloatingIPTarget(ctx context.Context, c
 		return floatingIPTarget{lbUUID: lbID}, nil
 	}
 
-	// LB disabled (BYO FIP without LB): find the first ready CP server.
+	// LB disabled (Pre-existing FIP without LB): find the first ready CP server.
 	// The user is responsible for configuring a dummy interface with the FIP address
 	// on their control plane servers (see cloudscale.ch docs).
 	machineList := &infrastructurev1beta2.CloudscaleMachineList{}
@@ -216,6 +216,9 @@ func (r *CloudscaleClusterReconciler) ensureFloatingIPAssignment(ctx context.Con
 		floatingIP := clusterScope.CloudscaleCluster.Status.FloatingIP
 		clusterScope.Info("Reassigning floating IP", "ip", floatingIP, "target", target)
 		if err := clusterScope.CloudscaleClient.FloatingIPs.Update(ctx, floatingIP, updateReq); err != nil {
+			if cloudscale.IsFloatingIPNoPublicInterface(err) {
+				return fmt.Errorf("floating IP cannot be assigned to control plane server: server must have a public interface when the load balancer is disabled; add {type: public} to the control-plane machine template interfaces")
+			}
 			return fmt.Errorf("updating floating IP assignment: %w", err)
 		}
 		r.recorder.Eventf(clusterScope.CloudscaleCluster, nil, corev1.EventTypeNormal, "FloatingIPReassigned", "UpdateFloatingIP",
@@ -242,17 +245,17 @@ func (r *CloudscaleClusterReconciler) setControlPlaneEndpointFromFIP(clusterScop
 }
 
 // deleteFloatingIP deletes the floating IP if it's managed.
-// BYO floating IPs are left untouched.
+// Pre-existing floating IPs are left untouched.
 func (r *CloudscaleClusterReconciler) deleteFloatingIP(ctx context.Context, clusterScope *scope.ClusterScope) (reterr error) {
 	fipSpec := clusterScope.CloudscaleCluster.Spec.FloatingIP
 	if fipSpec == nil {
 		return nil
 	}
 
-	// BYO floating IPs are not deleted; skip before registering the defer
+	// Pre-existing floating IPs are not deleted; skip before registering the defer
 	// so the condition is not set to "Deleting" for an untouched resource.
-	if fipSpec.IP != "" {
-		clusterScope.Info("Skipping BYO floating IP deletion", "ip", fipSpec.IP)
+	if fipSpec.Address != "" {
+		clusterScope.Info("Skipping pre-existing floating IP deletion", "address", fipSpec.Address)
 		return nil
 	}
 

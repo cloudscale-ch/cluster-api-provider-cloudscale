@@ -74,8 +74,11 @@ type CloudscaleClusterSpec struct {
 	// FloatingIP configures a floating IP for a stable control plane endpoint.
 	// When the load balancer is enabled (recommended), the floating IP is assigned
 	// to the LB, providing a stable IP that survives LB recreation.
-	// When using a BYO floating IP without a load balancer, the user must
-	// configure a dummy interface on the control plane servers (see cloudscale.ch docs).
+	// When using a pre-existing floating IP without a load balancer, the user must
+	// configure a dummy interface on the control plane servers (see cloudscale.ch docs)
+	// and ensure the control-plane machine template includes a public interface
+	// ({type: public}), as cloudscale.ch requires a public IPv4 address to assign
+	// a floating IP to a server.
 	// Managed floating IPs require the load balancer to be enabled.
 	// Floating IPs cannot be attached to a load balancer with a private VIP
 	// (i.e. one whose ControlPlaneLoadBalancer.Network is set).
@@ -104,7 +107,7 @@ type NetworkSpec struct {
 	// +kubebuilder:validation:MaxLength=63
 	Name string `json:"name"`
 
-	// UUID references an existing cloudscale.ch network (BYO).
+	// UUID references a pre-existing cloudscale.ch network.
 	// The network is not deleted on cluster teardown.
 	// Mutually exclusive with CIDR.
 	// +optional
@@ -203,21 +206,21 @@ type HealthMonitorSpec struct {
 }
 
 // FloatingIPSpec configures a floating IP for the control plane endpoint.
-// Exactly one of IPFamily or IP must be specified.
+// Exactly one of IPFamily or Address must be specified.
 type FloatingIPSpec struct {
 	// IPFamily creates a new floating IP with this IP version.
 	// A floating IP is a single address, so DualStack is not valid here.
-	// Mutually exclusive with IP.
+	// Mutually exclusive with Address.
 	// +kubebuilder:validation:Enum=IPv4;IPv6
 	// +optional
 	IPFamily *IPFamily `json:"ipFamily,omitempty"`
 
-	// IP references an existing floating IP (BYO) by its address.
-	// cloudscale.ch identifies floating IPs by their IP address rather than a UUID.
+	// Address references a pre-existing floating IP by its address.
+	// cloudscale.ch identifies floating IPs by their IP address rather than by UUID.
 	// The floating IP is not deleted on cluster teardown.
 	// Mutually exclusive with IPFamily.
 	// +optional
-	IP string `json:"ip,omitempty"`
+	Address string `json:"address,omitempty"`
 }
 
 // CloudscaleClusterStatus defines the observed state of CloudscaleCluster.
@@ -277,12 +280,12 @@ type NetworkStatus struct {
 	SubnetID string `json:"subnetID,omitempty"`
 
 	// CIDR is the subnet CIDR block.
-	// Set from spec for managed networks or discovered from the API for BYO networks.
+	// Set from spec for managed networks or discovered from the API for pre-existing networks.
 	// +optional
 	CIDR string `json:"cidr,omitempty"`
 
 	// Managed indicates whether CAPCS manages this network's lifecycle.
-	// false for BYO networks (referenced by UUID), true for CAPCS-created networks (defined by CIDR).
+	// false for pre-existing networks (referenced by UUID), true for CAPCS-created networks (defined by CIDR).
 	Managed bool `json:"managed"`
 }
 

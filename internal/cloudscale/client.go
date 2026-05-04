@@ -19,6 +19,7 @@ package cloudscale
 import (
 	"context"
 	"errors"
+	"strings"
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 	"golang.org/x/oauth2"
@@ -71,4 +72,13 @@ func IsNotFound(err error) bool {
 		return false
 	}
 	return errResp.StatusCode == 404
+}
+
+// IsFloatingIPNoPublicInterface returns true if the error indicates the target
+// server does not have a public interface with an IPv4 address.
+func IsFloatingIPNoPublicInterface(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "does not have a public interface with an IPv4 address")
 }

@@ -295,8 +295,8 @@ func (r *CloudscaleMachineReconciler) buildInterfaceRequests(machineScope *scope
 		}
 		firstNetwork := machineScope.CloudscaleCluster.Status.Networks[0]
 		return &[]cloudscalesdk.InterfaceRequest{
-			{Network: firstNetwork.NetworkID},
 			{Network: InterfaceTypePublic},
+			{Network: firstNetwork.NetworkID},
 		}, nil, nil
 	}
 
