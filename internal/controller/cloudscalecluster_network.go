@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 	corev1 "k8s.io/api/core/v1"
@@ -219,12 +220,25 @@ func (r *CloudscaleClusterReconciler) deleteNetwork(ctx context.Context, cluster
 		}
 
 		clusterScope.Info("Deleting network", "name", ns.Name, "networkID", ns.NetworkID)
-		if err := clusterScope.CloudscaleClient.Networks.Delete(ctx, ns.NetworkID); err != nil {
-			if !cloudscale.IsNotFound(err) {
-				remaining = append(remaining, ns)
-				errs = append(errs, fmt.Errorf("deleting network %s: %w", ns.Name, err))
-				continue
-			}
+		err := clusterScope.CloudscaleClient.Networks.Delete(ctx, ns.NetworkID)
+
+		// return sentinel error which will wait a pre-defined amount of time
+		if isLBPoolMembersError(err) {
+			clusterScope.Info("Network still has LB pool members, waiting for async cleanup", "networkID", ns.NetworkID)
+			return errNetworkNotReady
+		}
+
+		isNotFound := cloudscale.IsNotFound(err)
+
+		// in case of an actual error, keep the network in status and move on.
+		if err != nil && !isNotFound {
+			remaining = append(remaining, ns)
+			errs = append(errs, fmt.Errorf("deleting network %s: %w", ns.Name, err))
+			continue
+		}
+
+		// Idempotent not-found: log and fall through to the event.
+		if isNotFound {
 			clusterScope.Info("Network already deleted", "name", ns.Name, "networkID", ns.NetworkID)
 		}
 
@@ -234,6 +248,19 @@ func (r *CloudscaleClusterReconciler) deleteNetwork(ctx context.Context, cluster
 
 	clusterScope.CloudscaleCluster.Status.Networks = remaining
 	return errors.Join(errs...)
+}
+
+// errNetworkNotReady is returned when a network cannot be deleted because
+// it still has pending dependencies (e.g. LB pool members).
+var errNetworkNotReady = errors.New("network has pending dependencies")
+
+// isLBPoolMembersError reports whether err is the cloudscale API error
+// for deleting a network that still has load balancer pool members in it.
+func isLBPoolMembersError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "load balancer pool members")
 }
 
 // setNetworkStatus updates or appends the network status entry for the given name.

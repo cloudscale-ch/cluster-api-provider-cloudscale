@@ -199,6 +199,9 @@ func (r *CloudscaleClusterReconciler) reconcileDelete(ctx context.Context, clust
 	}
 
 	if err := r.deleteNetwork(ctx, clusterScope); err != nil {
+		if errors.Is(err, errNetworkNotReady) {
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		}
 		return ctrl.Result{}, fmt.Errorf("deleting network: %w", err)
 	}
 
