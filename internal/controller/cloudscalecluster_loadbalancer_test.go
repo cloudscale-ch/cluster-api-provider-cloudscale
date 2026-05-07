@@ -187,7 +187,7 @@ func TestReconcileLB_SkipsIfAlreadyExists(t *testing.T) {
 			return &cloudscalesdk.LoadBalancer{UUID: id, Status: "running"}, nil
 		},
 		createFn: func(ctx context.Context, req *cloudscalesdk.LoadBalancerRequest) (*cloudscalesdk.LoadBalancer, error) {
-			t.Fatal("Create should not be called when LB already exists")
+			g.Fail("Create should not be called when LB already exists")
 			return nil, nil
 		},
 	}
@@ -216,7 +216,7 @@ func TestReconcileLB_FindsExistingByTag(t *testing.T) {
 			}, nil
 		},
 		createFn: func(ctx context.Context, req *cloudscalesdk.LoadBalancerRequest) (*cloudscalesdk.LoadBalancer, error) {
-			t.Fatal("Create should not be called when LB is found by tag")
+			g.Fail("Create should not be called when LB is found by tag")
 			return nil, nil
 		},
 	}
@@ -362,7 +362,7 @@ func TestReconcileLBPool_SkipsIfAlreadyExists(t *testing.T) {
 			return &cloudscalesdk.LoadBalancerPool{UUID: id}, nil
 		},
 		createFn: func(ctx context.Context, req *cloudscalesdk.LoadBalancerPoolRequest) (*cloudscalesdk.LoadBalancerPool, error) {
-			t.Fatal("Create should not be called when pool already exists")
+			g.Fail("Create should not be called when pool already exists")
 			return nil, nil
 		},
 	}
@@ -391,7 +391,7 @@ func TestReconcileLBPool_FindsExistingByTag(t *testing.T) {
 			}, nil
 		},
 		createFn: func(ctx context.Context, req *cloudscalesdk.LoadBalancerPoolRequest) (*cloudscalesdk.LoadBalancerPool, error) {
-			t.Fatal("Create should not be called when pool is found by tag")
+			g.Fail("Create should not be called when pool is found by tag")
 			return nil, nil
 		},
 	}
@@ -539,7 +539,7 @@ func TestReconcileLBListener_SkipsIfAlreadyExists(t *testing.T) {
 			return &cloudscalesdk.LoadBalancerListener{UUID: id}, nil
 		},
 		createFn: func(ctx context.Context, req *cloudscalesdk.LoadBalancerListenerRequest) (*cloudscalesdk.LoadBalancerListener, error) {
-			t.Fatal("Create should not be called when listener already exists")
+			g.Fail("Create should not be called when listener already exists")
 			return nil, nil
 		},
 	}
@@ -568,7 +568,7 @@ func TestReconcileLBListener_FindsExistingByTag(t *testing.T) {
 			}, nil
 		},
 		createFn: func(ctx context.Context, req *cloudscalesdk.LoadBalancerListenerRequest) (*cloudscalesdk.LoadBalancerListener, error) {
-			t.Fatal("Create should not be called when listener is found by tag")
+			g.Fail("Create should not be called when listener is found by tag")
 			return nil, nil
 		},
 	}
@@ -717,7 +717,7 @@ func TestReconcileLBHealthMonitor_SkipsIfAlreadyExists(t *testing.T) {
 			return &cloudscalesdk.LoadBalancerHealthMonitor{UUID: id}, nil
 		},
 		createFn: func(ctx context.Context, req *cloudscalesdk.LoadBalancerHealthMonitorRequest) (*cloudscalesdk.LoadBalancerHealthMonitor, error) {
-			t.Fatal("Create should not be called when health monitor already exists")
+			g.Fail("Create should not be called when health monitor already exists")
 			return nil, nil
 		},
 	}
@@ -746,7 +746,7 @@ func TestReconcileLBHealthMonitor_FindsExistingByTag(t *testing.T) {
 			}, nil
 		},
 		createFn: func(ctx context.Context, req *cloudscalesdk.LoadBalancerHealthMonitorRequest) (*cloudscalesdk.LoadBalancerHealthMonitor, error) {
-			t.Fatal("Create should not be called when health monitor is found by tag")
+			g.Fail("Create should not be called when health monitor is found by tag")
 			return nil, nil
 		},
 	}
@@ -864,11 +864,11 @@ func TestReconcileLoadBalancer_SkipsWhenDisabled(t *testing.T) {
 
 	lbService := &mockLoadBalancerService{
 		createFn: func(ctx context.Context, req *cloudscalesdk.LoadBalancerRequest) (*cloudscalesdk.LoadBalancer, error) {
-			t.Fatal("Create should not be called when LB is disabled")
+			g.Fail("Create should not be called when LB is disabled")
 			return nil, nil
 		},
 		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancer, error) {
-			t.Fatal("Get should not be called when LB is disabled")
+			g.Fail("Get should not be called when LB is disabled")
 			return nil, nil
 		},
 	}
@@ -1060,7 +1060,7 @@ func TestDeleteLoadBalancer_SkipsWhenDisabled(t *testing.T) {
 
 	lbService := &mockLoadBalancerService{
 		deleteFn: func(ctx context.Context, id string) error {
-			t.Fatal("Delete should not be called when LB is disabled")
+			g.Fail("Delete should not be called when LB is disabled")
 			return nil
 		},
 	}
@@ -1344,15 +1344,15 @@ func TestReconcileLBMembers_NoopWhenInSync(t *testing.T) {
 			}, nil
 		},
 		createFn: func(ctx context.Context, poolID string, req *cloudscalesdk.LoadBalancerPoolMemberRequest) (*cloudscalesdk.LoadBalancerPoolMember, error) {
-			t.Fatal("Create should not be called when in sync")
+			g.Fail("Create should not be called when in sync")
 			return nil, nil
 		},
 		deleteFn: func(ctx context.Context, poolID, memberID string) error {
-			t.Fatal("Delete should not be called when in sync")
+			g.Fail("Delete should not be called when in sync")
 			return nil
 		},
 		updateFn: func(ctx context.Context, poolID, memberID string, req *cloudscalesdk.LoadBalancerPoolMemberRequest) error {
-			t.Fatal("Update should not be called when in sync")
+			g.Fail("Update should not be called when in sync")
 			return nil
 		},
 	}

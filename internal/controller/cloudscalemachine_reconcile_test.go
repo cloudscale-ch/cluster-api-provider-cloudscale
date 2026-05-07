@@ -89,11 +89,11 @@ func TestMachineReconcileNormal_BootstrapDataNotReady(t *testing.T) {
 
 	serverService := &mockServerService{
 		getFn: func(ctx context.Context, id string) (*cloudscalesdk.Server, error) {
-			t.Fatal("Server Get should not be called when bootstrap data is not ready")
+			g.Fail("Server Get should not be called when bootstrap data is not ready")
 			return nil, nil
 		},
 		createFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
-			t.Fatal("Server Create should not be called when bootstrap data is not ready")
+			g.Fail("Server Create should not be called when bootstrap data is not ready")
 			return nil, nil
 		},
 	}
@@ -242,7 +242,7 @@ func TestMachineReconcileDelete_NoServer(t *testing.T) {
 
 	serverService := &mockServerService{
 		deleteFn: func(ctx context.Context, id string) error {
-			t.Fatal("Delete should not be called when no server exists")
+			g.Fail("Delete should not be called when no server exists")
 			return nil
 		},
 	}

@@ -366,7 +366,7 @@ func TestReconcileDelete_LBDeleteErrorStopsDeletion(t *testing.T) {
 	}
 	mocks.networkService = &mockNetworkService{
 		deleteFn: func(ctx context.Context, id string) error {
-			t.Fatal("Network delete should not be called when LB delete fails")
+			g.Fail("Network delete should not be called when LB delete fails")
 			return nil
 		},
 	}
@@ -429,7 +429,7 @@ func TestReconcileDelete_LBDisabledSkipsLBDeletion(t *testing.T) {
 	mocks.lbEnabled = false
 	mocks.lbService = &mockLoadBalancerService{
 		deleteFn: func(ctx context.Context, id string) error {
-			t.Fatal("LB delete should not be called when LB is disabled")
+			g.Fail("LB delete should not be called when LB is disabled")
 			return nil
 		},
 	}

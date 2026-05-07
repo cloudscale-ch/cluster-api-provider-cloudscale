@@ -155,7 +155,7 @@ func TestReconcileServerGroup_NoServerGroup_Noop(t *testing.T) {
 
 	serverGroupService := &mockServerGroupService{
 		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
-			t.Fatal("List should not be called when no server group is specified")
+			g.Fail("List should not be called when no server group is specified")
 			return nil, nil
 		},
 	}

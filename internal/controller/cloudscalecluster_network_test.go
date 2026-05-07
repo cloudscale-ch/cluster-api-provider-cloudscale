@@ -27,7 +27,6 @@ import (
 	"github.com/go-logr/logr"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/events"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
@@ -68,12 +67,6 @@ func newTestClusterScope(networkService cs.NetworkService, subnetService cs.Subn
 			Networks: networkService,
 			Subnets:  subnetService,
 		},
-	}
-}
-
-func newTestReconciler() *CloudscaleClusterReconciler {
-	return &CloudscaleClusterReconciler{
-		recorder: events.NewFakeRecorder(10),
 	}
 }
 
@@ -125,7 +118,7 @@ func TestReconcileNetwork_SkipsIfBothExist(t *testing.T) {
 			return &cloudscale.Network{UUID: id}, nil
 		},
 		createFn: func(ctx context.Context, req *cloudscale.NetworkCreateRequest) (*cloudscale.Network, error) {
-			t.Fatal("Network create should not be called")
+			g.Fail("Network create should not be called")
 			return nil, nil
 		},
 	}
@@ -134,7 +127,7 @@ func TestReconcileNetwork_SkipsIfBothExist(t *testing.T) {
 			return &cloudscale.Subnet{UUID: id}, nil
 		},
 		createFn: func(ctx context.Context, req *cloudscale.SubnetCreateRequest) (*cloudscale.Subnet, error) {
-			t.Fatal("Subnet create should not be called")
+			g.Fail("Create should not be called when subnet is found by tag")
 			return nil, nil
 		},
 	}
@@ -165,7 +158,7 @@ func TestReconcileNetwork_NetworkErrorStopsSubnet(t *testing.T) {
 	}
 	subnetService := &mockSubnetService{
 		createFn: func(ctx context.Context, req *cloudscale.SubnetCreateRequest) (*cloudscale.Subnet, error) {
-			t.Fatal("Subnet create should not be called when network fails")
+			g.Fail("Subnet create should not be called when network fails")
 			return nil, nil
 		},
 	}
@@ -215,7 +208,7 @@ func TestReconcileNetwork_FindsByTag(t *testing.T) {
 			}, nil
 		},
 		createFn: func(ctx context.Context, req *cloudscale.NetworkCreateRequest) (*cloudscale.Network, error) {
-			t.Fatal("Create should not be called when network is found by tag")
+			g.Fail("Create should not be called when network is found by tag")
 			return nil, nil
 		},
 	}
@@ -503,7 +496,7 @@ func TestDeleteNetwork_SkipsIfNoNetwork(t *testing.T) {
 
 	networkService := &mockNetworkService{
 		deleteFn: func(ctx context.Context, id string) error {
-			t.Fatal("Delete should not be called when no network exists")
+			g.Fail("Delete should not be called when no network exists")
 			return nil
 		},
 	}
@@ -544,7 +537,7 @@ func TestDeleteNetwork_SkipsPreExistingNetwork(t *testing.T) {
 
 	networkService := &mockNetworkService{
 		deleteFn: func(ctx context.Context, id string) error {
-			t.Fatal("Delete should not be called for Pre-existing networks")
+			g.Fail("Delete should not be called for Pre-existing networks")
 			return nil
 		},
 	}
@@ -646,7 +639,7 @@ func TestReconcileNetwork_PreExistingCachedShortCircuits(t *testing.T) {
 
 	networkService := &mockNetworkService{
 		getFn: func(ctx context.Context, id string) (*cloudscale.Network, error) {
-			t.Fatal("Get should not be called when pre-existing status is cached")
+			g.Fail("Get should not be called when pre-existing status is cached")
 			return nil, nil
 		},
 	}

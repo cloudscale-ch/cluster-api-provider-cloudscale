@@ -162,7 +162,7 @@ func TestReconcilePreExistingFloatingIP_RefetchesAndKeepsAssignmentWhenCached(t 
 			}, nil
 		},
 		updateFn: func(ctx context.Context, id string, req *cloudscalesdk.FloatingIPUpdateRequest) error {
-			t.Fatal("Update must not fire when FIP is already assigned to the LB")
+			g.Fail("Update must not fire when FIP is already assigned to the LB")
 			return nil
 		},
 	}
@@ -645,7 +645,7 @@ func TestEnsureFloatingIPAssignment_LBAlreadyCorrect(t *testing.T) {
 
 	fipService := &mockFloatingIPService{
 		updateFn: func(ctx context.Context, id string, req *cloudscalesdk.FloatingIPUpdateRequest) error {
-			t.Fatal("Update should not be called when assignment is correct")
+			g.Fail("Update should not be called when assignment is correct")
 			return nil
 		},
 	}
@@ -821,7 +821,7 @@ func TestDeleteFloatingIP_PreExistingSkipsDeletionAndLeavesConditionUntouched(t 
 
 	fipService := &mockFloatingIPService{
 		deleteFn: func(ctx context.Context, id string) error {
-			t.Fatal("Delete should not be called for pre-existing floating IPs")
+			g.Fail("Delete should not be called for pre-existing floating IPs")
 			return nil
 		},
 	}
@@ -873,7 +873,7 @@ func TestDeleteFloatingIP_NoStatusSkipsDeletion(t *testing.T) {
 
 	fipService := &mockFloatingIPService{
 		deleteFn: func(ctx context.Context, id string) error {
-			t.Fatal("Delete should not be called when status is empty")
+			g.Fail("Delete should not be called when status is empty")
 			return nil
 		},
 	}

@@ -25,6 +25,7 @@ import (
 
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -114,4 +115,11 @@ func getFirstFoundEnvTestBinaryDir() string {
 		}
 	}
 	return ""
+}
+
+func newTestReconciler() *CloudscaleClusterReconciler {
+	return &CloudscaleClusterReconciler{
+		Client:   newTestFakeClient(),
+		recorder: events.NewFakeRecorder(10),
+	}
 }
