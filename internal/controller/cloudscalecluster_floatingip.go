@@ -64,7 +64,9 @@ func (r *CloudscaleClusterReconciler) reconcileFloatingIP(ctx context.Context, c
 }
 
 func (r *CloudscaleClusterReconciler) reconcilePreExistingFloatingIP(ctx context.Context, clusterScope *scope.ClusterScope, ip string) error {
-	fip, err := clusterScope.CloudscaleClient.FloatingIPs.Get(ctx, ip)
+	getCtx, cancel := context.WithTimeout(ctx, cloudscale.ReadTimeout)
+	defer cancel()
+	fip, err := clusterScope.CloudscaleClient.FloatingIPs.Get(getCtx, ip)
 	if err != nil {
 		return fmt.Errorf("getting pre-existing floating IP %s: %w", ip, err)
 	}
@@ -137,7 +139,9 @@ func (r *CloudscaleClusterReconciler) reconcileManagedFloatingIP(ctx context.Con
 	}
 
 	clusterScope.Info("Creating floating IP", "ipVersion", ipVersion, "target", target)
-	fip, err = clusterScope.CloudscaleClient.FloatingIPs.Create(ctx, req)
+	createCtx, cancel := context.WithTimeout(ctx, cloudscale.WriteTimeout)
+	defer cancel()
+	fip, err = clusterScope.CloudscaleClient.FloatingIPs.Create(createCtx, req)
 	if err != nil {
 		if cloudscale.IsTimeoutError(err) {
 			const timeout = createFloatingIPTimeoutRequeueAfter
@@ -225,7 +229,9 @@ func (r *CloudscaleClusterReconciler) ensureFloatingIPAssignment(ctx context.Con
 	if needsUpdate {
 		floatingIP := clusterScope.CloudscaleCluster.Status.FloatingIP
 		clusterScope.Info("Reassigning floating IP", "ip", floatingIP, "target", target)
-		if err := clusterScope.CloudscaleClient.FloatingIPs.Update(ctx, floatingIP, updateReq); err != nil {
+		updateCtx, cancel := context.WithTimeout(ctx, cloudscale.WriteTimeout)
+		defer cancel()
+		if err := clusterScope.CloudscaleClient.FloatingIPs.Update(updateCtx, floatingIP, updateReq); err != nil {
 			if cloudscale.IsFloatingIPNoPublicInterface(err) {
 				return fmt.Errorf("floating IP cannot be assigned to control plane server: server must have a public interface when the load balancer is disabled; add {type: public} to the control-plane machine template interfaces")
 			}
@@ -283,7 +289,9 @@ func (r *CloudscaleClusterReconciler) deleteFloatingIP(ctx context.Context, clus
 	}
 
 	clusterScope.Info("Deleting floating IP", "id", floatingIP)
-	if err := clusterScope.CloudscaleClient.FloatingIPs.Delete(ctx, floatingIP); err != nil {
+	deleteCtx, cancel := context.WithTimeout(ctx, cloudscale.DeleteTimeout)
+	defer cancel()
+	if err := clusterScope.CloudscaleClient.FloatingIPs.Delete(deleteCtx, floatingIP); err != nil {
 		if !cloudscale.IsNotFound(err) {
 			return fmt.Errorf("deleting floating IP: %w", err)
 		}

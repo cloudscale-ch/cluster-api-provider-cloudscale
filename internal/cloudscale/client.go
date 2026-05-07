@@ -44,19 +44,29 @@ type Client struct {
 	Flavors                    FlavorService
 }
 
-// DefaultCloudscaleRequestTimeout is the default HTTP request timeout for all Create calls.
-const DefaultCloudscaleRequestTimeout = 60 * time.Second
+const (
+	// ReadTimeout is the context timeout for Get/List API calls.
+	ReadTimeout = 30 * time.Second
 
-func NewClient(token string, requestTimeout time.Duration) *Client {
-	tokenSource := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
-	baseTransport := &http.Transport{
+	// WriteTimeout is the context timeout for Create/Update API calls.
+	// Creates can take 60s+ under API load.
+	WriteTimeout = 2 * time.Minute
+
+	// DeleteTimeout is the context timeout for Delete API calls.
+	DeleteTimeout = 30 * time.Second
+)
+
+// NewTransport creates an http.Transport configured for the cloudscale.ch API.
+// The returned transport should be created once and shared across all clients
+// to benefit from connection pooling and HTTP/2 multiplexing.
+func NewTransport() *http.Transport {
+	return &http.Transport{
 		DialContext: (&net.Dialer{
 			Timeout:   5 * time.Second,
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
 
-		TLSHandshakeTimeout:   5 * time.Second,
-		ResponseHeaderTimeout: 10 * time.Second,
+		TLSHandshakeTimeout: 5 * time.Second,
 
 		// needs to be set because we also set DialContext
 		ForceAttemptHTTP2: true,
@@ -70,12 +80,23 @@ func NewClient(token string, requestTimeout time.Duration) *Client {
 		MaxIdleConnsPerHost: 50,
 		MaxConnsPerHost:     0,
 	}
+}
+
+// NewClient creates a cloudscale.ch API client using the given token and
+// shared transport. The transport should be created once via NewTransport()
+// and reused across clients. Each client gets its own oauth2 token injection
+// but shares the underlying connection pool.
+//
+// No global HTTP timeout is set on the client. Instead, callers must use
+// context.WithTimeout with ReadTimeout, WriteTimeout, or DeleteTimeout
+// for each API call.
+func NewClient(token string, transport *http.Transport) *Client {
+	tokenSource := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
 
 	httpClient := &http.Client{
-		Timeout: requestTimeout,
 		Transport: &oauth2.Transport{
 			Source: tokenSource,
-			Base:   baseTransport,
+			Base:   transport,
 		},
 	}
 	sdkClient := cloudscalesdk.NewClient(httpClient)

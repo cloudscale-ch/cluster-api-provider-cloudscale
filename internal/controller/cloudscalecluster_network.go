@@ -82,7 +82,9 @@ func (r *CloudscaleClusterReconciler) reconcilePreExistingNetwork(ctx context.Co
 		return nil
 	}
 
-	network, err := clusterScope.CloudscaleClient.Networks.Get(ctx, netSpec.UUID)
+	getCtx, cancel := context.WithTimeout(ctx, cloudscale.ReadTimeout)
+	defer cancel()
+	network, err := clusterScope.CloudscaleClient.Networks.Get(getCtx, netSpec.UUID)
 	if err != nil {
 		return fmt.Errorf("getting pre-existing network %s: %w", netSpec.UUID, err)
 	}
@@ -127,7 +129,9 @@ func (r *CloudscaleClusterReconciler) reconcileManagedNetwork(ctx context.Contex
 	if resolvedNetworkID == "" {
 		// Create new network
 		clusterScope.Info("Creating network", "name", netSpec.Name)
-		network, err := clusterScope.CloudscaleClient.Networks.Create(ctx, &cloudscalesdk.NetworkCreateRequest{
+		createCtx, cancel := context.WithTimeout(ctx, cloudscale.WriteTimeout)
+		defer cancel()
+		network, err := clusterScope.CloudscaleClient.Networks.Create(createCtx, &cloudscalesdk.NetworkCreateRequest{
 			Name:                 netSpec.Name,
 			AutoCreateIPV4Subnet: ptr.To(false),
 			ZonalResourceRequest: cloudscalesdk.ZonalResourceRequest{
@@ -170,7 +174,9 @@ func (r *CloudscaleClusterReconciler) reconcileManagedNetwork(ctx context.Contex
 	if resolvedSubnetID == "" {
 		// Create new subnet
 		clusterScope.Info("Creating subnet", "name", netSpec.Name, "cidr", netSpec.CIDR, "gateway", netSpec.GatewayAddress)
-		subnet, err := clusterScope.CloudscaleClient.Subnets.Create(ctx, &cloudscalesdk.SubnetCreateRequest{
+		createSubnetCtx, cancelSubnet := context.WithTimeout(ctx, cloudscale.WriteTimeout)
+		defer cancelSubnet()
+		subnet, err := clusterScope.CloudscaleClient.Subnets.Create(createSubnetCtx, &cloudscalesdk.SubnetCreateRequest{
 			Network:        resolvedNetworkID,
 			CIDR:           netSpec.CIDR,
 			GatewayAddress: netSpec.GatewayAddress,
@@ -225,7 +231,9 @@ func (r *CloudscaleClusterReconciler) deleteNetwork(ctx context.Context, cluster
 		}
 
 		logger.Info("Deleting network")
-		err := clusterScope.CloudscaleClient.Networks.Delete(ctx, ns.NetworkID)
+		deleteCtx, cancel := context.WithTimeout(ctx, cloudscale.DeleteTimeout)
+		defer cancel()
+		err := clusterScope.CloudscaleClient.Networks.Delete(deleteCtx, ns.NetworkID)
 
 		// return sentinel error which will wait a pre-defined amount of time
 		if isLBPoolMembersError(err) {

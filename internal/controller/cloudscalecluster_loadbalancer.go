@@ -78,7 +78,9 @@ func (r *CloudscaleClusterReconciler) reconcileLoadBalancer(ctx context.Context,
 	}
 
 	// Check if LB is running
-	lb, err := clusterScope.CloudscaleClient.LoadBalancers.Get(ctx, clusterScope.CloudscaleCluster.Status.LoadBalancerID)
+	getCtx, getCancel := context.WithTimeout(ctx, cloudscale.ReadTimeout)
+	defer getCancel()
+	lb, err := clusterScope.CloudscaleClient.LoadBalancers.Get(getCtx, clusterScope.CloudscaleCluster.Status.LoadBalancerID)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("getting load balancer status: %w", err)
 	}
@@ -186,7 +188,9 @@ func (r *CloudscaleClusterReconciler) reconcileLB(ctx context.Context, clusterSc
 	}
 
 	clusterScope.Info("Creating load balancer", "zone", zone, "flavor", lbSpec.Flavor)
-	lb, err := clusterScope.CloudscaleClient.LoadBalancers.Create(ctx, req)
+	createCtx, createCancel := context.WithTimeout(ctx, cloudscale.WriteTimeout)
+	defer createCancel()
+	lb, err := clusterScope.CloudscaleClient.LoadBalancers.Create(createCtx, req)
 	if err != nil {
 		if cloudscale.IsTimeoutError(err) {
 			requeueAfter := 5 * time.Second
@@ -234,7 +238,9 @@ func (r *CloudscaleClusterReconciler) reconcileLBPool(ctx context.Context, clust
 	}
 
 	clusterScope.Info("Creating load balancer pool", "algorithm", algorithm)
-	pool, err := clusterScope.CloudscaleClient.LoadBalancerPools.Create(ctx, req)
+	createCtx, createCancel := context.WithTimeout(ctx, cloudscale.WriteTimeout)
+	defer createCancel()
+	pool, err := clusterScope.CloudscaleClient.LoadBalancerPools.Create(createCtx, req)
 	if err != nil {
 		if cloudscale.IsTimeoutError(err) {
 			requeueAfter := 5 * time.Second
@@ -280,7 +286,9 @@ func (r *CloudscaleClusterReconciler) reconcileLBListener(ctx context.Context, c
 	}
 
 	clusterScope.Info("Creating load balancer listener", "port", apiServerPort)
-	listener, err := clusterScope.CloudscaleClient.LoadBalancerListeners.Create(ctx, req)
+	createCtx, createCancel := context.WithTimeout(ctx, cloudscale.WriteTimeout)
+	defer createCancel()
+	listener, err := clusterScope.CloudscaleClient.LoadBalancerListeners.Create(createCtx, req)
 	if err != nil {
 		if cloudscale.IsTimeoutError(err) {
 			requeueAfter := 5 * time.Second
@@ -331,7 +339,9 @@ func (r *CloudscaleClusterReconciler) reconcileLBHealthMonitor(ctx context.Conte
 	}
 
 	clusterScope.Info("Creating load balancer health monitor", "type", "tcp", "pool", clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID, "spec", healthMonitorSpec)
-	monitor, err := clusterScope.CloudscaleClient.LoadBalancerHealthMonitors.Create(ctx, req)
+	createCtx, createCancel := context.WithTimeout(ctx, cloudscale.WriteTimeout)
+	defer createCancel()
+	monitor, err := clusterScope.CloudscaleClient.LoadBalancerHealthMonitors.Create(createCtx, req)
 	if err != nil {
 		if cloudscale.IsTimeoutError(err) {
 			requeueAfter := 5 * time.Second
@@ -351,7 +361,9 @@ func (r *CloudscaleClusterReconciler) reconcileLBHealthMonitor(ctx context.Conte
 
 func (r *CloudscaleClusterReconciler) reconcileLBMembers(ctx context.Context, clusterScope *scope.ClusterScope) (ctrl.Result, error) {
 	// Fetch current members from the load balancer
-	currentMembers, err := clusterScope.CloudscaleClient.LoadBalancerPoolMembers.List(ctx, clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID)
+	listCtx, listCancel := context.WithTimeout(ctx, cloudscale.ReadTimeout)
+	defer listCancel()
+	currentMembers, err := clusterScope.CloudscaleClient.LoadBalancerPoolMembers.List(listCtx, clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to get current load balancer members: %w", err)
 	}
@@ -510,7 +522,9 @@ func lbPrivateNetworkSubnetID(clusterScope *scope.ClusterScope) (string, error) 
 
 func (r *CloudscaleClusterReconciler) createLoadBalancerMember(ctx context.Context, clusterScope *scope.ClusterScope, member cloudscalesdk.LoadBalancerPoolMemberRequest) (ctrl.Result, error) {
 	clusterScope.V(2).Info("Creating load balancer member", "member", member)
-	cm, err := clusterScope.CloudscaleClient.LoadBalancerPoolMembers.Create(ctx, clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID, &member)
+	createCtx, createCancel := context.WithTimeout(ctx, cloudscale.WriteTimeout)
+	defer createCancel()
+	cm, err := clusterScope.CloudscaleClient.LoadBalancerPoolMembers.Create(createCtx, clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID, &member)
 	if err != nil {
 		if cloudscale.IsTimeoutError(err) {
 			requeueAfter := 5 * time.Second
@@ -527,7 +541,9 @@ func (r *CloudscaleClusterReconciler) createLoadBalancerMember(ctx context.Conte
 
 func (r *CloudscaleClusterReconciler) updateLoadBalancerMember(ctx context.Context, clusterScope *scope.ClusterScope, memberUUID, newAddress string) error {
 	clusterScope.V(2).Info("Updating load balancer member address", "memberUUID", memberUUID, "newAddress", newAddress)
-	err := clusterScope.CloudscaleClient.LoadBalancerPoolMembers.Update(ctx, clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID, memberUUID, &cloudscalesdk.LoadBalancerPoolMemberRequest{
+	updateCtx, updateCancel := context.WithTimeout(ctx, cloudscale.WriteTimeout)
+	defer updateCancel()
+	err := clusterScope.CloudscaleClient.LoadBalancerPoolMembers.Update(updateCtx, clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID, memberUUID, &cloudscalesdk.LoadBalancerPoolMemberRequest{
 		Address: newAddress,
 	})
 	if err != nil {
@@ -539,7 +555,9 @@ func (r *CloudscaleClusterReconciler) updateLoadBalancerMember(ctx context.Conte
 
 func (r *CloudscaleClusterReconciler) deleteLoadBalancerMember(ctx context.Context, clusterScope *scope.ClusterScope, member cloudscalesdk.LoadBalancerPoolMember) error {
 	clusterScope.V(2).Info("Deleting load balancer member", "member", member)
-	err := clusterScope.CloudscaleClient.LoadBalancerPoolMembers.Delete(ctx, clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID, member.UUID)
+	deleteCtx, deleteCancel := context.WithTimeout(ctx, cloudscale.DeleteTimeout)
+	defer deleteCancel()
+	err := clusterScope.CloudscaleClient.LoadBalancerPoolMembers.Delete(deleteCtx, clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID, member.UUID)
 	if err != nil {
 		return fmt.Errorf("deleting load balancer member: %w", err)
 	}
@@ -569,7 +587,9 @@ func (r *CloudscaleClusterReconciler) deleteLoadBalancer(ctx context.Context, cl
 	lbID := clusterScope.CloudscaleCluster.Status.LoadBalancerID
 	if lbID != "" {
 		clusterScope.Info("Deleting load balancer", "id", lbID)
-		if err := clusterScope.CloudscaleClient.LoadBalancers.Delete(ctx, lbID); err != nil {
+		deleteCtx, deleteCancel := context.WithTimeout(ctx, cloudscale.DeleteTimeout)
+		defer deleteCancel()
+		if err := clusterScope.CloudscaleClient.LoadBalancers.Delete(deleteCtx, lbID); err != nil {
 			if !cloudscale.IsNotFound(err) {
 				return fmt.Errorf("deleting load balancer: %w", err)
 			}

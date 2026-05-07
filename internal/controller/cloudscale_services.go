@@ -13,9 +13,9 @@ import (
 
 const (
 	// CreateTimeoutRequeueInterval is the requeue interval after an HTTP timeout
-	// on a Create call. This MUST be longer than the HTTP client timeout (60s) so the
+	// on a Create call. This MUST be longer than cloudscale.WriteTimeout (2m) so the
 	// original request has time to complete before we retry.
-	CreateTimeoutRequeueInterval = 90 * time.Second
+	CreateTimeoutRequeueInterval = 150 * time.Second
 )
 
 // getListService is satisfied by all cloudscale SDK resource services.
@@ -37,7 +37,9 @@ func ensureResource[T any](
 	tags cloudscalesdk.TagMap,
 ) (*T, string, error) {
 	if currentID != "" {
-		resource, err := svc.Get(ctx, currentID)
+		getCtx, cancel := context.WithTimeout(ctx, cloudscale.ReadTimeout)
+		defer cancel()
+		resource, err := svc.Get(getCtx, currentID)
 		if err == nil {
 			return resource, currentID, nil
 		}
@@ -47,7 +49,9 @@ func ensureResource[T any](
 		// Resource was deleted externally, fall through to list/recreate
 	}
 
-	items, err := svc.List(ctx, cloudscalesdk.WithTagFilter(tags))
+	listCtx, cancel := context.WithTimeout(ctx, cloudscale.ReadTimeout)
+	defer cancel()
+	items, err := svc.List(listCtx, cloudscalesdk.WithTagFilter(tags))
 	if err != nil {
 		return nil, "", fmt.Errorf("listing %ss: %w", resourceName, err)
 	}

@@ -28,7 +28,7 @@ import (
 
 // newCloudscaleClient creates a new cloudscale API client from the given token.
 func newCloudscaleClient(token string) *cloudscale.Client {
-	return cloudscale.NewClient(token, cloudscale.DefaultCloudscaleRequestTimeout)
+	return cloudscale.NewClient(token, cloudscale.NewTransport())
 }
 
 // resourceSnapshot holds a snapshot of cloudscale API resources for leak detection.
