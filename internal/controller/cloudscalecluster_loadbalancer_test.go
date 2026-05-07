@@ -935,7 +935,7 @@ func TestReconcileLoadBalancer_ErrorStatusHasLongerRequeue(t *testing.T) {
 	result, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(result.RequeueAfter).To(Equal(30*time.Second), "error status should requeue after 30s")
+	g.Expect(result.RequeueAfter).To(Equal(10*time.Second), "error status should requeue after 10s")
 }
 
 func TestReconcileLoadBalancer_DegradedStatusHasLongerRequeue(t *testing.T) {
@@ -961,7 +961,7 @@ func TestReconcileLoadBalancer_DegradedStatusHasLongerRequeue(t *testing.T) {
 	result, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(result.RequeueAfter).To(Equal(30*time.Second), "degraded status should requeue after 30s")
+	g.Expect(result.RequeueAfter).To(Equal(10*time.Second), "degraded status should requeue after 10s")
 }
 
 func TestReconcileLoadBalancer_CreatingStatusHasShorterRequeue(t *testing.T) {

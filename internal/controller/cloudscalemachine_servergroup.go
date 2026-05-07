@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -88,8 +89,9 @@ func (r *CloudscaleMachineReconciler) reconcileServerGroup(ctx context.Context, 
 	group, err := machineScope.CloudscaleClient.ServerGroups.Create(ctx, req)
 	if err != nil {
 		if cloudscale.IsTimeoutError(err) {
-			machineScope.Info("Server group creation timed out, waiting before retry", "requeueAfter", CreateTimeoutRequeueInterval)
-			return ctrl.Result{RequeueAfter: CreateTimeoutRequeueInterval}, nil
+			requeueAfter := 5 * time.Second
+			machineScope.Info("Server group creation timed out, waiting before retry", "requeueAfter", requeueAfter)
+			return ctrl.Result{RequeueAfter: requeueAfter}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("creating server group: %w", err)
 	}

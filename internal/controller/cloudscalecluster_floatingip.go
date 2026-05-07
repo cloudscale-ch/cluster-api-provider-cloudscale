@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 	corev1 "k8s.io/api/core/v1"
@@ -32,6 +33,8 @@ import (
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/scope"
 )
+
+const createFloatingIPTimeoutRequeueAfter = 5 * time.Second
 
 // reconcileFloatingIP ensures the floating IP exists and is assigned to the correct target.
 // When no floating IP is configured, this sets the condition to true and returns.
@@ -76,7 +79,7 @@ func (r *CloudscaleClusterReconciler) reconcilePreExistingFloatingIP(ctx context
 	return r.ensureFloatingIPAssignment(ctx, clusterScope, fip)
 }
 
-func (r *CloudscaleClusterReconciler) reconcileManagedFloatingIP(ctx context.Context, clusterScope *scope.ClusterScope, fipSpec *infrastructurev1beta2.FloatingIPSpec) (_ ctrl.Result, reterr error) {
+func (r *CloudscaleClusterReconciler) reconcileManagedFloatingIP(ctx context.Context, clusterScope *scope.ClusterScope, fipSpec *infrastructurev1beta2.FloatingIPSpec) (ctrl.Result, error) {
 	tags := clusterOwnershipTags(clusterScope.CloudscaleCluster)
 
 	clusterScope.Info("reconcile managed floating IP")
@@ -137,8 +140,9 @@ func (r *CloudscaleClusterReconciler) reconcileManagedFloatingIP(ctx context.Con
 	fip, err = clusterScope.CloudscaleClient.FloatingIPs.Create(ctx, req)
 	if err != nil {
 		if cloudscale.IsTimeoutError(err) {
-			clusterScope.Info("Floating IP creation timed out, waiting before retry", "requeueAfter", CreateTimeoutRequeueInterval)
-			return ctrl.Result{RequeueAfter: CreateTimeoutRequeueInterval}, nil
+			const timeout = createFloatingIPTimeoutRequeueAfter
+			clusterScope.Info("Floating IP creation timed out, waiting before retry", "requeueAfter", timeout)
+			return ctrl.Result{RequeueAfter: timeout}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("creating floating IP: %w", err)
 	}

@@ -34,13 +34,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
-	cs "github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/scope"
 )
 
 // --- Test helpers ---
 
-func newFIPTestClusterScope(fipService cs.FloatingIPService) *scope.ClusterScope {
+func newFIPTestClusterScope(fipService cloudscale.FloatingIPService) *scope.ClusterScope {
 	return &scope.ClusterScope{
 		Logger: logr.Discard(),
 		Cluster: &clusterv1.Cluster{
@@ -63,7 +63,7 @@ func newFIPTestClusterScope(fipService cs.FloatingIPService) *scope.ClusterScope
 				},
 			},
 		},
-		CloudscaleClient: &cs.Client{
+		CloudscaleClient: &cloudscale.Client{
 			FloatingIPs: fipService,
 		},
 	}
@@ -944,12 +944,8 @@ func TestReconcileManagedFloatingIP_CreateTimeoutRequeues(t *testing.T) {
 			return nil, nil
 		},
 		createFn: func(ctx context.Context, req *cloudscalesdk.FloatingIPCreateRequest) (*cloudscalesdk.FloatingIP, error) {
-			if req.IPVersion == 4 {
-				// Simulate timeout via context deadline exceeded wrapped in url.Error
-				return nil, &url.Error{Op: "Post", URL: "https://api.example.com/v1/floating_ips", Err: os.ErrDeadlineExceeded}
-			}
-			// IPv6 path: return success so we can verify timeout path above is hit first
-			return &cloudscalesdk.FloatingIP{Network: "2001:db8::1/128"}, nil
+			// Simulate timeout via context deadline exceeded wrapped in url.Error
+			return nil, &url.Error{Op: "Post", URL: "https://api.example.com/v1/floating_ips", Err: os.ErrDeadlineExceeded}
 		},
 	}
 
@@ -962,8 +958,8 @@ func TestReconcileManagedFloatingIP_CreateTimeoutRequeues(t *testing.T) {
 	result, err := r.reconcileManagedFloatingIP(context.Background(), clusterScope, fipSpec)
 
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(result.RequeueAfter).To(Equal(CreateTimeoutRequeueInterval),
-		"Should requeue after CreateTimeoutRequeueInterval on timeout error")
+	g.Expect(result.RequeueAfter).To(Equal(createFloatingIPTimeoutRequeueAfter),
+		"Should requeue after createFloatingIPTimeoutRequeueAfter on timeout error")
 }
 
 // --- Mock FloatingIPService ---
