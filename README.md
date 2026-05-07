@@ -29,7 +29,7 @@ for [cloudscale.ch](https://www.cloudscale.ch).
 ```bash
 export CLOUDSCALE_API_TOKEN=<your-api-token>
 
-clusterctl init --infrastructure cloudscale
+clusterctl init --infrastructure cloudscale-ch-cloudscale
 ```
 
 ### Generate and apply a workload cluster
@@ -38,7 +38,8 @@ Set the [required environment variables](#environment-variables), then generate 
 
 ```bash
 clusterctl generate cluster my-cluster \
-  --kubernetes-version v1.32.0 \
+  --infrastructure cloudscale-ch-cloudscale \
+  --kubernetes-version v1.36.0 \
   --control-plane-machine-count 1 \
   --worker-machine-count 2 \
   | kubectl apply -f -
@@ -76,7 +77,8 @@ CAPCS ships several cluster templates for different network topologies. Use `clu
 
 ```bash
 clusterctl generate cluster my-cluster \
-  --kubernetes-version v1.32.0 \
+  --infrastructure cloudscale-ch-cloudscale \
+  --kubernetes-version v1.36.0 \
   --control-plane-machine-count 1 \
   --worker-machine-count 2 \
   --flavor <flavor-name> \

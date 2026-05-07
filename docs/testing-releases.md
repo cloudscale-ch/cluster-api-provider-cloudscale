@@ -43,7 +43,7 @@ Set up the pre-requisites as outlined in [README.md](../README.md).
 On a management cluster with `clusterctl` configured:
 
 ```bash
-clusterctl init --infrastructure cloudscale
+clusterctl init --infrastructure cloudscale-ch-cloudscale
 ```
 
 Verify the provider version is correct:
@@ -65,8 +65,8 @@ Generate a workload cluster manifest and apply it:
 
 ```bash
 clusterctl generate cluster my-cluster \
-  --infrastructure cloudscale \
-  --kubernetes-version v1.35.2 \
+  --infrastructure cloudscale-ch-cloudscale \
+  --kubernetes-version v1.36.0 \
   --control-plane-machine-count 1 \
   --worker-machine-count 1 \
   > my-cluster.yaml
