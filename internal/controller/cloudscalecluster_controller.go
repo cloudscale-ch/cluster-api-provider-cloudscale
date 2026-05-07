@@ -18,7 +18,9 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -190,6 +192,9 @@ func (r *CloudscaleClusterReconciler) reconcileDelete(ctx context.Context, clust
 	}
 
 	if err := r.deleteServerGroups(ctx, clusterScope); err != nil {
+		if errors.Is(err, errServerGroupNotEmpty) {
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		}
 		return ctrl.Result{}, fmt.Errorf("deleting server groups: %w", err)
 	}
 
