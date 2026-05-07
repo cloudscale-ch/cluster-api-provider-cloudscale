@@ -134,11 +134,3 @@ func IsTimeoutError(err error) bool {
 	}
 	return false
 }
-
-// IsDeadlineExceeded reports whether err indicates a deadline was exceeded.
-func IsDeadlineExceeded(err error) bool {
-	if err == nil {
-		return false
-	}
-	return errors.Is(err, os.ErrDeadlineExceeded)
-}

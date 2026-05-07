@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/cluster-api/util/conditions"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
-	cs "github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/scope"
 )
 
@@ -79,8 +79,8 @@ func (m *mockServerGroupService) Update(ctx context.Context, id string, req *clo
 	return nil
 }
 
-func newTestMachineScopeWithServerGroup(serverGroupService cs.ServerGroupService) *scope.MachineScope {
-	cloudscaleClient := &cs.Client{
+func newTestMachineScopeWithServerGroup(serverGroupService cloudscale.ServerGroupService) *scope.MachineScope {
+	cloudscaleClient := &cloudscale.Client{
 		ServerGroups: serverGroupService,
 	}
 

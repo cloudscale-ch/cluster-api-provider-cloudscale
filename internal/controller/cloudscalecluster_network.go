@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 	corev1 "k8s.io/api/core/v1"
@@ -32,6 +33,8 @@ import (
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/scope"
 )
+
+const createNetworkTimeoutRequeueAfter = 5 * time.Second
 
 // reconcileNetwork orchestrates network and subnet provisioning for all networks
 // defined in spec.networks. A single NetworkReadyCondition covers all networks.
@@ -99,7 +102,7 @@ func (r *CloudscaleClusterReconciler) reconcilePreExistingNetwork(ctx context.Co
 }
 
 // reconcileManagedNetwork ensures a managed network and its subnet exist.
-func (r *CloudscaleClusterReconciler) reconcileManagedNetwork(ctx context.Context, clusterScope *scope.ClusterScope, netSpec infrastructurev1beta2.NetworkSpec) (_ ctrl.Result, reterr error) {
+func (r *CloudscaleClusterReconciler) reconcileManagedNetwork(ctx context.Context, clusterScope *scope.ClusterScope, netSpec infrastructurev1beta2.NetworkSpec) (ctrl.Result, error) {
 	ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus(netSpec.Name)
 
 	// Reconcile the network resource
@@ -136,8 +139,8 @@ func (r *CloudscaleClusterReconciler) reconcileManagedNetwork(ctx context.Contex
 		})
 		if err != nil {
 			if cloudscale.IsTimeoutError(err) {
-				clusterScope.Info("Network creation timed out, waiting before retry", "requeueAfter", CreateTimeoutRequeueInterval)
-				return ctrl.Result{RequeueAfter: CreateTimeoutRequeueInterval}, nil
+				clusterScope.Info("Network creation timed out, waiting before retry", "requeueAfter", createNetworkTimeoutRequeueAfter)
+				return ctrl.Result{RequeueAfter: createNetworkTimeoutRequeueAfter}, nil
 			}
 			return ctrl.Result{}, fmt.Errorf("creating network: %w", err)
 		}
@@ -177,8 +180,8 @@ func (r *CloudscaleClusterReconciler) reconcileManagedNetwork(ctx context.Contex
 		})
 		if err != nil {
 			if cloudscale.IsTimeoutError(err) {
-				clusterScope.Info("Subnet creation timed out, waiting before retry", "requeueAfter", CreateTimeoutRequeueInterval)
-				return ctrl.Result{RequeueAfter: CreateTimeoutRequeueInterval}, nil
+				clusterScope.Info("Subnet creation timed out, waiting before retry", "requeueAfter", createNetworkTimeoutRequeueAfter)
+				return ctrl.Result{RequeueAfter: createNetworkTimeoutRequeueAfter}, nil
 			}
 			return ctrl.Result{}, fmt.Errorf("creating subnet: %w", err)
 		}
@@ -209,8 +212,10 @@ func (r *CloudscaleClusterReconciler) deleteNetwork(ctx context.Context, cluster
 	var errs []error
 
 	for _, ns := range clusterScope.CloudscaleCluster.Status.Networks {
+		logger := clusterScope.WithValues("name", ns.Name, "networkID", ns.NetworkID)
+
 		if !ns.Managed {
-			clusterScope.Info("Skipping pre-existing network deletion", "name", ns.Name, "networkID", ns.NetworkID)
+			logger.Info("Skipping pre-existing network deletion")
 			remaining = append(remaining, ns)
 			continue
 		}
@@ -219,12 +224,12 @@ func (r *CloudscaleClusterReconciler) deleteNetwork(ctx context.Context, cluster
 			continue
 		}
 
-		clusterScope.Info("Deleting network", "name", ns.Name, "networkID", ns.NetworkID)
+		logger.Info("Deleting network")
 		err := clusterScope.CloudscaleClient.Networks.Delete(ctx, ns.NetworkID)
 
 		// return sentinel error which will wait a pre-defined amount of time
 		if isLBPoolMembersError(err) {
-			clusterScope.Info("Network still has LB pool members, waiting for async cleanup", "networkID", ns.NetworkID)
+			logger.Info("Network still has LB pool members, waiting for async cleanup")
 			return errNetworkNotReady
 		}
 
@@ -239,7 +244,7 @@ func (r *CloudscaleClusterReconciler) deleteNetwork(ctx context.Context, cluster
 
 		// Idempotent not-found: log and fall through to the event.
 		if isNotFound {
-			clusterScope.Info("Network already deleted", "name", ns.Name, "networkID", ns.NetworkID)
+			logger.Info("Network already deleted")
 		}
 
 		r.recorder.Eventf(clusterScope.CloudscaleCluster, nil, corev1.EventTypeNormal, "NetworkDeleted", "DeleteNetwork",

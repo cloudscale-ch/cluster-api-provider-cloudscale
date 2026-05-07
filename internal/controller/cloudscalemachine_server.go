@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"time"
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 	corev1 "k8s.io/api/core/v1"
@@ -163,8 +164,9 @@ func (r *CloudscaleMachineReconciler) reconcileServer(ctx context.Context, machi
 	server, err = machineScope.CloudscaleClient.Servers.Create(ctx, req)
 	if err != nil {
 		if cloudscale.IsTimeoutError(err) {
-			machineScope.Info("Server creation timed out, waiting before retry", "requeueAfter", CreateTimeoutRequeueInterval)
-			return ctrl.Result{RequeueAfter: CreateTimeoutRequeueInterval}, nil
+			requeueAfter := 30 * time.Second
+			machineScope.Info("Server creation timed out, waiting before retry", "requeueAfter", requeueAfter)
+			return ctrl.Result{RequeueAfter: requeueAfter}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("creating server: %w", err)
 	}

@@ -89,7 +89,7 @@ func (r *CloudscaleClusterReconciler) reconcileLoadBalancer(ctx context.Context,
 		if lb.Status == "error" || lb.Status == "degraded" {
 			// During bootstrap, error/degraded is expected because the health
 			// monitor checks an empty pool (no CP machines ready yet).
-			requeueAfter = 30 * time.Second
+			requeueAfter = 10 * time.Second
 		}
 		return ctrl.Result{RequeueAfter: requeueAfter}, nil
 	}
@@ -142,7 +142,7 @@ func (r *CloudscaleClusterReconciler) reconcileLoadBalancer(ctx context.Context,
 }
 
 // reconcileLB ensures the load balancer exists.
-func (r *CloudscaleClusterReconciler) reconcileLB(ctx context.Context, clusterScope *scope.ClusterScope) (_ ctrl.Result, reterr error) {
+func (r *CloudscaleClusterReconciler) reconcileLB(ctx context.Context, clusterScope *scope.ClusterScope) (ctrl.Result, error) {
 	_, id, err := ensureResource(ctx, clusterScope,
 		clusterScope.CloudscaleCluster.Status.LoadBalancerID,
 		"load balancer",
@@ -189,8 +189,9 @@ func (r *CloudscaleClusterReconciler) reconcileLB(ctx context.Context, clusterSc
 	lb, err := clusterScope.CloudscaleClient.LoadBalancers.Create(ctx, req)
 	if err != nil {
 		if cloudscale.IsTimeoutError(err) {
-			clusterScope.Info("Load balancer creation timed out, waiting before retry", "requeueAfter", CreateTimeoutRequeueInterval)
-			return ctrl.Result{RequeueAfter: CreateTimeoutRequeueInterval}, nil
+			requeueAfter := 5 * time.Second
+			clusterScope.Info("Load balancer creation timed out, waiting before retry", "requeueAfter", requeueAfter)
+			return ctrl.Result{RequeueAfter: requeueAfter}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("creating load balancer: %w", err)
 	}
@@ -203,7 +204,7 @@ func (r *CloudscaleClusterReconciler) reconcileLB(ctx context.Context, clusterSc
 }
 
 // reconcileLBPool ensures the load balancer pool exists.
-func (r *CloudscaleClusterReconciler) reconcileLBPool(ctx context.Context, clusterScope *scope.ClusterScope) (_ ctrl.Result, reterr error) {
+func (r *CloudscaleClusterReconciler) reconcileLBPool(ctx context.Context, clusterScope *scope.ClusterScope) (ctrl.Result, error) {
 	_, id, err := ensureResource(ctx, clusterScope,
 		clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID,
 		"load balancer pool",
@@ -236,8 +237,9 @@ func (r *CloudscaleClusterReconciler) reconcileLBPool(ctx context.Context, clust
 	pool, err := clusterScope.CloudscaleClient.LoadBalancerPools.Create(ctx, req)
 	if err != nil {
 		if cloudscale.IsTimeoutError(err) {
-			clusterScope.Info("Load balancer pool creation timed out, waiting before retry", "requeueAfter", CreateTimeoutRequeueInterval)
-			return ctrl.Result{RequeueAfter: CreateTimeoutRequeueInterval}, nil
+			requeueAfter := 5 * time.Second
+			clusterScope.Info("Load balancer pool creation timed out, waiting before retry", "requeueAfter", requeueAfter)
+			return ctrl.Result{RequeueAfter: requeueAfter}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("creating load balancer pool: %w", err)
 	}
@@ -250,7 +252,7 @@ func (r *CloudscaleClusterReconciler) reconcileLBPool(ctx context.Context, clust
 }
 
 // reconcileLBListener ensures the load balancer listener exists.
-func (r *CloudscaleClusterReconciler) reconcileLBListener(ctx context.Context, clusterScope *scope.ClusterScope) (_ ctrl.Result, reterr error) {
+func (r *CloudscaleClusterReconciler) reconcileLBListener(ctx context.Context, clusterScope *scope.ClusterScope) (ctrl.Result, error) {
 	_, id, err := ensureResource(ctx, clusterScope,
 		clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID,
 		"load balancer listener",
@@ -281,8 +283,9 @@ func (r *CloudscaleClusterReconciler) reconcileLBListener(ctx context.Context, c
 	listener, err := clusterScope.CloudscaleClient.LoadBalancerListeners.Create(ctx, req)
 	if err != nil {
 		if cloudscale.IsTimeoutError(err) {
-			clusterScope.Info("Load balancer listener creation timed out, waiting before retry", "requeueAfter", CreateTimeoutRequeueInterval)
-			return ctrl.Result{RequeueAfter: CreateTimeoutRequeueInterval}, nil
+			requeueAfter := 5 * time.Second
+			clusterScope.Info("Load balancer listener creation timed out, waiting before retry", "requeueAfter", requeueAfter)
+			return ctrl.Result{RequeueAfter: requeueAfter}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("creating load balancer listener: %w", err)
 	}
@@ -297,7 +300,7 @@ func (r *CloudscaleClusterReconciler) reconcileLBListener(ctx context.Context, c
 
 // reconcileLBHealthMonitor ensures the load balancer health monitor exists.
 // The health monitor performs TCP health checks on the API server port.
-func (r *CloudscaleClusterReconciler) reconcileLBHealthMonitor(ctx context.Context, clusterScope *scope.ClusterScope) (_ ctrl.Result, reterr error) {
+func (r *CloudscaleClusterReconciler) reconcileLBHealthMonitor(ctx context.Context, clusterScope *scope.ClusterScope) (ctrl.Result, error) {
 	_, id, err := ensureResource(ctx, clusterScope,
 		clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID,
 		"load balancer health monitor",
@@ -331,8 +334,9 @@ func (r *CloudscaleClusterReconciler) reconcileLBHealthMonitor(ctx context.Conte
 	monitor, err := clusterScope.CloudscaleClient.LoadBalancerHealthMonitors.Create(ctx, req)
 	if err != nil {
 		if cloudscale.IsTimeoutError(err) {
-			clusterScope.Info("Load balancer health monitor creation timed out, waiting before retry", "requeueAfter", CreateTimeoutRequeueInterval)
-			return ctrl.Result{RequeueAfter: CreateTimeoutRequeueInterval}, nil
+			requeueAfter := 5 * time.Second
+			clusterScope.Info("Load balancer health monitor creation timed out, waiting before retry", "requeueAfter", requeueAfter)
+			return ctrl.Result{RequeueAfter: requeueAfter}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("creating load balancer health monitor: %w", err)
 	}
@@ -345,7 +349,7 @@ func (r *CloudscaleClusterReconciler) reconcileLBHealthMonitor(ctx context.Conte
 	return ctrl.Result{}, nil
 }
 
-func (r *CloudscaleClusterReconciler) reconcileLBMembers(ctx context.Context, clusterScope *scope.ClusterScope) (_ ctrl.Result, reterr error) {
+func (r *CloudscaleClusterReconciler) reconcileLBMembers(ctx context.Context, clusterScope *scope.ClusterScope) (ctrl.Result, error) {
 	// Fetch current members from the load balancer
 	currentMembers, err := clusterScope.CloudscaleClient.LoadBalancerPoolMembers.List(ctx, clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID)
 	if err != nil {
@@ -509,8 +513,9 @@ func (r *CloudscaleClusterReconciler) createLoadBalancerMember(ctx context.Conte
 	cm, err := clusterScope.CloudscaleClient.LoadBalancerPoolMembers.Create(ctx, clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID, &member)
 	if err != nil {
 		if cloudscale.IsTimeoutError(err) {
-			clusterScope.Info("Load balancer member creation timed out, waiting before retry", "requeueAfter", CreateTimeoutRequeueInterval)
-			return ctrl.Result{RequeueAfter: CreateTimeoutRequeueInterval}, nil
+			requeueAfter := 5 * time.Second
+			clusterScope.Info("Load balancer member creation timed out, waiting before retry", "requeueAfter", requeueAfter)
+			return ctrl.Result{RequeueAfter: requeueAfter}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("creating load balancer member: %w", err)
 	}

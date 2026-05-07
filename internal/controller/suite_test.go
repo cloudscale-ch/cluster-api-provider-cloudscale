@@ -23,10 +23,14 @@ import (
 	"path/filepath"
 	"testing"
 
-	"k8s.io/client-go/kubernetes/scheme"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/events"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -48,7 +52,7 @@ func TestMain(m *testing.M) {
 
 	ctx, cancel = context.WithCancel(context.TODO())
 
-	err := infrastructurev1beta2.AddToScheme(scheme.Scheme)
+	err := infrastructurev1beta2.AddToScheme(clientgoscheme.Scheme)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to add scheme: %v\n", err)
 		os.Exit(1)
@@ -77,7 +81,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	k8sClient, err = client.New(cfg, client.Options{Scheme: clientgoscheme.Scheme})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create client: %v\n", err)
 		os.Exit(1)
@@ -115,6 +119,14 @@ func getFirstFoundEnvTestBinaryDir() string {
 		}
 	}
 	return ""
+}
+
+func newTestFakeClient(objs ...client.Object) client.Client {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = clusterv1.AddToScheme(scheme)
+	_ = infrastructurev1beta2.AddToScheme(scheme)
+	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
 }
 
 func newTestReconciler() *CloudscaleClusterReconciler {

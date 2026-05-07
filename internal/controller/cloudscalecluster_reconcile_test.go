@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
-	cs "github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/scope"
 )
 
@@ -74,7 +74,7 @@ func reconcileTestScope(opts reconcileTestOpts) *scope.ClusterScope {
 				},
 			},
 		},
-		CloudscaleClient: &cs.Client{
+		CloudscaleClient: &cloudscale.Client{
 			Networks:                   opts.networkService,
 			Subnets:                    opts.subnetService,
 			ServerGroups:               opts.serverGroupService,

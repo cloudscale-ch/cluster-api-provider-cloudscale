@@ -17,7 +17,6 @@ limitations under the License.
 package cloudscale
 
 import (
-	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -106,25 +105,4 @@ func TestNewClient_ReturnsNonNilClient(t *testing.T) {
 	g.Expect(client.LoadBalancers).ToNot(BeNil())
 	g.Expect(client.Servers).ToNot(BeNil())
 	g.Expect(client.Networks).ToNot(BeNil())
-}
-
-func TestIsDeadlineExceeded(t *testing.T) {
-	tests := []struct {
-		name     string
-		err      error
-		expected bool
-	}{
-		{"nil error returns false", nil, false},
-		{"os.ErrDeadlineExceeded returns true", os.ErrDeadlineExceeded, true},
-		{"wrapped os.ErrDeadlineExceeded returns true", errors.Join(os.ErrDeadlineExceeded), true},
-		{"generic error returns false", fmt.Errorf("timeout"), false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			g := NewWithT(t)
-			result := IsDeadlineExceeded(tt.err)
-			g.Expect(result).To(Equal(tt.expected))
-		})
-	}
 }

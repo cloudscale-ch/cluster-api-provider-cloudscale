@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/cloudscale-ch/cloudscale-go-sdk/v8"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 	"github.com/go-logr/logr"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,11 +29,11 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
-	cs "github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/scope"
 )
 
-func newTestClusterScopeWithServerGroups(serverGroupService cs.ServerGroupService) *scope.ClusterScope {
+func newTestClusterScopeWithServerGroups(serverGroupService cloudscale.ServerGroupService) *scope.ClusterScope {
 	return &scope.ClusterScope{
 		Logger: logr.Discard(),
 		Cluster: &clusterv1.Cluster{
@@ -52,7 +52,7 @@ func newTestClusterScopeWithServerGroups(serverGroupService cs.ServerGroupServic
 				Zone:   "rma1",
 			},
 		},
-		CloudscaleClient: &cs.Client{
+		CloudscaleClient: &cloudscale.Client{
 			ServerGroups: serverGroupService,
 		},
 	}
@@ -64,8 +64,8 @@ func TestDeleteServerGroups_DeletesAll(t *testing.T) {
 	var deletedIDs []string
 
 	serverGroupService := &mockServerGroupService{
-		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.ServerGroup, error) {
-			return []cloudscale.ServerGroup{
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
+			return []cloudscalesdk.ServerGroup{
 				{UUID: "sg-1", Name: "group-1"},
 				{UUID: "sg-2", Name: "group-2"},
 			}, nil
@@ -89,7 +89,7 @@ func TestDeleteServerGroups_NoGroups_Noop(t *testing.T) {
 	g := NewWithT(t)
 
 	serverGroupService := &mockServerGroupService{
-		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.ServerGroup, error) {
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
 			return nil, nil
 		},
 		deleteFn: func(ctx context.Context, id string) error {
@@ -110,7 +110,7 @@ func TestDeleteServerGroups_ListError_PropagatesError(t *testing.T) {
 	g := NewWithT(t)
 
 	serverGroupService := &mockServerGroupService{
-		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.ServerGroup, error) {
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
 			return nil, fmt.Errorf("api error")
 		},
 	}
@@ -128,8 +128,8 @@ func TestDeleteServerGroups_DeleteError_PropagatesError(t *testing.T) {
 	g := NewWithT(t)
 
 	serverGroupService := &mockServerGroupService{
-		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.ServerGroup, error) {
-			return []cloudscale.ServerGroup{
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
+			return []cloudscalesdk.ServerGroup{
 				{UUID: "sg-1", Name: "group-1"},
 			}, nil
 		},
@@ -151,13 +151,13 @@ func TestDeleteServerGroups_Ignores404(t *testing.T) {
 	g := NewWithT(t)
 
 	serverGroupService := &mockServerGroupService{
-		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.ServerGroup, error) {
-			return []cloudscale.ServerGroup{
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
+			return []cloudscalesdk.ServerGroup{
 				{UUID: "sg-already-deleted", Name: "group-1"},
 			}, nil
 		},
 		deleteFn: func(ctx context.Context, id string) error {
-			return &cloudscale.ErrorResponse{StatusCode: 404}
+			return &cloudscalesdk.ErrorResponse{StatusCode: 404}
 		},
 	}
 
@@ -174,9 +174,9 @@ func TestDeleteServerGroups_OwnedServerPresent_SkipsDeletion(t *testing.T) {
 
 	// The server group has a server that is owned by our cluster
 	serverGroupService := &mockServerGroupService{
-		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.ServerGroup, error) {
-			return []cloudscale.ServerGroup{
-				{UUID: "sg-1", Name: "group-1", Servers: []cloudscale.ServerStub{{UUID: "server-123"}}},
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
+			return []cloudscalesdk.ServerGroup{
+				{UUID: "sg-1", Name: "group-1", Servers: []cloudscalesdk.ServerStub{{UUID: "server-123"}}},
 			}, nil
 		},
 		deleteFn: func(ctx context.Context, id string) error {
@@ -218,9 +218,9 @@ func TestDeleteServerGroups_ForeignServers_Skips(t *testing.T) {
 
 	// Server group has a server that is NOT owned by this cluster
 	serverGroupService := &mockServerGroupService{
-		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.ServerGroup, error) {
-			return []cloudscale.ServerGroup{
-				{UUID: "sg-foreign", Name: "foreign-group", Servers: []cloudscale.ServerStub{{UUID: "server-999"}}},
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
+			return []cloudscalesdk.ServerGroup{
+				{UUID: "sg-foreign", Name: "foreign-group", Servers: []cloudscalesdk.ServerStub{{UUID: "server-999"}}},
 			}, nil
 		},
 		deleteFn: func(ctx context.Context, id string) error {
@@ -259,8 +259,8 @@ func TestDeleteServerGroups_EmptyGroupName_DoesNotSkip(t *testing.T) {
 
 	// Server group with no servers should be deleted immediately
 	serverGroupService := &mockServerGroupService{
-		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.ServerGroup, error) {
-			return []cloudscale.ServerGroup{
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
+			return []cloudscalesdk.ServerGroup{
 				{UUID: "sg-empty", Name: "empty-group", Servers: nil},
 			}, nil
 		},
