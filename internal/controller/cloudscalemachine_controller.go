@@ -128,7 +128,7 @@ func (r *CloudscaleMachineReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, fmt.Errorf("failed to get cloudscale.ch credentials: %w", err)
 	}
 
-	cloudscaleClient := cloudscale.NewClient(token)
+	cloudscaleClient := cloudscale.NewClient(token, cloudscale.DefaultCloudscaleRequestTimeout)
 
 	machineScope, err := scope.NewMachineScope(scope.MachineScopeParams{
 		Client:            r.Client,
@@ -174,8 +174,10 @@ func (r *CloudscaleMachineReconciler) reconcileNormal(ctx context.Context, machi
 	}
 
 	if machineScope.CloudscaleMachine.Spec.ServerGroup != nil {
-		if err := r.reconcileServerGroup(ctx, machineScope); err != nil {
+		if result, err := r.reconcileServerGroup(ctx, machineScope); err != nil {
 			return ctrl.Result{}, err
+		} else if !result.IsZero() {
+			return result, nil
 		}
 	}
 

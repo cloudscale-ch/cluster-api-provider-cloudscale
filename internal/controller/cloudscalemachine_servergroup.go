@@ -23,6 +23,7 @@ import (
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
@@ -31,7 +32,7 @@ import (
 
 // reconcileServerGroup ensures the server group exists if specified.
 // Server groups are zone-scoped and created once per unique name+zone combination.
-func (r *CloudscaleMachineReconciler) reconcileServerGroup(ctx context.Context, machineScope *scope.MachineScope) (reterr error) {
+func (r *CloudscaleMachineReconciler) reconcileServerGroup(ctx context.Context, machineScope *scope.MachineScope) (_ ctrl.Result, reterr error) {
 	defer func() {
 		if reterr != nil {
 			r.setCondition(machineScope.CloudscaleMachine, infrastructurev1beta2.ServerGroupReadyCondition, metav1.ConditionFalse, infrastructurev1beta2.ServerGroupErrorReason, reterr.Error())
@@ -41,17 +42,17 @@ func (r *CloudscaleMachineReconciler) reconcileServerGroup(ctx context.Context, 
 	}()
 
 	if machineScope.CloudscaleMachine.Spec.ServerGroup == nil {
-		return nil // No server group requested
+		return ctrl.Result{}, nil // No server group requested
 	}
 
 	// If we already have a server group ID, verify it still exists
 	if machineScope.CloudscaleMachine.Status.ServerGroupID != "" {
 		_, err := machineScope.CloudscaleClient.ServerGroups.Get(ctx, machineScope.CloudscaleMachine.Status.ServerGroupID)
 		if err == nil {
-			return nil
+			return ctrl.Result{}, nil
 		}
 		if !cloudscale.IsNotFound(err) {
-			return fmt.Errorf("getting server group: %w", err)
+			return ctrl.Result{}, fmt.Errorf("getting server group: %w", err)
 		}
 		// Server group was deleted externally, fall through to re-create
 		machineScope.CloudscaleMachine.Status.ServerGroupID = ""
@@ -64,13 +65,13 @@ func (r *CloudscaleMachineReconciler) reconcileServerGroup(ctx context.Context, 
 	// so that all machines in the cluster can find the same server group.
 	groups, err := machineScope.CloudscaleClient.ServerGroups.List(ctx, cloudscalesdk.WithTagFilter(clusterOwnershipTags(machineScope.CloudscaleCluster)))
 	if err != nil {
-		return fmt.Errorf("listing server groups: %w", err)
+		return ctrl.Result{}, fmt.Errorf("listing server groups: %w", err)
 	}
 
 	for _, g := range groups {
 		if g.Name == groupName && g.Zone.Slug == zone {
 			machineScope.CloudscaleMachine.Status.ServerGroupID = g.UUID
-			return nil
+			return ctrl.Result{}, nil
 		}
 	}
 
@@ -86,11 +87,15 @@ func (r *CloudscaleMachineReconciler) reconcileServerGroup(ctx context.Context, 
 
 	group, err := machineScope.CloudscaleClient.ServerGroups.Create(ctx, req)
 	if err != nil {
-		return fmt.Errorf("creating server group: %w", err)
+		if cloudscale.IsTimeoutError(err) {
+			machineScope.Info("Server group creation timed out, waiting before retry", "requeueAfter", CreateTimeoutRequeueInterval)
+			return ctrl.Result{RequeueAfter: CreateTimeoutRequeueInterval}, nil
+		}
+		return ctrl.Result{}, fmt.Errorf("creating server group: %w", err)
 	}
 
 	machineScope.CloudscaleMachine.Status.ServerGroupID = group.UUID
-	return nil
+	return ctrl.Result{}, nil
 }
 
 // deleteServerGroup clears the server group reference from the machine status.

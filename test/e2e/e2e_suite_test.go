@@ -25,15 +25,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/klog/v2"
-	ctrl "sigs.k8s.io/controller-runtime"
-
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	bootstrapv1 "sigs.k8s.io/cluster-api/api/bootstrap/kubeadm/v1beta2"
 	controlplanev1 "sigs.k8s.io/cluster-api/api/controlplane/kubeadm/v1beta2"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
@@ -41,8 +38,10 @@ import (
 	"sigs.k8s.io/cluster-api/test/framework"
 	"sigs.k8s.io/cluster-api/test/framework/bootstrap"
 	"sigs.k8s.io/cluster-api/test/framework/clusterctl"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	infrav1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
 )
 
 var (

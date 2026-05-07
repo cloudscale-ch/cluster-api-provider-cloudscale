@@ -17,9 +17,13 @@ limitations under the License.
 package cloudscale
 
 import (
-	"context"
 	"errors"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
 	"strings"
+	"time"
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 	"golang.org/x/oauth2"
@@ -40,9 +44,40 @@ type Client struct {
 	Flavors                    FlavorService
 }
 
-func NewClient(token string) *Client {
+// DefaultCloudscaleRequestTimeout is the default HTTP request timeout for all Create calls.
+const DefaultCloudscaleRequestTimeout = 60 * time.Second
+
+func NewClient(token string, requestTimeout time.Duration) *Client {
 	tokenSource := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
-	httpClient := oauth2.NewClient(context.Background(), tokenSource)
+	baseTransport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   5 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+
+		TLSHandshakeTimeout:   5 * time.Second,
+		ResponseHeaderTimeout: 10 * time.Second,
+
+		// needs to be set because we also set DialContext
+		ForceAttemptHTTP2: true,
+		HTTP2: &http.HTTP2Config{
+			SendPingTimeout: 5 * time.Second,
+			PingTimeout:     3 * time.Second,
+		},
+
+		IdleConnTimeout:     90 * time.Second,
+		MaxIdleConns:        50,
+		MaxIdleConnsPerHost: 50,
+		MaxConnsPerHost:     0,
+	}
+
+	httpClient := &http.Client{
+		Timeout: requestTimeout,
+		Transport: &oauth2.Transport{
+			Source: tokenSource,
+			Base:   baseTransport,
+		},
+	}
 	sdkClient := cloudscalesdk.NewClient(httpClient)
 
 	return &Client{
@@ -81,4 +116,29 @@ func IsFloatingIPNoPublicInterface(err error) bool {
 		return false
 	}
 	return strings.Contains(err.Error(), "does not have a public interface with an IPv4 address")
+}
+
+// IsTimeoutError reports whether err indicates the HTTP request timed out
+// before receiving a response.
+func IsTimeoutError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return urlErr.Timeout()
+	}
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		return true
+	}
+	return false
+}
+
+// IsDeadlineExceeded reports whether err indicates a deadline was exceeded.
+func IsDeadlineExceeded(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, os.ErrDeadlineExceeded)
 }

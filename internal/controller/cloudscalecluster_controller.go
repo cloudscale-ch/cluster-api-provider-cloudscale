@@ -99,7 +99,7 @@ func (r *CloudscaleClusterReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, fmt.Errorf("failed to get cloudscale.ch credentials: %w", err)
 	}
 
-	cloudscaleClient := cloudscale.NewClient(token)
+	cloudscaleClient := cloudscale.NewClient(token, cloudscale.DefaultCloudscaleRequestTimeout)
 
 	clusterScope, err := scope.NewClusterScope(scope.ClusterScopeParams{
 		Client:            r.Client,
@@ -135,11 +135,15 @@ func (r *CloudscaleClusterReconciler) reconcileNormal(ctx context.Context, clust
 	// update ready conditions upon returning from this function based on updated clusterScope.
 	defer r.setReadyCondition(clusterScope)
 
-	if err := r.reconcileNetwork(ctx, clusterScope); err != nil {
+	result, err := r.reconcileNetwork(ctx, clusterScope)
+	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("reconciling network: %w", err)
 	}
+	if !result.IsZero() {
+		return result, nil
+	}
 
-	result, err := r.reconcileLoadBalancer(ctx, clusterScope)
+	result, err = r.reconcileLoadBalancer(ctx, clusterScope)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("reconciling load balancer: %w", err)
 	}
@@ -147,8 +151,12 @@ func (r *CloudscaleClusterReconciler) reconcileNormal(ctx context.Context, clust
 		return result, nil
 	}
 
-	if err := r.reconcileFloatingIP(ctx, clusterScope); err != nil {
+	result, err = r.reconcileFloatingIP(ctx, clusterScope)
+	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("reconciling floating IP: %w", err)
+	}
+	if !result.IsZero() {
+		return result, nil
 	}
 
 	// Mark infrastructure as provisioned when all resources exist

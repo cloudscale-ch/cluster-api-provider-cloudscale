@@ -19,6 +19,8 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"os"
 	"testing"
 
 	"github.com/cloudscale-ch/cloudscale-go-sdk/v8"
@@ -99,7 +101,7 @@ func TestReconcileNetwork_CreatesBothResources(t *testing.T) {
 	clusterScope := newTestClusterScope(networkService, subnetService)
 	r := newTestReconciler()
 
-	err := r.reconcileNetwork(context.Background(), clusterScope)
+	_, err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus("test")
@@ -144,7 +146,7 @@ func TestReconcileNetwork_SkipsIfBothExist(t *testing.T) {
 
 	r := newTestReconciler()
 
-	err := r.reconcileNetwork(context.Background(), clusterScope)
+	_, err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus("test")
@@ -171,7 +173,7 @@ func TestReconcileNetwork_NetworkErrorStopsSubnet(t *testing.T) {
 	clusterScope := newTestClusterScope(networkService, subnetService)
 	r := newTestReconciler()
 
-	err := r.reconcileNetwork(context.Background(), clusterScope)
+	_, err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("api error"))
@@ -195,7 +197,7 @@ func TestReconcileNetwork_SubnetErrorSurfaced(t *testing.T) {
 	clusterScope := newTestClusterScope(networkService, subnetService)
 	r := newTestReconciler()
 
-	err := r.reconcileNetwork(context.Background(), clusterScope)
+	_, err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("subnet api error"))
@@ -232,7 +234,7 @@ func TestReconcileNetwork_FindsByTag(t *testing.T) {
 	clusterScope := newTestClusterScope(networkService, subnetService)
 	r := newTestReconciler()
 
-	err := r.reconcileNetwork(context.Background(), clusterScope)
+	_, err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus("test")
@@ -256,7 +258,7 @@ func TestReconcileNetwork_ErrorsOnMultipleNetworks(t *testing.T) {
 	clusterScope := newTestClusterScope(networkService, &mockSubnetService{})
 	r := newTestReconciler()
 
-	err := r.reconcileNetwork(context.Background(), clusterScope)
+	_, err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("found 2 network/tests matching tag filter"))
@@ -292,7 +294,7 @@ func TestReconcileNetwork_RecreatesIfDeletedExternally(t *testing.T) {
 
 	r := newTestReconciler()
 
-	err := r.reconcileNetwork(context.Background(), clusterScope)
+	_, err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(created).To(BeTrue(), "Should create a new network when old one was deleted")
@@ -335,7 +337,7 @@ func TestReconcileNetwork_SubnetFindsByTag(t *testing.T) {
 
 	r := newTestReconciler()
 
-	err := r.reconcileNetwork(context.Background(), clusterScope)
+	_, err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus("test")
@@ -367,7 +369,7 @@ func TestReconcileNetwork_SubnetErrorsOnMultiple(t *testing.T) {
 
 	r := newTestReconciler()
 
-	err := r.reconcileNetwork(context.Background(), clusterScope)
+	_, err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("found 2 subnet/tests matching tag filter"))
@@ -403,7 +405,7 @@ func TestReconcileNetwork_SubnetRecreatesIfDeletedExternally(t *testing.T) {
 
 	r := newTestReconciler()
 
-	err := r.reconcileNetwork(context.Background(), clusterScope)
+	_, err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(created).To(BeTrue(), "Should create a new subnet when old one was deleted")
@@ -434,7 +436,7 @@ func TestReconcileNetwork_CustomCIDR(t *testing.T) {
 
 	r := newTestReconciler()
 
-	err := r.reconcileNetwork(context.Background(), clusterScope)
+	_, err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(capturedReq.CIDR).To(Equal("192.168.0.0/16"))
@@ -462,7 +464,7 @@ func TestReconcileNetwork_ExplicitGateway(t *testing.T) {
 
 	r := newTestReconciler()
 
-	err := r.reconcileNetwork(context.Background(), clusterScope)
+	_, err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(capturedReq.GatewayAddress).To(Equal("10.0.0.254"))
@@ -659,7 +661,7 @@ func TestReconcileNetwork_PreExistingCachedShortCircuits(t *testing.T) {
 
 	r := newTestReconciler()
 
-	err := r.reconcileNetwork(context.Background(), clusterScope)
+	_, err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus("pre-existing-net")
@@ -697,7 +699,7 @@ func TestReconcileNetwork_PreExistingReDiscoversWhenCIDRMissing(t *testing.T) {
 
 	r := newTestReconciler()
 
-	err := r.reconcileNetwork(context.Background(), clusterScope)
+	_, err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus("pre-existing-net")
@@ -733,7 +735,7 @@ func TestReconcileNetwork_PreExistingFetchesAndSetsStatus(t *testing.T) {
 
 	r := newTestReconciler()
 
-	err := r.reconcileNetwork(context.Background(), clusterScope)
+	_, err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus("pre-existing-net")
@@ -759,7 +761,7 @@ func TestReconcileNetwork_PreExistingGetError(t *testing.T) {
 
 	r := newTestReconciler()
 
-	err := r.reconcileNetwork(context.Background(), clusterScope)
+	_, err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("network not found"))
@@ -789,7 +791,7 @@ func TestReconcileNetwork_PreExistingZoneMismatchErrors(t *testing.T) {
 
 	r := newTestReconciler()
 
-	err := r.reconcileNetwork(context.Background(), clusterScope)
+	_, err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("lpg1"))
@@ -819,10 +821,122 @@ func TestReconcileNetwork_PreExistingNoSubnetsErrors(t *testing.T) {
 
 	r := newTestReconciler()
 
-	err := r.reconcileNetwork(context.Background(), clusterScope)
+	_, err := r.reconcileNetwork(context.Background(), clusterScope)
 
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("has no subnets"))
+}
+
+// --- Timeout handling tests for Create() calls ---
+
+func TestReconcileNetwork_NetworkCreateTimeoutRequeues(t *testing.T) {
+	g := NewWithT(t)
+
+	networkService := &mockNetworkService{
+		createFn: func(ctx context.Context, req *cloudscale.NetworkCreateRequest) (*cloudscale.Network, error) {
+			return nil, &url.Error{Op: "Post", URL: "https://api.example.com/v1/networks", Err: os.ErrDeadlineExceeded}
+		},
+	}
+	subnetService := &mockSubnetService{}
+
+	clusterScope := newTestClusterScope(networkService, subnetService)
+	r := newTestReconciler()
+
+	result, err := r.reconcileNetwork(context.Background(), clusterScope)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result.RequeueAfter).To(Equal(CreateTimeoutRequeueInterval),
+		"Should requeue after CreateTimeoutRequeueInterval on timeout error")
+	g.Expect(networkService.createFn).ToNot(BeNil(), "Network create should have been called")
+}
+
+func TestReconcileNetwork_NetworkCreateGenericErrorPropagates(t *testing.T) {
+	g := NewWithT(t)
+
+	networkService := &mockNetworkService{
+		createFn: func(ctx context.Context, req *cloudscale.NetworkCreateRequest) (*cloudscale.Network, error) {
+			return nil, &url.Error{Op: "Post", URL: "https://api.example.com/v1/networks", Err: fmt.Errorf("connection refused")}
+		},
+	}
+	subnetService := &mockSubnetService{}
+
+	clusterScope := newTestClusterScope(networkService, subnetService)
+	r := newTestReconciler()
+
+	_, err := r.reconcileNetwork(context.Background(), clusterScope)
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("creating network"))
+}
+
+func TestReconcileNetwork_SubnetCreateTimeoutRequeues(t *testing.T) {
+	g := NewWithT(t)
+
+	var netCreated bool
+	networkService := &mockNetworkService{
+		createFn: func(ctx context.Context, req *cloudscale.NetworkCreateRequest) (*cloudscale.Network, error) {
+			netCreated = true
+			return &cloudscale.Network{UUID: "new-net-uuid", Name: req.Name}, nil
+		},
+	}
+	subnetService := &mockSubnetService{
+		createFn: func(ctx context.Context, req *cloudscale.SubnetCreateRequest) (*cloudscale.Subnet, error) {
+			return nil, &url.Error{Op: "Post", URL: "https://api.example.com/v1/subnets", Err: os.ErrDeadlineExceeded}
+		},
+	}
+
+	clusterScope := newTestClusterScope(networkService, subnetService)
+	r := newTestReconciler()
+
+	result, err := r.reconcileNetwork(context.Background(), clusterScope)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(netCreated).To(BeTrue(), "Network should have been created before hitting subnet")
+	g.Expect(result.RequeueAfter).To(Equal(CreateTimeoutRequeueInterval),
+		"Should requeue after CreateTimeoutRequeueInterval on timeout error")
+}
+
+func TestReconcileNetwork_SubnetCreateGenericErrorPropagates(t *testing.T) {
+	g := NewWithT(t)
+
+	networkService := &mockNetworkService{
+		createFn: func(ctx context.Context, req *cloudscale.NetworkCreateRequest) (*cloudscale.Network, error) {
+			return &cloudscale.Network{UUID: "new-net-uuid", Name: req.Name}, nil
+		},
+	}
+	subnetService := &mockSubnetService{
+		createFn: func(ctx context.Context, req *cloudscale.SubnetCreateRequest) (*cloudscale.Subnet, error) {
+			return nil, fmt.Errorf("quota exceeded")
+		},
+	}
+
+	clusterScope := newTestClusterScope(networkService, subnetService)
+	r := newTestReconciler()
+
+	_, err := r.reconcileNetwork(context.Background(), clusterScope)
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("creating subnet"))
+}
+
+func TestReconcileNetwork_NetworkCreateWrappedTimeoutRequeues(t *testing.T) {
+	g := NewWithT(t)
+
+	networkService := &mockNetworkService{
+		createFn: func(ctx context.Context, req *cloudscale.NetworkCreateRequest) (*cloudscale.Network, error) {
+			return nil, fmt.Errorf("outer: %w", &url.Error{Op: "Post", URL: "https://api.example.com/v1/networks", Err: os.ErrDeadlineExceeded})
+		},
+	}
+	subnetService := &mockSubnetService{}
+
+	clusterScope := newTestClusterScope(networkService, subnetService)
+	r := newTestReconciler()
+
+	result, err := r.reconcileNetwork(context.Background(), clusterScope)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result.RequeueAfter).To(Equal(CreateTimeoutRequeueInterval),
+		"Should requeue after CreateTimeoutRequeueInterval even when error is wrapped")
 }
 
 // --- Mock services ---

@@ -3,11 +3,19 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/scope"
+)
+
+const (
+	// CreateTimeoutRequeueInterval is the requeue interval after an HTTP timeout
+	// on a Create call. This MUST be longer than the HTTP client timeout (60s) so the
+	// original request has time to complete before we retry.
+	CreateTimeoutRequeueInterval = 90 * time.Second
 )
 
 // getListService is satisfied by all cloudscale SDK resource services.

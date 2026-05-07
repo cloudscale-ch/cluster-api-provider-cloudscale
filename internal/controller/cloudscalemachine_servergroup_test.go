@@ -167,7 +167,7 @@ func TestReconcileServerGroup_NoServerGroup_Noop(t *testing.T) {
 		recorder: events.NewFakeRecorder(10),
 	}
 
-	err := r.reconcileServerGroup(context.Background(), machineScope)
+	_, err := r.reconcileServerGroup(context.Background(), machineScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
 
@@ -202,7 +202,7 @@ func TestReconcileServerGroup_FindsExisting_SetsStatusID(t *testing.T) {
 		recorder: events.NewFakeRecorder(10),
 	}
 
-	err := r.reconcileServerGroup(context.Background(), machineScope)
+	_, err := r.reconcileServerGroup(context.Background(), machineScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(createCalled).To(BeFalse(), "Create should not be called when group exists")
@@ -244,7 +244,7 @@ func TestReconcileServerGroup_SkipsNonMatchingName(t *testing.T) {
 		recorder: events.NewFakeRecorder(10),
 	}
 
-	err := r.reconcileServerGroup(context.Background(), machineScope)
+	_, err := r.reconcileServerGroup(context.Background(), machineScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(createCalled).To(BeTrue(), "Create should be called when no matching name found")
@@ -282,7 +282,7 @@ func TestReconcileServerGroup_SkipsNonMatchingZone(t *testing.T) {
 		recorder: events.NewFakeRecorder(10),
 	}
 
-	err := r.reconcileServerGroup(context.Background(), machineScope)
+	_, err := r.reconcileServerGroup(context.Background(), machineScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(createCalled).To(BeTrue(), "Create should be called when no matching zone found")
@@ -313,7 +313,7 @@ func TestReconcileServerGroup_CreatesNew_SetsStatusID(t *testing.T) {
 		recorder: events.NewFakeRecorder(10),
 	}
 
-	err := r.reconcileServerGroup(context.Background(), machineScope)
+	_, err := r.reconcileServerGroup(context.Background(), machineScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(machineScope.CloudscaleMachine.Status.ServerGroupID).To(Equal("created-group-uuid"))
@@ -347,7 +347,7 @@ func TestReconcileServerGroup_ListError_PropagatesError(t *testing.T) {
 		recorder: events.NewFakeRecorder(10),
 	}
 
-	err := r.reconcileServerGroup(context.Background(), machineScope)
+	_, err := r.reconcileServerGroup(context.Background(), machineScope)
 
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("listing server groups"))
@@ -375,7 +375,7 @@ func TestReconcileServerGroup_CreateError_PropagatesError(t *testing.T) {
 		recorder: events.NewFakeRecorder(10),
 	}
 
-	err := r.reconcileServerGroup(context.Background(), machineScope)
+	_, err := r.reconcileServerGroup(context.Background(), machineScope)
 
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("creating server group"))
