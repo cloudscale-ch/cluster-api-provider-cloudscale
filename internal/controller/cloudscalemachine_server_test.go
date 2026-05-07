@@ -292,7 +292,7 @@ func TestReconcileServer_SkipsIfAlreadyExists(t *testing.T) {
 			}, nil
 		},
 		createFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
-			t.Fatal("Create should not be called when server already exists")
+			g.Fail("Create should not be called when server already exists")
 			return nil, nil
 		},
 	}
@@ -324,7 +324,7 @@ func TestReconcileServer_FindsExistingByTag(t *testing.T) {
 			}, nil
 		},
 		createFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
-			t.Fatal("Create should not be called when server is found by tag")
+			g.Fail("Create should not be called when server is found by tag")
 			return nil, nil
 		},
 	}
@@ -407,7 +407,7 @@ func TestDeleteServer_SkipsIfNoServer(t *testing.T) {
 	g := NewWithT(t)
 	serverService := &mockServerService{
 		deleteFn: func(ctx context.Context, id string) error {
-			t.Fatal("Delete should not be called when no server exists")
+			g.Fail("Delete should not be called when no server exists")
 			return nil
 		},
 	}

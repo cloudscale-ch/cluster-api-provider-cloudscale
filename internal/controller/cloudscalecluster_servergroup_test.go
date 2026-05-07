@@ -77,9 +77,7 @@ func TestDeleteServerGroups_DeletesAll(t *testing.T) {
 	}
 
 	clusterScope := newTestClusterScopeWithServerGroups(serverGroupService)
-	r := &CloudscaleClusterReconciler{
-		recorder: events.NewFakeRecorder(10),
-	}
+	r := newTestReconciler()
 
 	err := r.deleteServerGroups(context.Background(), clusterScope)
 
@@ -95,15 +93,13 @@ func TestDeleteServerGroups_NoGroups_Noop(t *testing.T) {
 			return nil, nil
 		},
 		deleteFn: func(ctx context.Context, id string) error {
-			t.Fatal("Delete should not be called when no server groups exist")
+			g.Fail("Delete should not be called when no server groups exist")
 			return nil
 		},
 	}
 
 	clusterScope := newTestClusterScopeWithServerGroups(serverGroupService)
-	r := &CloudscaleClusterReconciler{
-		recorder: events.NewFakeRecorder(10),
-	}
+	r := newTestReconciler()
 
 	err := r.deleteServerGroups(context.Background(), clusterScope)
 
@@ -120,9 +116,7 @@ func TestDeleteServerGroups_ListError_PropagatesError(t *testing.T) {
 	}
 
 	clusterScope := newTestClusterScopeWithServerGroups(serverGroupService)
-	r := &CloudscaleClusterReconciler{
-		recorder: events.NewFakeRecorder(10),
-	}
+	r := newTestReconciler()
 
 	err := r.deleteServerGroups(context.Background(), clusterScope)
 
@@ -145,9 +139,7 @@ func TestDeleteServerGroups_DeleteError_PropagatesError(t *testing.T) {
 	}
 
 	clusterScope := newTestClusterScopeWithServerGroups(serverGroupService)
-	r := &CloudscaleClusterReconciler{
-		recorder: events.NewFakeRecorder(10),
-	}
+	r := newTestReconciler()
 
 	err := r.deleteServerGroups(context.Background(), clusterScope)
 
@@ -170,9 +162,7 @@ func TestDeleteServerGroups_Ignores404(t *testing.T) {
 	}
 
 	clusterScope := newTestClusterScopeWithServerGroups(serverGroupService)
-	r := &CloudscaleClusterReconciler{
-		recorder: events.NewFakeRecorder(10),
-	}
+	r := newTestReconciler()
 
 	err := r.deleteServerGroups(context.Background(), clusterScope)
 
@@ -212,7 +202,8 @@ func TestDeleteServerGroups_OwnedServerPresent_SkipsDeletion(t *testing.T) {
 		},
 	)
 	r := &CloudscaleClusterReconciler{
-		Client: fakeClient,
+		Client:   fakeClient,
+		recorder: events.NewFakeRecorder(10),
 	}
 
 	err := r.deleteServerGroups(context.Background(), clusterScope)
@@ -252,7 +243,8 @@ func TestDeleteServerGroups_ForeignServers_Skips(t *testing.T) {
 		},
 	})
 	r := &CloudscaleClusterReconciler{
-		Client: fakeClient,
+		Client:   fakeClient,
+		recorder: events.NewFakeRecorder(10),
 	}
 
 	err := r.deleteServerGroups(context.Background(), clusterScope)
@@ -279,10 +271,7 @@ func TestDeleteServerGroups_EmptyGroupName_DoesNotSkip(t *testing.T) {
 	}
 
 	clusterScope := newTestClusterScopeWithServerGroups(serverGroupService)
-	fakeClient := newTestFakeClient()
-	r := &CloudscaleClusterReconciler{
-		Client: fakeClient,
-	}
+	r := newTestReconciler()
 
 	err := r.deleteServerGroups(context.Background(), clusterScope)
 
