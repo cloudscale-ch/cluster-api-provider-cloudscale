@@ -932,6 +932,31 @@ func TestReconcileNetwork_NetworkCreateWrappedTimeoutRequeues(t *testing.T) {
 		"Should requeue after CreateTimeoutRequeueInterval even when error is wrapped")
 }
 
+// --- LB pool-member error test ---
+
+func TestDeleteNetwork_RequeuesOnLBPoolMembersError(t *testing.T) {
+	g := NewWithT(t)
+
+	networkService := &mockNetworkService{
+		deleteFn: func(ctx context.Context, id string) error {
+			//goland:noinspection GoErrorStringFormat
+			return fmt.Errorf("There are still one or more load balancer pool members in this network.")
+		},
+	}
+
+	clusterScope := newTestClusterScope(networkService, &mockSubnetService{})
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "test", NetworkID: "net-with-pool-members", SubnetID: "subnet-uuid", Managed: true},
+	}
+
+	r := newTestReconciler()
+
+	err := r.deleteNetwork(context.Background(), clusterScope)
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("network has pending dependencies"))
+}
+
 // --- Mock services ---
 
 type mockNetworkService struct {
