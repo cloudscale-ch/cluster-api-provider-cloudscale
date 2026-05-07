@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
@@ -30,6 +31,12 @@ import (
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/scope"
 )
+
+// serverGroupMu serializes server group creation to prevent duplicates
+// when multiple machines reconcile concurrently. The cloudscale API does
+// not return a conflict on duplicate creation, so we serialize here.
+// Safe: leader election guarantees a single replica.
+var serverGroupMu sync.Mutex
 
 // reconcileServerGroup ensures the server group exists if specified.
 // Server groups are zone-scoped and created once per unique name+zone combination.
@@ -48,7 +55,9 @@ func (r *CloudscaleMachineReconciler) reconcileServerGroup(ctx context.Context, 
 
 	// If we already have a server group ID, verify it still exists
 	if machineScope.CloudscaleMachine.Status.ServerGroupID != "" {
-		_, err := machineScope.CloudscaleClient.ServerGroups.Get(ctx, machineScope.CloudscaleMachine.Status.ServerGroupID)
+		getCtx, cancel := context.WithTimeout(ctx, cloudscale.ReadTimeout)
+		defer cancel()
+		_, err := machineScope.CloudscaleClient.ServerGroups.Get(getCtx, machineScope.CloudscaleMachine.Status.ServerGroupID)
 		if err == nil {
 			return ctrl.Result{}, nil
 		}
@@ -59,12 +68,18 @@ func (r *CloudscaleMachineReconciler) reconcileServerGroup(ctx context.Context, 
 		machineScope.CloudscaleMachine.Status.ServerGroupID = ""
 	}
 
+	// Serialize server group list+create to prevent duplicates under concurrent reconciles.
+	serverGroupMu.Lock()
+	defer serverGroupMu.Unlock()
+
 	zone := machineScope.CloudscaleCluster.Spec.Zone
 	groupName := machineScope.CloudscaleMachine.Spec.ServerGroup.Name
 
 	// Search for existing server group by name and zone using cluster-level tags
 	// so that all machines in the cluster can find the same server group.
-	groups, err := machineScope.CloudscaleClient.ServerGroups.List(ctx, cloudscalesdk.WithTagFilter(clusterOwnershipTags(machineScope.CloudscaleCluster)))
+	listCtx, cancelList := context.WithTimeout(ctx, cloudscale.ReadTimeout)
+	defer cancelList()
+	groups, err := machineScope.CloudscaleClient.ServerGroups.List(listCtx, cloudscalesdk.WithTagFilter(clusterOwnershipTags(machineScope.CloudscaleCluster)))
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("listing server groups: %w", err)
 	}
@@ -86,7 +101,9 @@ func (r *CloudscaleMachineReconciler) reconcileServerGroup(ctx context.Context, 
 		},
 	}
 
-	group, err := machineScope.CloudscaleClient.ServerGroups.Create(ctx, req)
+	createCtx, cancelCreate := context.WithTimeout(ctx, cloudscale.WriteTimeout)
+	defer cancelCreate()
+	group, err := machineScope.CloudscaleClient.ServerGroups.Create(createCtx, req)
 	if err != nil {
 		if cloudscale.IsTimeoutError(err) {
 			requeueAfter := 5 * time.Second

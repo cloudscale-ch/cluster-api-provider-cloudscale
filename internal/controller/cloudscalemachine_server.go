@@ -83,7 +83,9 @@ func (r *CloudscaleMachineReconciler) reconcileServer(ctx context.Context, machi
 	// 1. If we have a server ID in status, verify it still exists
 	if machineScope.CloudscaleMachine.Status.ServerID != "" {
 		var err error
-		server, err = machineScope.CloudscaleClient.Servers.Get(ctx, machineScope.CloudscaleMachine.Status.ServerID)
+		getCtx, cancel := context.WithTimeout(ctx, cloudscale.ReadTimeout)
+		defer cancel()
+		server, err = machineScope.CloudscaleClient.Servers.Get(getCtx, machineScope.CloudscaleMachine.Status.ServerID)
 		if err == nil {
 			machineScope.V(2).Info("Server already exists", "serverID", machineScope.CloudscaleMachine.Status.ServerID, "status", server.Status)
 			r.updateMachineFromServer(machineScope, server)
@@ -102,7 +104,9 @@ func (r *CloudscaleMachineReconciler) reconcileServer(ctx context.Context, machi
 	}
 
 	// 2. Search for existing server by tag (idempotency after crash)
-	servers, err := machineScope.CloudscaleClient.Servers.List(ctx,
+	listCtx, cancelList := context.WithTimeout(ctx, cloudscale.ReadTimeout)
+	defer cancelList()
+	servers, err := machineScope.CloudscaleClient.Servers.List(listCtx,
 		cloudscalesdk.WithTagFilter(r.machineLookupTag(machineScope)))
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("listing servers: %w", err)
@@ -161,7 +165,9 @@ func (r *CloudscaleMachineReconciler) reconcileServer(ctx context.Context, machi
 		req.ServerGroups = []string{machineScope.CloudscaleMachine.Status.ServerGroupID}
 	}
 
-	server, err = machineScope.CloudscaleClient.Servers.Create(ctx, req)
+	createCtx, cancelCreate := context.WithTimeout(ctx, cloudscale.WriteTimeout)
+	defer cancelCreate()
+	server, err = machineScope.CloudscaleClient.Servers.Create(createCtx, req)
 	if err != nil {
 		if cloudscale.IsTimeoutError(err) {
 			requeueAfter := 30 * time.Second
@@ -254,7 +260,9 @@ func (r *CloudscaleMachineReconciler) deleteServer(ctx context.Context, machineS
 	serverID := machineScope.CloudscaleMachine.Status.ServerID
 	machineScope.Info("Deleting server", "serverID", serverID)
 
-	if err := machineScope.CloudscaleClient.Servers.Delete(ctx, serverID); err != nil {
+	deleteCtx, cancel := context.WithTimeout(ctx, cloudscale.DeleteTimeout)
+	defer cancel()
+	if err := machineScope.CloudscaleClient.Servers.Delete(deleteCtx, serverID); err != nil {
 		// Ignore 404 - server was already deleted externally
 		if !cloudscale.IsNotFound(err) {
 			return fmt.Errorf("deleting server: %w", err)

@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -34,6 +35,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -52,9 +54,11 @@ const (
 // CloudscaleMachineReconciler reconciles a CloudscaleMachine object
 type CloudscaleMachineReconciler struct {
 	client.Client
-	Scheme      *runtime.Scheme
-	recorder    events.EventRecorder
-	WatchFilter string
+	Scheme                  *runtime.Scheme
+	recorder                events.EventRecorder
+	WatchFilter             string
+	Transport               *http.Transport
+	MaxConcurrentReconciles int
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=cloudscalemachines,verbs=get;list;watch;create;update;patch;delete
@@ -65,6 +69,9 @@ type CloudscaleMachineReconciler struct {
 
 // Reconcile handles CloudscaleMachine reconciliation.
 func (r *CloudscaleMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+
 	logger := logf.FromContext(ctx)
 
 	cloudscaleMachine := &infrastructurev1beta2.CloudscaleMachine{}
@@ -128,7 +135,7 @@ func (r *CloudscaleMachineReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, fmt.Errorf("failed to get cloudscale.ch credentials: %w", err)
 	}
 
-	cloudscaleClient := cloudscale.NewClient(token, cloudscale.DefaultCloudscaleRequestTimeout)
+	cloudscaleClient := cloudscale.NewClient(token, r.Transport)
 
 	machineScope, err := scope.NewMachineScope(scope.MachineScopeParams{
 		Client:            r.Client,
@@ -144,7 +151,11 @@ func (r *CloudscaleMachineReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	defer func() {
-		if err := machineScope.Close(ctx); err != nil && reterr == nil {
+		// Use a separate context for the status patch so it succeeds even
+		// when the reconcile context has timed out.
+		patchCtx, patchCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer patchCancel()
+		if err := machineScope.Close(patchCtx); err != nil && reterr == nil {
 			reterr = err
 		}
 	}()
@@ -263,6 +274,7 @@ func (r *CloudscaleMachineReconciler) SetupWithManager(ctx context.Context, mgr 
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrastructurev1beta2.CloudscaleMachine{}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: r.MaxConcurrentReconciles}).
 		WithEventFilter(predicates.ResourceNotPaused(r.Scheme, logger)).
 		WithEventFilter(predicates.ResourceHasFilterLabel(r.Scheme, logger, r.WatchFilter)).
 		WithEventFilter(predicates.ResourceIsNotExternallyManaged(r.Scheme, logger)).

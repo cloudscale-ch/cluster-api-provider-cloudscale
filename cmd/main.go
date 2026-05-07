@@ -21,6 +21,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"time"
 
@@ -35,7 +36,6 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
-	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -71,6 +71,8 @@ func main() {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
+	var clusterConcurrency int
+	var machineConcurrency int
 	var watchFilter string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
@@ -90,6 +92,10 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	flag.IntVar(&clusterConcurrency, "cluster-concurrency", 1,
+		"Maximum concurrent reconciles for CloudscaleCluster controller (1-4)")
+	flag.IntVar(&machineConcurrency, "machine-concurrency", 1,
+		"Maximum concurrent reconciles for CloudscaleMachine controller (1-10)")
 	flag.StringVar(&watchFilter, "watch-filter", "",
 		fmt.Sprintf("Label value that the controller watches to reconcile cluster-api objects. Label key is always %s. "+
 			"If unspecified, the controller watches for all cluster-api objects.", clusterv1.WatchLabel))
@@ -100,6 +106,15 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	if clusterConcurrency < 1 || clusterConcurrency > 4 {
+		setupLog.Error(fmt.Errorf("--cluster-concurrency must be between 1 and 4, got %d", clusterConcurrency), "invalid flag")
+		os.Exit(1)
+	}
+	if machineConcurrency < 1 || machineConcurrency > 10 {
+		setupLog.Error(fmt.Errorf("--machine-concurrency must be between 1 and 10, got %d", machineConcurrency), "invalid flag")
+		os.Exit(1)
+	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -175,31 +190,8 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "cloudscale.infrastructure.cluster.x-k8s.io",
-		Controller: ctrlconfig.Controller{
-			// MaxConcurrentReconciles is hardcoded to 1 for all controllers. This is
-			// intentional: CloudscaleCluster and CloudscaleMachine controllers both
-			// mutate shared cloudscale.ch resources (server groups, networks), and
-			// there is no distributed locking between them.
-			//
-			// If you increase this value, you MUST also audit (incomplete list):
-			// - deleteServerGroups: races with CloudscaleMachine server deletion
-			// - deleteNetwork: races with async LB pool member cleanup
-			// - reconcileServerGroup: races with cluster-level server group deletion
-			//
-			// In general, deletion ordering is not guaranteed between controllers.
-			// A value >1 requires explicit coordination or idempotency guarantees.
-			MaxConcurrentReconciles: 1,
-		},
-		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
-		// when the Manager ends. This requires the binary to immediately end when the
-		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
-		// speeds up voluntary leader transitions as the new leader don't have to wait
-		// LeaseDuration time first.
-		//
-		// In the default scaffold provided, the program ends immediately after
-		// the manager stops, so would be fine to enable this option. However,
-		// if you are doing or is intended to do any operation such as perform cleanups
-		// after the manager stops then its usage might be unsafe.
+		// MaxConcurrentReconciles is set per-controller via --cluster-concurrency
+		// and --machine-concurrency flags, not globally.
 		// LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
@@ -209,8 +201,12 @@ func main() {
 
 	ctx := ctrl.SetupSignalHandler()
 
+	// Create a shared HTTP transport for all cloudscale API clients.
+	// This enables connection pooling and HTTP/2 multiplexing across reconciles.
+	transport := cloudscale.NewTransport()
+
 	// Fetch region information for controllers and webhooks
-	regionInfo, flavorInfo, err := fetchAPIInfo()
+	regionInfo, flavorInfo, err := fetchAPIInfo(transport)
 	if err != nil {
 		setupLog.Error(err, "unable to fetch API information")
 		os.Exit(1)
@@ -219,17 +215,21 @@ func main() {
 	setupLog.Info("fetched flavor information", "flavors", len(flavorInfo.GetAllFlavors()))
 
 	if err := (&controller.CloudscaleClusterReconciler{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		WatchFilter: watchFilter,
+		Client:                  mgr.GetClient(),
+		Scheme:                  mgr.GetScheme(),
+		WatchFilter:             watchFilter,
+		Transport:               transport,
+		MaxConcurrentReconciles: clusterConcurrency,
 	}).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "CloudscaleCluster")
 		os.Exit(1)
 	}
 	if err := (&controller.CloudscaleMachineReconciler{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		WatchFilter: watchFilter,
+		Client:                  mgr.GetClient(),
+		Scheme:                  mgr.GetScheme(),
+		WatchFilter:             watchFilter,
+		Transport:               transport,
+		MaxConcurrentReconciles: machineConcurrency,
 	}).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "CloudscaleMachine")
 		os.Exit(1)
@@ -279,7 +279,7 @@ func main() {
 
 // fetchAPIInfo fetches region and flavor information from cloudscale.ch API.
 // Requires CLOUDSCALE_API_TOKEN environment variable.
-func fetchAPIInfo() (*cloudscale.RegionInfo, *cloudscale.FlavorInfo, error) {
+func fetchAPIInfo(transport *http.Transport) (*cloudscale.RegionInfo, *cloudscale.FlavorInfo, error) {
 	token := os.Getenv("CLOUDSCALE_API_TOKEN")
 	if token == "" {
 		return nil, nil, fmt.Errorf("CLOUDSCALE_API_TOKEN environment variable is required")
@@ -288,7 +288,7 @@ func fetchAPIInfo() (*cloudscale.RegionInfo, *cloudscale.FlavorInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	client := cloudscale.NewClient(token, cloudscale.DefaultCloudscaleRequestTimeout)
+	client := cloudscale.NewClient(token, transport)
 
 	var regionInfo *cloudscale.RegionInfo
 	var flavorInfo *cloudscale.FlavorInfo

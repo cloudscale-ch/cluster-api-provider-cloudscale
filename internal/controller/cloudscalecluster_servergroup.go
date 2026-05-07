@@ -46,7 +46,9 @@ func (r *CloudscaleClusterReconciler) deleteServerGroups(ctx context.Context, cl
 		return fmt.Errorf("listing owned servers: %w", err)
 	}
 
-	groups, err := clusterScope.CloudscaleClient.ServerGroups.List(ctx,
+	listCtx, cancelList := context.WithTimeout(ctx, cloudscale.ReadTimeout)
+	defer cancelList()
+	groups, err := clusterScope.CloudscaleClient.ServerGroups.List(listCtx,
 		cloudscalesdk.WithTagFilter(clusterOwnershipTags(clusterScope.CloudscaleCluster)))
 	if err != nil {
 		return fmt.Errorf("listing server groups: %w", err)
@@ -76,7 +78,9 @@ func (r *CloudscaleClusterReconciler) deleteServerGroups(ctx context.Context, cl
 		}
 
 		clusterScope.Info("Deleting server group", "serverGroupID", g.UUID, "name", g.Name)
-		if err := clusterScope.CloudscaleClient.ServerGroups.Delete(ctx, g.UUID); err != nil {
+		deleteCtx, cancelDelete := context.WithTimeout(ctx, cloudscale.DeleteTimeout)
+		defer cancelDelete()
+		if err := clusterScope.CloudscaleClient.ServerGroups.Delete(deleteCtx, g.UUID); err != nil {
 			if !cloudscale.IsNotFound(err) {
 				return fmt.Errorf("deleting server group %s: %w", g.UUID, err)
 			}
