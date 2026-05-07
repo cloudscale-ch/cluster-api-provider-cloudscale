@@ -178,3 +178,114 @@ func TestDeleteServerGroups_Ignores404(t *testing.T) {
 
 	g.Expect(err).ToNot(HaveOccurred())
 }
+
+func TestDeleteServerGroups_OwnedServerPresent_SkipsDeletion(t *testing.T) {
+	g := NewWithT(t)
+
+	// The server group has a server that is owned by our cluster
+	serverGroupService := &mockServerGroupService{
+		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.ServerGroup, error) {
+			return []cloudscale.ServerGroup{
+				{UUID: "sg-1", Name: "group-1", Servers: []cloudscale.ServerStub{{UUID: "server-123"}}},
+			}, nil
+		},
+		deleteFn: func(ctx context.Context, id string) error {
+			// Delete should NOT be called because server group has owned servers
+			g.Fail("Delete must not be called when group has owned servers")
+			return nil
+		},
+	}
+
+	clusterScope := newTestClusterScopeWithServerGroups(serverGroupService)
+	fakeClient := newTestFakeClient(
+		&infrastructurev1beta2.CloudscaleMachine{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "machine-1",
+				Namespace: "default",
+				Labels: map[string]string{
+					clusterv1.ClusterNameLabel: "test-cluster",
+				},
+			},
+			Status: infrastructurev1beta2.CloudscaleMachineStatus{
+				ServerID: "server-123",
+			},
+		},
+	)
+	r := &CloudscaleClusterReconciler{
+		Client: fakeClient,
+	}
+
+	err := r.deleteServerGroups(context.Background(), clusterScope)
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("server group still contains owned servers"))
+}
+
+func TestDeleteServerGroups_ForeignServers_Skips(t *testing.T) {
+	g := NewWithT(t)
+	called := false
+
+	// Server group has a server that is NOT owned by this cluster
+	serverGroupService := &mockServerGroupService{
+		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.ServerGroup, error) {
+			return []cloudscale.ServerGroup{
+				{UUID: "sg-foreign", Name: "foreign-group", Servers: []cloudscale.ServerStub{{UUID: "server-999"}}},
+			}, nil
+		},
+		deleteFn: func(ctx context.Context, id string) error {
+			called = true
+			return nil
+		},
+	}
+
+	clusterScope := newTestClusterScopeWithServerGroups(serverGroupService)
+	fakeClient := newTestFakeClient(&infrastructurev1beta2.CloudscaleMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "machine-1",
+			Namespace: "default",
+			Labels: map[string]string{
+				clusterv1.ClusterNameLabel: "test-cluster",
+			},
+		},
+		Status: infrastructurev1beta2.CloudscaleMachineStatus{
+			ServerID: "server-123",
+		},
+	})
+	r := &CloudscaleClusterReconciler{
+		Client: fakeClient,
+	}
+
+	err := r.deleteServerGroups(context.Background(), clusterScope)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(called).To(BeFalse())
+}
+
+func TestDeleteServerGroups_EmptyGroupName_DoesNotSkip(t *testing.T) {
+	g := NewWithT(t)
+	var deletedID string
+
+	// Server group with no servers should be deleted immediately
+	serverGroupService := &mockServerGroupService{
+		listFn: func(ctx context.Context, modifiers ...cloudscale.ListRequestModifier) ([]cloudscale.ServerGroup, error) {
+			return []cloudscale.ServerGroup{
+				{UUID: "sg-empty", Name: "empty-group", Servers: nil},
+			}, nil
+		},
+		deleteFn: func(ctx context.Context, id string) error {
+			deletedID = id
+			return nil
+		},
+	}
+
+	clusterScope := newTestClusterScopeWithServerGroups(serverGroupService)
+	fakeClient := newTestFakeClient()
+	r := &CloudscaleClusterReconciler{
+		Client: fakeClient,
+	}
+
+	err := r.deleteServerGroups(context.Background(), clusterScope)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(deletedID).To(Equal("sg-empty"))
+}
