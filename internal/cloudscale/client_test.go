@@ -17,8 +17,12 @@ limitations under the License.
 package cloudscale
 
 import (
+	"errors"
 	"fmt"
+	"net/url"
+	"os"
 	"testing"
+	"time"
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 	. "github.com/onsi/gomega"
@@ -42,6 +46,84 @@ func TestIsNotFound(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
 			result := IsNotFound(tt.err)
+			g.Expect(result).To(Equal(tt.expected))
+		})
+	}
+}
+
+func TestIsTimeoutError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{"nil error returns false", nil, false},
+		{
+			"url.Error with Timeout=true returns true",
+			&url.Error{Op: "Post", URL: "https://api.example.com/v1/servers", Err: os.ErrDeadlineExceeded},
+			true,
+		},
+		{
+			"url.Error with Timeout=false returns false",
+			&url.Error{Op: "Get", URL: "https://api.example.com/v1/servers", Err: fmt.Errorf("connection refused")},
+			false,
+		},
+		{
+			"wrapped url.Error with Timeout=true returns true",
+			fmt.Errorf("outer: %w", &url.Error{Op: "Post", URL: "https://api.example.com/v1/servers", Err: os.ErrDeadlineExceeded}),
+			true,
+		},
+		{
+			"os.ErrDeadlineExceeded returns true",
+			os.ErrDeadlineExceeded,
+			true,
+		},
+		{
+			"generic error returns false",
+			fmt.Errorf("some other error"),
+			false,
+		},
+		{
+			"ErrorResponse with 500 returns false",
+			&cloudscalesdk.ErrorResponse{StatusCode: 500},
+			false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			result := IsTimeoutError(tt.err)
+			g.Expect(result).To(Equal(tt.expected))
+		})
+	}
+}
+
+func TestNewClient_ReturnsNonNilClient(t *testing.T) {
+	g := NewWithT(t)
+	client := NewClient("fake-token", 30*time.Second)
+	g.Expect(client).ToNot(BeNil())
+	g.Expect(client.LoadBalancers).ToNot(BeNil())
+	g.Expect(client.Servers).ToNot(BeNil())
+	g.Expect(client.Networks).ToNot(BeNil())
+}
+
+func TestIsDeadlineExceeded(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{"nil error returns false", nil, false},
+		{"os.ErrDeadlineExceeded returns true", os.ErrDeadlineExceeded, true},
+		{"wrapped os.ErrDeadlineExceeded returns true", errors.Join(os.ErrDeadlineExceeded), true},
+		{"generic error returns false", fmt.Errorf("timeout"), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			result := IsDeadlineExceeded(tt.err)
 			g.Expect(result).To(Equal(tt.expected))
 		})
 	}

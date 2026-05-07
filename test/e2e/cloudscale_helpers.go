@@ -23,14 +23,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/cloudscale-ch/cloudscale-go-sdk/v8"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
 )
 
 // newCloudscaleClient creates a new cloudscale API client from the given token.
 func newCloudscaleClient(token string) *cloudscale.Client {
-	c := cloudscale.NewClient(nil)
-	c.AuthToken = token
-	return c
+	return cloudscale.NewClient(token, cloudscale.DefaultCloudscaleRequestTimeout)
 }
 
 // resourceSnapshot holds a snapshot of cloudscale API resources for leak detection.

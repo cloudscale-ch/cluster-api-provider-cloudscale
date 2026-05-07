@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
@@ -33,7 +34,7 @@ import (
 
 // reconcileNetwork orchestrates network and subnet provisioning for all networks
 // defined in spec.networks. A single NetworkReadyCondition covers all networks.
-func (r *CloudscaleClusterReconciler) reconcileNetwork(ctx context.Context, clusterScope *scope.ClusterScope) (reterr error) {
+func (r *CloudscaleClusterReconciler) reconcileNetwork(ctx context.Context, clusterScope *scope.ClusterScope) (_ ctrl.Result, reterr error) {
 	defer func() {
 		if reterr != nil {
 			r.setCondition(clusterScope, infrastructurev1beta2.NetworkReadyCondition, metav1.ConditionFalse, infrastructurev1beta2.NetworkErrorReason, reterr.Error())
@@ -43,22 +44,26 @@ func (r *CloudscaleClusterReconciler) reconcileNetwork(ctx context.Context, clus
 	}()
 
 	if len(clusterScope.CloudscaleCluster.Spec.Networks) == 0 {
-		return fmt.Errorf("no networks defined in spec")
+		return ctrl.Result{}, fmt.Errorf("no networks defined in spec")
 	}
 
 	for _, netSpec := range clusterScope.CloudscaleCluster.Spec.Networks {
 		if netSpec.UUID != "" {
 			if err := r.reconcilePreExistingNetwork(ctx, clusterScope, netSpec); err != nil {
-				return fmt.Errorf("reconciling pre-existing network %q: %w", netSpec.Name, err)
+				return ctrl.Result{}, fmt.Errorf("reconciling pre-existing network %q: %w", netSpec.Name, err)
 			}
 		} else {
-			if err := r.reconcileManagedNetwork(ctx, clusterScope, netSpec); err != nil {
-				return fmt.Errorf("reconciling managed network %q: %w", netSpec.Name, err)
+			result, err := r.reconcileManagedNetwork(ctx, clusterScope, netSpec)
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("reconciling managed network %q: %w", netSpec.Name, err)
+			}
+			if !result.IsZero() {
+				return result, nil
 			}
 		}
 	}
 
-	return nil
+	return ctrl.Result{}, nil
 }
 
 // reconcilePreExistingNetwork validates a pre-existing network exists and discovers its subnet.
@@ -93,7 +98,7 @@ func (r *CloudscaleClusterReconciler) reconcilePreExistingNetwork(ctx context.Co
 }
 
 // reconcileManagedNetwork ensures a managed network and its subnet exist.
-func (r *CloudscaleClusterReconciler) reconcileManagedNetwork(ctx context.Context, clusterScope *scope.ClusterScope, netSpec infrastructurev1beta2.NetworkSpec) error {
+func (r *CloudscaleClusterReconciler) reconcileManagedNetwork(ctx context.Context, clusterScope *scope.ClusterScope, netSpec infrastructurev1beta2.NetworkSpec) (_ ctrl.Result, reterr error) {
 	ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus(netSpec.Name)
 
 	// Reconcile the network resource
@@ -112,7 +117,7 @@ func (r *CloudscaleClusterReconciler) reconcileManagedNetwork(ctx context.Contex
 		tags,
 	)
 	if err != nil {
-		return err
+		return ctrl.Result{}, err
 	}
 
 	if resolvedNetworkID == "" {
@@ -129,7 +134,11 @@ func (r *CloudscaleClusterReconciler) reconcileManagedNetwork(ctx context.Contex
 			},
 		})
 		if err != nil {
-			return fmt.Errorf("creating network: %w", err)
+			if cloudscale.IsTimeoutError(err) {
+				clusterScope.Info("Network creation timed out, waiting before retry", "requeueAfter", CreateTimeoutRequeueInterval)
+				return ctrl.Result{RequeueAfter: CreateTimeoutRequeueInterval}, nil
+			}
+			return ctrl.Result{}, fmt.Errorf("creating network: %w", err)
 		}
 		resolvedNetworkID = network.UUID
 		clusterScope.Info("Created network", "name", netSpec.Name, "networkID", network.UUID)
@@ -151,7 +160,7 @@ func (r *CloudscaleClusterReconciler) reconcileManagedNetwork(ctx context.Contex
 		tags,
 	)
 	if err != nil {
-		return err
+		return ctrl.Result{}, err
 	}
 
 	if resolvedSubnetID == "" {
@@ -166,7 +175,11 @@ func (r *CloudscaleClusterReconciler) reconcileManagedNetwork(ctx context.Contex
 			},
 		})
 		if err != nil {
-			return fmt.Errorf("creating subnet: %w", err)
+			if cloudscale.IsTimeoutError(err) {
+				clusterScope.Info("Subnet creation timed out, waiting before retry", "requeueAfter", CreateTimeoutRequeueInterval)
+				return ctrl.Result{RequeueAfter: CreateTimeoutRequeueInterval}, nil
+			}
+			return ctrl.Result{}, fmt.Errorf("creating subnet: %w", err)
 		}
 		resolvedSubnetID = subnet.UUID
 		clusterScope.Info("Created subnet", "name", netSpec.Name, "subnetID", subnet.UUID)
@@ -175,7 +188,7 @@ func (r *CloudscaleClusterReconciler) reconcileManagedNetwork(ctx context.Contex
 	}
 
 	r.setNetworkStatus(clusterScope, netSpec.Name, resolvedNetworkID, resolvedSubnetID, netSpec.CIDR, true)
-	return nil
+	return ctrl.Result{}, nil
 }
 
 // deleteNetwork deletes all managed networks. Pre-existing networks are left untouched.

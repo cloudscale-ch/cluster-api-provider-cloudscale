@@ -162,6 +162,10 @@ func (r *CloudscaleMachineReconciler) reconcileServer(ctx context.Context, machi
 
 	server, err = machineScope.CloudscaleClient.Servers.Create(ctx, req)
 	if err != nil {
+		if cloudscale.IsTimeoutError(err) {
+			machineScope.Info("Server creation timed out, waiting before retry", "requeueAfter", CreateTimeoutRequeueInterval)
+			return ctrl.Result{RequeueAfter: CreateTimeoutRequeueInterval}, nil
+		}
 		return ctrl.Result{}, fmt.Errorf("creating server: %w", err)
 	}
 

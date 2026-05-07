@@ -19,6 +19,8 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"os"
 	"testing"
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
@@ -83,7 +85,7 @@ func TestReconcileFloatingIP_Disabled(t *testing.T) {
 	// No FloatingIP spec = disabled
 	r := newFIPTestReconciler()
 
-	err := r.reconcileFloatingIP(context.Background(), clusterScope)
+	_, err := r.reconcileFloatingIP(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	cond := conditions.Get(clusterScope.CloudscaleCluster, infrastructurev1beta2.FloatingIPReadyCondition)
@@ -110,7 +112,7 @@ func TestReconcileFloatingIP_PreExisting(t *testing.T) {
 
 	r := newFIPTestReconciler()
 
-	err := r.reconcileFloatingIP(context.Background(), clusterScope)
+	_, err := r.reconcileFloatingIP(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(clusterScope.CloudscaleCluster.Status.FloatingIP).To(Equal("1.2.3.4"))
@@ -136,7 +138,7 @@ func TestReconcileFloatingIP_ErrorSetsConditionFalse(t *testing.T) {
 
 	r := newFIPTestReconciler()
 
-	err := r.reconcileFloatingIP(context.Background(), clusterScope)
+	_, err := r.reconcileFloatingIP(context.Background(), clusterScope)
 
 	g.Expect(err).To(HaveOccurred())
 	cond := conditions.Get(clusterScope.CloudscaleCluster, infrastructurev1beta2.FloatingIPReadyCondition)
@@ -249,7 +251,7 @@ func TestReconcilePreExistingFloatingIP_RegionMismatchErrors(t *testing.T) {
 
 	r := newFIPTestReconciler()
 
-	err := r.reconcileFloatingIP(context.Background(), clusterScope)
+	_, err := r.reconcileFloatingIP(context.Background(), clusterScope)
 
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("lpg"))
@@ -300,7 +302,7 @@ func TestReconcilePreExistingFloatingIP_NoPublicInterfaceSetsConditionAndEvent(t
 	}
 	r := newFIPTestReconciler(cpMachine)
 
-	err := r.reconcileFloatingIP(context.Background(), clusterScope)
+	_, err := r.reconcileFloatingIP(context.Background(), clusterScope)
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("public interface"))
 	g.Expect(err.Error()).To(ContainSubstring("control-plane machine template"))
@@ -423,7 +425,7 @@ func TestReconcileManagedFloatingIP_ExistingFIPEnsuresAssignment(t *testing.T) {
 
 	r := newFIPTestReconciler()
 
-	err := r.reconcileManagedFloatingIP(context.Background(), clusterScope, fipSpec)
+	_, err := r.reconcileManagedFloatingIP(context.Background(), clusterScope, fipSpec)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host).To(Equal("10.0.0.1"))
@@ -452,7 +454,7 @@ func TestReconcileManagedFloatingIP_CreatesIPv4(t *testing.T) {
 
 	r := newFIPTestReconciler()
 
-	err := r.reconcileManagedFloatingIP(context.Background(), clusterScope, fipSpec)
+	_, err := r.reconcileManagedFloatingIP(context.Background(), clusterScope, fipSpec)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(capturedReq).ToNot(BeNil())
@@ -488,7 +490,7 @@ func TestReconcileManagedFloatingIP_CreatesIPv6(t *testing.T) {
 
 	r := newFIPTestReconciler()
 
-	err := r.reconcileManagedFloatingIP(context.Background(), clusterScope, fipSpec)
+	_, err := r.reconcileManagedFloatingIP(context.Background(), clusterScope, fipSpec)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(capturedReq.IPVersion).To(Equal(6))
@@ -512,7 +514,7 @@ func TestReconcileManagedFloatingIP_CreateError(t *testing.T) {
 
 	r := newFIPTestReconciler()
 
-	err := r.reconcileManagedFloatingIP(context.Background(), clusterScope, fipSpec)
+	_, err := r.reconcileManagedFloatingIP(context.Background(), clusterScope, fipSpec)
 
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("creating floating IP"))
@@ -539,7 +541,7 @@ func TestReconcileManagedFloatingIP_AssignsToLBTarget(t *testing.T) {
 
 	r := newFIPTestReconciler()
 
-	err := r.reconcileManagedFloatingIP(context.Background(), clusterScope, fipSpec)
+	_, err := r.reconcileManagedFloatingIP(context.Background(), clusterScope, fipSpec)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(capturedReq).ToNot(BeNil())
@@ -930,6 +932,38 @@ func TestDeleteFloatingIP_DeleteError(t *testing.T) {
 	g.Expect(cond).ToNot(BeNil())
 	g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 	g.Expect(cond.Reason).To(Equal(infrastructurev1beta2.FloatingIPErrorReason))
+}
+
+// --- Timeout handling tests for Create() calls ---
+
+func TestReconcileManagedFloatingIP_CreateTimeoutRequeues(t *testing.T) {
+	g := NewWithT(t)
+
+	fipService := &mockFloatingIPService{
+		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.FloatingIP, error) {
+			return nil, nil
+		},
+		createFn: func(ctx context.Context, req *cloudscalesdk.FloatingIPCreateRequest) (*cloudscalesdk.FloatingIP, error) {
+			if req.IPVersion == 4 {
+				// Simulate timeout via context deadline exceeded wrapped in url.Error
+				return nil, &url.Error{Op: "Post", URL: "https://api.example.com/v1/floating_ips", Err: os.ErrDeadlineExceeded}
+			}
+			// IPv6 path: return success so we can verify timeout path above is hit first
+			return &cloudscalesdk.FloatingIP{Network: "2001:db8::1/128"}, nil
+		},
+	}
+
+	clusterScope := newFIPTestClusterScope(fipService)
+	clusterScope.CloudscaleCluster.Status.LoadBalancerID = "lb-uuid"
+	fipSpec := &infrastructurev1beta2.FloatingIPSpec{}
+
+	r := newFIPTestReconciler()
+
+	result, err := r.reconcileManagedFloatingIP(context.Background(), clusterScope, fipSpec)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result.RequeueAfter).To(Equal(CreateTimeoutRequeueInterval),
+		"Should requeue after CreateTimeoutRequeueInterval on timeout error")
 }
 
 // --- Mock FloatingIPService ---

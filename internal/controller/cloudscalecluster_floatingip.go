@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
@@ -34,11 +35,11 @@ import (
 
 // reconcileFloatingIP ensures the floating IP exists and is assigned to the correct target.
 // When no floating IP is configured, this sets the condition to true and returns.
-func (r *CloudscaleClusterReconciler) reconcileFloatingIP(ctx context.Context, clusterScope *scope.ClusterScope) (reterr error) {
+func (r *CloudscaleClusterReconciler) reconcileFloatingIP(ctx context.Context, clusterScope *scope.ClusterScope) (_ ctrl.Result, reterr error) {
 	fipSpec := clusterScope.CloudscaleCluster.Spec.FloatingIP
 	if fipSpec == nil {
 		r.setCondition(clusterScope, infrastructurev1beta2.FloatingIPReadyCondition, metav1.ConditionTrue, infrastructurev1beta2.FloatingIPDisabledReason, "")
-		return nil
+		return ctrl.Result{}, nil
 	}
 
 	defer func() {
@@ -51,7 +52,8 @@ func (r *CloudscaleClusterReconciler) reconcileFloatingIP(ctx context.Context, c
 
 	// Pre-existing floating IP: just look it up and use its address
 	if fipSpec.Address != "" {
-		return r.reconcilePreExistingFloatingIP(ctx, clusterScope, fipSpec.Address)
+		err := r.reconcilePreExistingFloatingIP(ctx, clusterScope, fipSpec.Address)
+		return ctrl.Result{}, err
 	}
 
 	// Managed floating IP: create if needed, then assign
@@ -74,7 +76,7 @@ func (r *CloudscaleClusterReconciler) reconcilePreExistingFloatingIP(ctx context
 	return r.ensureFloatingIPAssignment(ctx, clusterScope, fip)
 }
 
-func (r *CloudscaleClusterReconciler) reconcileManagedFloatingIP(ctx context.Context, clusterScope *scope.ClusterScope, fipSpec *infrastructurev1beta2.FloatingIPSpec) error {
+func (r *CloudscaleClusterReconciler) reconcileManagedFloatingIP(ctx context.Context, clusterScope *scope.ClusterScope, fipSpec *infrastructurev1beta2.FloatingIPSpec) (_ ctrl.Result, reterr error) {
 	tags := clusterOwnershipTags(clusterScope.CloudscaleCluster)
 
 	clusterScope.Info("reconcile managed floating IP")
@@ -88,17 +90,17 @@ func (r *CloudscaleClusterReconciler) reconcileManagedFloatingIP(ctx context.Con
 		tags,
 	)
 	if err != nil {
-		return err
+		return ctrl.Result{}, err
 	}
 	clusterScope.CloudscaleCluster.Status.FloatingIP = id
 
 	if id != "" {
 		// Existing floating IP: ensure it's assigned to the right target and set endpoint
 		if err := r.ensureFloatingIPAssignment(ctx, clusterScope, fip); err != nil {
-			return err
+			return ctrl.Result{}, err
 		}
 		r.setControlPlaneEndpointFromFIP(clusterScope, fip)
-		return nil
+		return ctrl.Result{}, nil
 	}
 
 	// Create new floating IP
@@ -134,7 +136,11 @@ func (r *CloudscaleClusterReconciler) reconcileManagedFloatingIP(ctx context.Con
 	clusterScope.Info("Creating floating IP", "ipVersion", ipVersion, "target", target)
 	fip, err = clusterScope.CloudscaleClient.FloatingIPs.Create(ctx, req)
 	if err != nil {
-		return fmt.Errorf("creating floating IP: %w", err)
+		if cloudscale.IsTimeoutError(err) {
+			clusterScope.Info("Floating IP creation timed out, waiting before retry", "requeueAfter", CreateTimeoutRequeueInterval)
+			return ctrl.Result{RequeueAfter: CreateTimeoutRequeueInterval}, nil
+		}
+		return ctrl.Result{}, fmt.Errorf("creating floating IP: %w", err)
 	}
 
 	ip := fip.IP()
@@ -144,7 +150,7 @@ func (r *CloudscaleClusterReconciler) reconcileManagedFloatingIP(ctx context.Con
 		"Created floating IP %s", ip)
 
 	r.setControlPlaneEndpointFromFIP(clusterScope, fip)
-	return nil
+	return ctrl.Result{}, nil
 }
 
 type floatingIPTarget struct {

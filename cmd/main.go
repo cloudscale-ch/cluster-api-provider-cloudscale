@@ -35,6 +35,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -174,6 +175,21 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "cloudscale.infrastructure.cluster.x-k8s.io",
+		Controller: ctrlconfig.Controller{
+			// MaxConcurrentReconciles is hardcoded to 1 for all controllers. This is
+			// intentional: CloudscaleCluster and CloudscaleMachine controllers both
+			// mutate shared cloudscale.ch resources (server groups, networks), and
+			// there is no distributed locking between them.
+			//
+			// If you increase this value, you MUST also audit (incomplete list):
+			// - deleteServerGroups: races with CloudscaleMachine server deletion
+			// - deleteNetwork: races with async LB pool member cleanup
+			// - reconcileServerGroup: races with cluster-level server group deletion
+			//
+			// In general, deletion ordering is not guaranteed between controllers.
+			// A value >1 requires explicit coordination or idempotency guarantees.
+			MaxConcurrentReconciles: 1,
+		},
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
@@ -272,7 +288,7 @@ func fetchAPIInfo() (*cloudscale.RegionInfo, *cloudscale.FlavorInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	client := cloudscale.NewClient(token)
+	client := cloudscale.NewClient(token, cloudscale.DefaultCloudscaleRequestTimeout)
 
 	var regionInfo *cloudscale.RegionInfo
 	var flavorInfo *cloudscale.FlavorInfo
