@@ -122,7 +122,7 @@ func defaultMocks() reconcileTestOpts {
 			getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancer, error) {
 				return &cloudscalesdk.LoadBalancer{
 					UUID:   id,
-					Status: "running",
+					Status: LoadBalancerRunningStatus,
 					VIPAddresses: []cloudscalesdk.VIPAddress{
 						{Address: "1.2.3.4"},
 					},
@@ -248,7 +248,7 @@ func TestReconcileNormal_LBPendingReturnsRequeue(t *testing.T) {
 	mocks := defaultMocks()
 	mocks.lbService = &mockLoadBalancerService{
 		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancer, error) {
-			return &cloudscalesdk.LoadBalancer{UUID: id, Status: "creating"}, nil
+			return &cloudscalesdk.LoadBalancer{UUID: id, Status: LoadBalancerChangingStatus}, nil
 		},
 	}
 

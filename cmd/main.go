@@ -108,11 +108,13 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
 	if clusterConcurrency < 1 || clusterConcurrency > 4 {
-		setupLog.Error(fmt.Errorf("--cluster-concurrency must be between 1 and 4, got %d", clusterConcurrency), "invalid flag")
+		setupLog.Error(
+			fmt.Errorf("--cluster-concurrency must be between 1 and 4, got %d", clusterConcurrency), "invalid flag")
 		os.Exit(1)
 	}
 	if machineConcurrency < 1 || machineConcurrency > 10 {
-		setupLog.Error(fmt.Errorf("--machine-concurrency must be between 1 and 10, got %d", machineConcurrency), "invalid flag")
+		setupLog.Error(
+			fmt.Errorf("--machine-concurrency must be between 1 and 10, got %d", machineConcurrency), "invalid flag")
 		os.Exit(1)
 	}
 
