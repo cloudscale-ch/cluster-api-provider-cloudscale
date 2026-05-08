@@ -135,7 +135,7 @@ func TestNewTransport_DialTimeout(t *testing.T) {
 	// 192.0.2.1 is TEST-NET-1 (RFC 5737) - guaranteed unroutable
 	conn, err := transport.DialContext(ctx, "tcp", "192.0.2.1:443")
 	if conn != nil {
-		conn.Close()
+		_ = conn.Close()
 	}
 
 	// Should fail with a timeout (dial timeout is 5s)
@@ -168,8 +168,13 @@ func TestNewClient_NoGlobalTimeout(t *testing.T) {
 	server := &http.Server{Handler: slowServer}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	g.Expect(err).ToNot(HaveOccurred())
-	go server.Serve(listener)
-	defer server.Close()
+	go func() {
+		_ = server.Serve(listener)
+
+	}()
+	defer func(server *http.Server) {
+		_ = server.Close()
+	}(server)
 
 	transport := NewTransport()
 

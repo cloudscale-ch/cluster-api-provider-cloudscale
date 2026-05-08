@@ -38,7 +38,10 @@ import (
 
 const (
 	// LoadBalancerRunningStatus indicates the load balancer is ready.
-	LoadBalancerRunningStatus = "running"
+	LoadBalancerRunningStatus  = "running"
+	LoadBalancerChangingStatus = "changing"
+	LoadBalancerDegradedStatus = "degraded"
+	LoadBalancerErrorStatus    = "error"
 )
 
 // reconcileLoadBalancer ensures the load balancer, pool, and listener exist for the control plane.
@@ -84,16 +87,19 @@ func (r *CloudscaleClusterReconciler) reconcileLoadBalancer(ctx context.Context,
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("getting load balancer status: %w", err)
 	}
-	if lb.Status != LoadBalancerRunningStatus {
-		clusterScope.Info("Waiting for load balancer to be running", "status", lb.Status)
+
+	switch lb.Status {
+	case LoadBalancerRunningStatus:
+		// proceed normally
+	case LoadBalancerChangingStatus:
+		clusterScope.Info("Waiting for load balancer to finish changing", "status", lb.Status)
 		lbPending = true
-		requeueAfter := 5 * time.Second
-		if lb.Status == "error" || lb.Status == "degraded" {
-			// During bootstrap, error/degraded is expected because the health
-			// monitor checks an empty pool (no CP machines ready yet).
-			requeueAfter = 10 * time.Second
-		}
-		return ctrl.Result{RequeueAfter: requeueAfter}, nil
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	default:
+		// degraded, error, stopped, unknown — proceed with member reconciliation
+		// because removing stale members is the only path back to "running"
+		clusterScope.Info("Load balancer is not running, proceeding with member reconciliation", "status", lb.Status)
+		lbPending = true
 	}
 
 	// 2. Reconcile the pool

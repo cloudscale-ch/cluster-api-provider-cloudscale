@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/events"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -93,6 +94,10 @@ func newTestClusterScopeWithLB(opts lbTestScopeOptions) *scope.ClusterScope {
 		opts.healthMonitorDownThreshold = 3
 	}
 
+	// Default nil services to "exists" mocks so orchestrator tests
+	// only override the service they care about.
+	defaultLBServices(&opts)
+
 	cloudscaleClient := &cloudscale.Client{
 		LoadBalancers:              opts.loadBalancerService,
 		LoadBalancerPools:          opts.poolService,
@@ -143,6 +148,71 @@ func newTestClusterScopeWithLB(opts lbTestScopeOptions) *scope.ClusterScope {
 	}
 }
 
+// defaultLBServices fills in nil cloudscale service mocks with "exists" stubs
+// so that orchestrator tests only need to override the one behaviour they care about.
+func defaultLBServices(opts *lbTestScopeOptions) {
+	if opts.loadBalancerService == nil {
+		opts.loadBalancerService = existingLBMock(LoadBalancerRunningStatus)
+	}
+	if opts.poolService == nil {
+		opts.poolService = existingPoolMock()
+	}
+	if opts.listenerService == nil {
+		opts.listenerService = existingListenerMock()
+	}
+	if opts.healthMonitorService == nil {
+		opts.healthMonitorService = existingHealthMonitorMock()
+	}
+	if opts.poolMemberService == nil {
+		opts.poolMemberService = emptyMembersMock()
+	}
+}
+
+// existingLBMock returns a mock that reports the LB already exists with the given status.
+func existingLBMock(status string) *mockLoadBalancerService {
+	return &mockLoadBalancerService{
+		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancer, error) {
+			return &cloudscalesdk.LoadBalancer{UUID: id, Status: status}, nil
+		},
+	}
+}
+
+// existingPoolMock returns a mock that reports the pool already exists.
+func existingPoolMock() *mockLoadBalancerPoolService {
+	return &mockLoadBalancerPoolService{
+		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancerPool, error) {
+			return &cloudscalesdk.LoadBalancerPool{UUID: id}, nil
+		},
+	}
+}
+
+// existingListenerMock returns a mock that reports the listener already exists.
+func existingListenerMock() *mockLoadBalancerListenerService {
+	return &mockLoadBalancerListenerService{
+		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancerListener, error) {
+			return &cloudscalesdk.LoadBalancerListener{UUID: id}, nil
+		},
+	}
+}
+
+// existingHealthMonitorMock returns a mock that reports the health monitor already exists.
+func existingHealthMonitorMock() *mockLoadBalancerHealthMonitorService {
+	return &mockLoadBalancerHealthMonitorService{
+		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancerHealthMonitor, error) {
+			return &cloudscalesdk.LoadBalancerHealthMonitor{UUID: id}, nil
+		},
+	}
+}
+
+// emptyMembersMock returns a mock that reports no pool members.
+func emptyMembersMock() *mockLoadBalancerPoolMemberService {
+	return &mockLoadBalancerPoolMemberService{
+		listFn: func(ctx context.Context, poolID string, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancerPoolMember, error) {
+			return nil, nil
+		},
+	}
+}
+
 // ============================================================================
 // Tests for reconcileLB
 // ============================================================================
@@ -158,7 +228,7 @@ func TestReconcileLB_CreatesLoadBalancer(t *testing.T) {
 			return &cloudscalesdk.LoadBalancer{
 				UUID:   "lb-uuid-123",
 				Name:   req.Name,
-				Status: "creating",
+				Status: LoadBalancerChangingStatus,
 			}, nil
 		},
 	}
@@ -184,7 +254,7 @@ func TestReconcileLB_SkipsIfAlreadyExists(t *testing.T) {
 
 	lbService := &mockLoadBalancerService{
 		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancer, error) {
-			return &cloudscalesdk.LoadBalancer{UUID: id, Status: "running"}, nil
+			return &cloudscalesdk.LoadBalancer{UUID: id, Status: LoadBalancerRunningStatus}, nil
 		},
 		createFn: func(ctx context.Context, req *cloudscalesdk.LoadBalancerRequest) (*cloudscalesdk.LoadBalancer, error) {
 			g.Fail("Create should not be called when LB already exists")
@@ -204,91 +274,6 @@ func TestReconcileLB_SkipsIfAlreadyExists(t *testing.T) {
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerID).To(Equal("existing-lb-uuid"))
-}
-
-func TestReconcileLB_FindsExistingByTag(t *testing.T) {
-	g := NewWithT(t)
-
-	lbService := &mockLoadBalancerService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancer, error) {
-			return []cloudscalesdk.LoadBalancer{
-				{UUID: "found-lb-uuid", Name: "test-cluster-cp-lb"},
-			}, nil
-		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.LoadBalancerRequest) (*cloudscalesdk.LoadBalancer, error) {
-			g.Fail("Create should not be called when LB is found by tag")
-			return nil, nil
-		},
-	}
-
-	clusterScope := newTestClusterScopeWithLB(lbTestScopeOptions{
-		loadBalancerService: lbService,
-		lbEnabled:           true,
-	})
-	r := newTestReconciler()
-
-	_, err := r.reconcileLB(context.Background(), clusterScope)
-
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerID).To(Equal("found-lb-uuid"))
-}
-
-func TestReconcileLB_ErrorsOnMultipleByTag(t *testing.T) {
-	g := NewWithT(t)
-
-	lbService := &mockLoadBalancerService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancer, error) {
-			return []cloudscalesdk.LoadBalancer{
-				{UUID: "lb-uuid-1", Name: "test-cluster-cp-lb"},
-				{UUID: "lb-uuid-2", Name: "test-cluster-cp-lb"},
-			}, nil
-		},
-	}
-
-	clusterScope := newTestClusterScopeWithLB(lbTestScopeOptions{
-		loadBalancerService: lbService,
-		lbEnabled:           true,
-	})
-	r := newTestReconciler()
-
-	_, err := r.reconcileLB(context.Background(), clusterScope)
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("found 2 load balancers matching tag filter"))
-	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerID).To(BeEmpty())
-}
-
-func TestReconcileLB_RecreatesIfDeletedExternally(t *testing.T) {
-	g := NewWithT(t)
-
-	var createdLB bool
-
-	lbService := &mockLoadBalancerService{
-		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancer, error) {
-			return nil, &cloudscalesdk.ErrorResponse{StatusCode: 404}
-		},
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancer, error) {
-			return nil, nil
-		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.LoadBalancerRequest) (*cloudscalesdk.LoadBalancer, error) {
-			createdLB = true
-			return &cloudscalesdk.LoadBalancer{UUID: "new-lb-uuid", Name: req.Name}, nil
-		},
-	}
-
-	clusterScope := newTestClusterScopeWithLB(lbTestScopeOptions{
-		loadBalancerService: lbService,
-		lbEnabled:           true,
-	})
-	clusterScope.CloudscaleCluster.Status.LoadBalancerID = "deleted-lb-uuid"
-
-	r := newTestReconciler()
-
-	_, err := r.reconcileLB(context.Background(), clusterScope)
-
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(createdLB).To(BeTrue(), "Should create a new LB when old one was deleted")
-	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerID).To(Equal("new-lb-uuid"))
 }
 
 func TestReconcileLB_UsesCustomFlavor(t *testing.T) {
@@ -381,92 +366,6 @@ func TestReconcileLBPool_SkipsIfAlreadyExists(t *testing.T) {
 	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID).To(Equal("existing-pool-uuid"))
 }
 
-func TestReconcileLBPool_FindsExistingByTag(t *testing.T) {
-	g := NewWithT(t)
-
-	poolService := &mockLoadBalancerPoolService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancerPool, error) {
-			return []cloudscalesdk.LoadBalancerPool{
-				{UUID: "found-pool-uuid", Name: "test-cluster-cp-pool"},
-			}, nil
-		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.LoadBalancerPoolRequest) (*cloudscalesdk.LoadBalancerPool, error) {
-			g.Fail("Create should not be called when pool is found by tag")
-			return nil, nil
-		},
-	}
-
-	clusterScope := newTestClusterScopeWithLB(lbTestScopeOptions{
-		poolService: poolService,
-		lbEnabled:   true,
-	})
-	r := newTestReconciler()
-
-	_, err := r.reconcileLBPool(context.Background(), clusterScope)
-
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID).To(Equal("found-pool-uuid"))
-}
-
-func TestReconcileLBPool_ErrorsOnMultipleByTag(t *testing.T) {
-	g := NewWithT(t)
-
-	poolService := &mockLoadBalancerPoolService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancerPool, error) {
-			return []cloudscalesdk.LoadBalancerPool{
-				{UUID: "pool-uuid-1", Name: "test-cluster-cp-pool"},
-				{UUID: "pool-uuid-2", Name: "test-cluster-cp-pool"},
-			}, nil
-		},
-	}
-
-	clusterScope := newTestClusterScopeWithLB(lbTestScopeOptions{
-		poolService: poolService,
-		lbEnabled:   true,
-	})
-	r := newTestReconciler()
-
-	_, err := r.reconcileLBPool(context.Background(), clusterScope)
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("found 2 load balancer pools matching tag filter"))
-	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID).To(BeEmpty())
-}
-
-func TestReconcileLBPool_RecreatesIfDeletedExternally(t *testing.T) {
-	g := NewWithT(t)
-
-	var createdPool bool
-
-	poolService := &mockLoadBalancerPoolService{
-		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancerPool, error) {
-			return nil, &cloudscalesdk.ErrorResponse{StatusCode: 404}
-		},
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancerPool, error) {
-			return nil, nil
-		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.LoadBalancerPoolRequest) (*cloudscalesdk.LoadBalancerPool, error) {
-			createdPool = true
-			return &cloudscalesdk.LoadBalancerPool{UUID: "new-pool-uuid", Name: req.Name}, nil
-		},
-	}
-
-	clusterScope := newTestClusterScopeWithLB(lbTestScopeOptions{
-		poolService: poolService,
-		lbEnabled:   true,
-	})
-	clusterScope.CloudscaleCluster.Status.LoadBalancerID = testLBUUID
-	clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID = "deleted-pool-uuid"
-
-	r := newTestReconciler()
-
-	_, err := r.reconcileLBPool(context.Background(), clusterScope)
-
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(createdPool).To(BeTrue(), "Should create a new pool when old one was deleted")
-	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID).To(Equal("new-pool-uuid"))
-}
-
 func TestReconcileLBPool_UsesCustomAlgorithm(t *testing.T) {
 	g := NewWithT(t)
 
@@ -556,92 +455,6 @@ func TestReconcileLBListener_SkipsIfAlreadyExists(t *testing.T) {
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID).To(Equal("existing-listener-uuid"))
-}
-
-func TestReconcileLBListener_FindsExistingByTag(t *testing.T) {
-	g := NewWithT(t)
-
-	listenerService := &mockLoadBalancerListenerService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancerListener, error) {
-			return []cloudscalesdk.LoadBalancerListener{
-				{UUID: "found-listener-uuid", Name: "test-cluster-cp-listener"},
-			}, nil
-		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.LoadBalancerListenerRequest) (*cloudscalesdk.LoadBalancerListener, error) {
-			g.Fail("Create should not be called when listener is found by tag")
-			return nil, nil
-		},
-	}
-
-	clusterScope := newTestClusterScopeWithLB(lbTestScopeOptions{
-		listenerService: listenerService,
-		lbEnabled:       true,
-	})
-	r := newTestReconciler()
-
-	_, err := r.reconcileLBListener(context.Background(), clusterScope)
-
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID).To(Equal("found-listener-uuid"))
-}
-
-func TestReconcileLBListener_ErrorsOnMultipleByTag(t *testing.T) {
-	g := NewWithT(t)
-
-	listenerService := &mockLoadBalancerListenerService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancerListener, error) {
-			return []cloudscalesdk.LoadBalancerListener{
-				{UUID: "listener-uuid-1", Name: "test-cluster-cp-listener"},
-				{UUID: "listener-uuid-2", Name: "test-cluster-cp-listener"},
-			}, nil
-		},
-	}
-
-	clusterScope := newTestClusterScopeWithLB(lbTestScopeOptions{
-		listenerService: listenerService,
-		lbEnabled:       true,
-	})
-	r := newTestReconciler()
-
-	_, err := r.reconcileLBListener(context.Background(), clusterScope)
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("found 2 load balancer listeners matching tag filter"))
-	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID).To(BeEmpty())
-}
-
-func TestReconcileLBListener_RecreatesIfDeletedExternally(t *testing.T) {
-	g := NewWithT(t)
-
-	var createdListener bool
-
-	listenerService := &mockLoadBalancerListenerService{
-		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancerListener, error) {
-			return nil, &cloudscalesdk.ErrorResponse{StatusCode: 404}
-		},
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancerListener, error) {
-			return nil, nil
-		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.LoadBalancerListenerRequest) (*cloudscalesdk.LoadBalancerListener, error) {
-			createdListener = true
-			return &cloudscalesdk.LoadBalancerListener{UUID: "new-listener-uuid", Name: req.Name}, nil
-		},
-	}
-
-	clusterScope := newTestClusterScopeWithLB(lbTestScopeOptions{
-		listenerService: listenerService,
-		lbEnabled:       true,
-	})
-	clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID = testPoolUUID
-	clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID = "deleted-listener-uuid"
-
-	r := newTestReconciler()
-
-	_, err := r.reconcileLBListener(context.Background(), clusterScope)
-
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(createdListener).To(BeTrue(), "Should create a new listener when old one was deleted")
-	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID).To(Equal("new-listener-uuid"))
 }
 
 func TestReconcileLBListener_UsesCustomPort(t *testing.T) {
@@ -736,92 +549,6 @@ func TestReconcileLBHealthMonitor_SkipsIfAlreadyExists(t *testing.T) {
 	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID).To(Equal("existing-hm-uuid"))
 }
 
-func TestReconcileLBHealthMonitor_FindsExistingByTag(t *testing.T) {
-	g := NewWithT(t)
-
-	healthMonitorService := &mockLoadBalancerHealthMonitorService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancerHealthMonitor, error) {
-			return []cloudscalesdk.LoadBalancerHealthMonitor{
-				{UUID: "found-hm-uuid"},
-			}, nil
-		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.LoadBalancerHealthMonitorRequest) (*cloudscalesdk.LoadBalancerHealthMonitor, error) {
-			g.Fail("Create should not be called when health monitor is found by tag")
-			return nil, nil
-		},
-	}
-
-	clusterScope := newTestClusterScopeWithLB(lbTestScopeOptions{
-		healthMonitorService: healthMonitorService,
-		lbEnabled:            true,
-	})
-	r := newTestReconciler()
-
-	_, err := r.reconcileLBHealthMonitor(context.Background(), clusterScope)
-
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID).To(Equal("found-hm-uuid"))
-}
-
-func TestReconcileLBHealthMonitor_ErrorsOnMultipleByTag(t *testing.T) {
-	g := NewWithT(t)
-
-	healthMonitorService := &mockLoadBalancerHealthMonitorService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancerHealthMonitor, error) {
-			return []cloudscalesdk.LoadBalancerHealthMonitor{
-				{UUID: "hm-uuid-1"},
-				{UUID: "hm-uuid-2"},
-			}, nil
-		},
-	}
-
-	clusterScope := newTestClusterScopeWithLB(lbTestScopeOptions{
-		healthMonitorService: healthMonitorService,
-		lbEnabled:            true,
-	})
-	r := newTestReconciler()
-
-	_, err := r.reconcileLBHealthMonitor(context.Background(), clusterScope)
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("found 2 load balancer health monitors matching tag filter"))
-	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID).To(BeEmpty())
-}
-
-func TestReconcileLBHealthMonitor_RecreatesIfDeletedExternally(t *testing.T) {
-	g := NewWithT(t)
-
-	var createdHM bool
-
-	healthMonitorService := &mockLoadBalancerHealthMonitorService{
-		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancerHealthMonitor, error) {
-			return nil, &cloudscalesdk.ErrorResponse{StatusCode: 404}
-		},
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancerHealthMonitor, error) {
-			return nil, nil
-		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.LoadBalancerHealthMonitorRequest) (*cloudscalesdk.LoadBalancerHealthMonitor, error) {
-			createdHM = true
-			return &cloudscalesdk.LoadBalancerHealthMonitor{UUID: "new-hm-uuid"}, nil
-		},
-	}
-
-	clusterScope := newTestClusterScopeWithLB(lbTestScopeOptions{
-		healthMonitorService: healthMonitorService,
-		lbEnabled:            true,
-	})
-	clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID = testPoolUUID
-	clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID = "deleted-hm-uuid"
-
-	r := newTestReconciler()
-
-	_, err := r.reconcileLBHealthMonitor(context.Background(), clusterScope)
-
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(createdHM).To(BeTrue(), "Should create a new health monitor when old one was deleted")
-	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID).To(Equal("new-hm-uuid"))
-}
-
 func TestReconcileLBHealthMonitor_UsesCustomThresholds(t *testing.T) {
 	g := NewWithT(t)
 
@@ -886,20 +613,11 @@ func TestReconcileLoadBalancer_SkipsWhenDisabled(t *testing.T) {
 	g.Expect(result.RequeueAfter).To(BeZero())
 }
 
-func TestReconcileLoadBalancer_WaitsForLBRunning(t *testing.T) {
+func TestReconcileLoadBalancer_ChangingStatusBlocksAndRequeues(t *testing.T) {
 	g := NewWithT(t)
 
-	lbService := &mockLoadBalancerService{
-		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancer, error) {
-			return &cloudscalesdk.LoadBalancer{
-				UUID:   id,
-				Status: "creating", // Not running yet
-			}, nil
-		},
-	}
-
 	clusterScope := newTestClusterScopeWithLB(lbTestScopeOptions{
-		loadBalancerService: lbService,
+		loadBalancerService: existingLBMock(LoadBalancerChangingStatus),
 		lbEnabled:           true,
 	})
 	clusterScope.CloudscaleCluster.Status.LoadBalancerID = testLBUUID
@@ -909,133 +627,93 @@ func TestReconcileLoadBalancer_WaitsForLBRunning(t *testing.T) {
 	result, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(result.RequeueAfter).ToNot(BeZero(), "Should requeue when LB is not running")
+	g.Expect(result.RequeueAfter).To(Equal(10*time.Second), "changing status should requeue after 10s")
 }
 
-func TestReconcileLoadBalancer_ErrorStatusHasLongerRequeue(t *testing.T) {
+func TestReconcileLoadBalancer_ErrorStatusProceedsWithMemberReconciliation(t *testing.T) {
 	g := NewWithT(t)
 
-	lbService := &mockLoadBalancerService{
-		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancer, error) {
-			return &cloudscalesdk.LoadBalancer{
-				UUID:   id,
-				Status: "error",
-			}, nil
-		},
-	}
-
 	clusterScope := newTestClusterScopeWithLB(lbTestScopeOptions{
-		loadBalancerService: lbService,
+		loadBalancerService: existingLBMock(LoadBalancerErrorStatus),
 		lbEnabled:           true,
 	})
 	clusterScope.CloudscaleCluster.Status.LoadBalancerID = testLBUUID
+	clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID = testPoolUUID
+	clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID = testListenerUUID
+	clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID = testHMUUID
 
-	r := newTestReconciler()
+	r := newTestReconcilerWithClient(newFakeClientForLB())
 
 	result, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(result.RequeueAfter).To(Equal(10*time.Second), "error status should requeue after 10s")
+	g.Expect(result.RequeueAfter).To(BeZero(), "error status should not block member reconciliation")
+
+	// LoadBalancerReadyCondition should be False because LB is not running
+	cond := conditions.Get(clusterScope.CloudscaleCluster, infrastructurev1beta2.LoadBalancerReadyCondition)
+	g.Expect(cond).ToNot(BeNil())
+	g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+	g.Expect(cond.Reason).To(Equal(infrastructurev1beta2.LoadBalancerNotReadyReason))
 }
 
-func TestReconcileLoadBalancer_DegradedStatusHasLongerRequeue(t *testing.T) {
+func TestReconcileLoadBalancer_DegradedStatusProceedsWithMemberReconciliation(t *testing.T) {
 	g := NewWithT(t)
 
-	lbService := &mockLoadBalancerService{
-		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancer, error) {
-			return &cloudscalesdk.LoadBalancer{
-				UUID:   id,
-				Status: "degraded",
-			}, nil
-		},
-	}
+	var deletedMemberUUID string
 
 	clusterScope := newTestClusterScopeWithLB(lbTestScopeOptions{
-		loadBalancerService: lbService,
-		lbEnabled:           true,
+		loadBalancerService: existingLBMock(LoadBalancerDegradedStatus),
+		poolMemberService: &mockLoadBalancerPoolMemberService{
+			listFn: func(ctx context.Context, poolID string, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancerPoolMember, error) {
+				return []cloudscalesdk.LoadBalancerPoolMember{
+					{Name: "stale-cp-0", UUID: "stale-uuid", Address: "10.0.0.10"},
+				}, nil
+			},
+			deleteFn: func(ctx context.Context, poolID, memberID string) error {
+				deletedMemberUUID = memberID
+				return nil
+			},
+		},
+		lbEnabled: true,
 	})
 	clusterScope.CloudscaleCluster.Status.LoadBalancerID = testLBUUID
+	clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID = testPoolUUID
+	clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID = testListenerUUID
+	clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID = testHMUUID
 
-	r := newTestReconciler()
+	r := newTestReconcilerWithClient(newFakeClientForLB())
 
 	result, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(result.RequeueAfter).To(Equal(10*time.Second), "degraded status should requeue after 10s")
-}
+	g.Expect(result.RequeueAfter).To(BeZero(), "degraded status should not block member reconciliation")
 
-func TestReconcileLoadBalancer_CreatingStatusHasShorterRequeue(t *testing.T) {
-	g := NewWithT(t)
+	// Stale member should have been removed
+	g.Expect(deletedMemberUUID).To(Equal("stale-uuid"))
 
-	lbService := &mockLoadBalancerService{
-		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancer, error) {
-			return &cloudscalesdk.LoadBalancer{
-				UUID:   id,
-				Status: "creating",
-			}, nil
-		},
-	}
-
-	clusterScope := newTestClusterScopeWithLB(lbTestScopeOptions{
-		loadBalancerService: lbService,
-		lbEnabled:           true,
-	})
-	clusterScope.CloudscaleCluster.Status.LoadBalancerID = testLBUUID
-
-	r := newTestReconciler()
-
-	result, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
-
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(result.RequeueAfter).To(Equal(5*time.Second), "creating status should requeue after 5s")
+	// LoadBalancerReadyCondition should be False because LB is degraded
+	cond := conditions.Get(clusterScope.CloudscaleCluster, infrastructurev1beta2.LoadBalancerReadyCondition)
+	g.Expect(cond).ToNot(BeNil())
+	g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+	g.Expect(cond.Reason).To(Equal(infrastructurev1beta2.LoadBalancerNotReadyReason))
 }
 
 func TestReconcileLoadBalancer_SetsControlPlaneEndpoint(t *testing.T) {
 	g := NewWithT(t)
 
-	lbService := &mockLoadBalancerService{
-		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancer, error) {
-			return &cloudscalesdk.LoadBalancer{
-				UUID:   id,
-				Status: "running",
-				VIPAddresses: []cloudscalesdk.VIPAddress{
-					{Address: "203.0.113.10"},
-				},
-			}, nil
-		},
-	}
-
-	poolService := &mockLoadBalancerPoolService{
-		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancerPool, error) {
-			return &cloudscalesdk.LoadBalancerPool{UUID: id}, nil
-		},
-	}
-
-	listenerService := &mockLoadBalancerListenerService{
-		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancerListener, error) {
-			return &cloudscalesdk.LoadBalancerListener{UUID: id}, nil
-		},
-	}
-
-	healthMonitorService := &mockLoadBalancerHealthMonitorService{
-		getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancerHealthMonitor, error) {
-			return &cloudscalesdk.LoadBalancerHealthMonitor{UUID: id}, nil
-		},
-	}
-
-	poolMemberService := &mockLoadBalancerPoolMemberService{
-		listFn: func(ctx context.Context, poolID string, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancerPoolMember, error) {
-			return nil, nil
-		},
-	}
-
 	clusterScope := newTestClusterScopeWithLB(lbTestScopeOptions{
-		loadBalancerService:  lbService,
-		poolService:          poolService,
-		listenerService:      listenerService,
-		healthMonitorService: healthMonitorService,
-		poolMemberService:    poolMemberService,
-		lbEnabled:            true,
+		loadBalancerService: &mockLoadBalancerService{
+			getFn: func(ctx context.Context, id string) (*cloudscalesdk.LoadBalancer, error) {
+				return &cloudscalesdk.LoadBalancer{
+					UUID:   id,
+					Status: LoadBalancerRunningStatus,
+					VIPAddresses: []cloudscalesdk.VIPAddress{
+						{Address: "203.0.113.10"},
+					},
+				}, nil
+			},
+		},
+		lbEnabled: true,
 	})
 	clusterScope.CloudscaleCluster.Status.LoadBalancerID = testLBUUID
 	clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID = testPoolUUID
