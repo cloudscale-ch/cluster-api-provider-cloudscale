@@ -23,19 +23,15 @@ import (
 	"path/filepath"
 	"testing"
 
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/events"
-	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/testenv"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/testutils"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -48,46 +44,19 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	logf.SetLogger(zap.New(zap.WriteTo(os.Stderr), zap.UseDevMode(true)))
-
 	ctx, cancel = context.WithCancel(context.TODO())
 
-	err := infrastructurev1beta2.AddToScheme(clientgoscheme.Scheme)
+	var err error
+	testEnv, cfg, k8sClient, err = testenv.StartEnvTest(
+		func() error {
+			return infrastructurev1beta2.AddToScheme(clientgoscheme.Scheme)
+		},
+		[]string{filepath.Join("..", "..", "config", "crd", "bases")},
+		nil,
+		filepath.Join("..", "..", "bin", "k8s"),
+	)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to add scheme: %v\n", err)
-		os.Exit(1)
-	}
-
-	// +kubebuilder:scaffold:scheme
-
-	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
-		ErrorIfCRDPathMissing: true,
-	}
-
-	// Retrieve the first found binary directory to allow running tests from IDEs
-	if getFirstFoundEnvTestBinaryDir() != "" {
-		testEnv.BinaryAssetsDirectory = getFirstFoundEnvTestBinaryDir()
-	}
-
-	// cfg is defined in this file globally.
-	cfg, err = testEnv.Start()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to start test environment: %v\n", err)
-		os.Exit(1)
-	}
-	if cfg == nil {
-		fmt.Fprintln(os.Stderr, "Expected cfg to not be nil")
-		os.Exit(1)
-	}
-
-	k8sClient, err = client.New(cfg, client.Options{Scheme: clientgoscheme.Scheme})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to create client: %v\n", err)
-		os.Exit(1)
-	}
-	if k8sClient == nil {
-		fmt.Fprintln(os.Stderr, "Expected k8sClient to not be nil")
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
 
@@ -98,40 +67,9 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// getFirstFoundEnvTestBinaryDir locates the first binary in the specified path.
-// ENVTEST-based tests depend on specific binaries, usually located in paths set by
-// controller-runtime. When running tests directly (e.g., via an IDE) without using
-// Makefile targets, the 'BinaryAssetsDirectory' must be explicitly configured.
-//
-// This function streamlines the process by finding the required binaries, similar to
-// setting the 'KUBEBUILDER_ASSETS' environment variable. To ensure the binaries are
-// properly set up, run 'make setup-envtest' beforehand.
-func getFirstFoundEnvTestBinaryDir() string {
-	basePath := filepath.Join("..", "..", "bin", "k8s")
-	entries, err := os.ReadDir(basePath)
-	if err != nil {
-		logf.Log.Error(err, "Failed to read directory", "path", basePath)
-		return ""
-	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			return filepath.Join(basePath, entry.Name())
-		}
-	}
-	return ""
-}
-
-func newTestFakeClient(objs ...client.Object) client.Client {
-	scheme := runtime.NewScheme()
-	_ = corev1.AddToScheme(scheme)
-	_ = clusterv1.AddToScheme(scheme)
-	_ = infrastructurev1beta2.AddToScheme(scheme)
-	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
-}
-
-func newTestReconciler() *CloudscaleClusterReconciler {
+func newTestReconciler(objs ...client.Object) *CloudscaleClusterReconciler {
 	return &CloudscaleClusterReconciler{
-		Client:   newTestFakeClient(),
+		Client:   testutils.NewFakeClient(objs...),
 		recorder: events.NewFakeRecorder(10),
 	}
 }

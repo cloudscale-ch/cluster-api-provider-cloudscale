@@ -22,145 +22,26 @@ import (
 	"testing"
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
-	"github.com/go-logr/logr"
 	. "github.com/onsi/gomega"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/events"
-	"k8s.io/utils/ptr"
-	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/conditions"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
-	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
-	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/scope"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/testutils"
 )
-
-type mockServerGroupService struct {
-	createFn func(ctx context.Context, req *cloudscalesdk.ServerGroupRequest) (*cloudscalesdk.ServerGroup, error)
-	getFn    func(ctx context.Context, id string) (*cloudscalesdk.ServerGroup, error)
-	listFn   func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error)
-	deleteFn func(ctx context.Context, id string) error
-	updateFn func(ctx context.Context, id string, req *cloudscalesdk.ServerGroupRequest) error
-}
-
-func (m *mockServerGroupService) Create(ctx context.Context, req *cloudscalesdk.ServerGroupRequest) (*cloudscalesdk.ServerGroup, error) {
-	if m.createFn != nil {
-		return m.createFn(ctx, req)
-	}
-	return nil, nil
-}
-
-func (m *mockServerGroupService) Get(ctx context.Context, id string) (*cloudscalesdk.ServerGroup, error) {
-	if m.getFn != nil {
-		return m.getFn(ctx, id)
-	}
-	return nil, nil
-}
-
-func (m *mockServerGroupService) List(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
-	if m.listFn != nil {
-		return m.listFn(ctx, modifiers...)
-	}
-	return nil, nil
-}
-
-func (m *mockServerGroupService) Delete(ctx context.Context, id string) error {
-	if m.deleteFn != nil {
-		return m.deleteFn(ctx, id)
-	}
-	return nil
-}
-
-func (m *mockServerGroupService) Update(ctx context.Context, id string, req *cloudscalesdk.ServerGroupRequest) error {
-	if m.updateFn != nil {
-		return m.updateFn(ctx, id, req)
-	}
-	return nil
-}
-
-func newTestMachineScopeWithServerGroup(serverGroupService cloudscale.ServerGroupService) *scope.MachineScope {
-	cloudscaleClient := &cloudscale.Client{
-		ServerGroups: serverGroupService,
-	}
-
-	cloudscaleMachine := &infrastructurev1beta2.CloudscaleMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-machine",
-			Namespace: "default",
-		},
-		Spec: infrastructurev1beta2.CloudscaleMachineSpec{
-			Flavor:      "flex-8-4",
-			Image:       "ubuntu-24.04",
-			ServerGroup: &infrastructurev1beta2.ServerGroupSpec{Name: "test-group"},
-		},
-	}
-
-	bootstrapSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "bootstrap-secret",
-			Namespace: "default",
-		},
-		Data: map[string][]byte{
-			"value": []byte("#!/bin/bash\necho 'bootstrap script'"),
-		},
-	}
-
-	fakeClient := newTestFakeClient(cloudscaleMachine, bootstrapSecret)
-
-	machineScope, _ := scope.NewMachineScope(scope.MachineScopeParams{
-		Client: fakeClient,
-		Logger: logr.Discard(),
-		Cluster: &clusterv1.Cluster{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-cluster",
-				Namespace: "default",
-			},
-		},
-		Machine: &clusterv1.Machine{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-machine",
-				Namespace: "default",
-			},
-			Spec: clusterv1.MachineSpec{
-				Bootstrap: clusterv1.Bootstrap{
-					DataSecretName: ptr.To("bootstrap-secret"),
-				},
-			},
-		},
-		CloudscaleCluster: &infrastructurev1beta2.CloudscaleCluster{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-cluster",
-				Namespace: "default",
-			},
-			Spec: infrastructurev1beta2.CloudscaleClusterSpec{
-				Region: "rma",
-				Zone:   "rma1",
-			},
-			Status: infrastructurev1beta2.CloudscaleClusterStatus{
-				Networks: []infrastructurev1beta2.NetworkStatus{
-					{Name: "test", NetworkID: "net-uuid-123", SubnetID: "subnet-uuid-123", Managed: true},
-				},
-			},
-		},
-		CloudscaleMachine: cloudscaleMachine,
-		CloudscaleClient:  cloudscaleClient,
-	})
-
-	return machineScope
-}
 
 func TestReconcileServerGroup_NoServerGroup_Noop(t *testing.T) {
 	g := NewWithT(t)
 
-	serverGroupService := &mockServerGroupService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
+	serverGroupService := &testutils.MockServerGroupService{
+		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
 			g.Fail("List should not be called when no server group is specified")
 			return nil, nil
 		},
 	}
 
-	machineScope := newTestMachineScopeWithServerGroup(serverGroupService)
+	machineScope := testutils.NewMachineScope(nil, testutils.WithMachineServerGroupService(serverGroupService), testutils.WithServerGroup(&infrastructurev1beta2.ServerGroupSpec{Name: "test-group"}))
 	machineScope.CloudscaleMachine.Spec.ServerGroup = nil
 
 	r := &CloudscaleMachineReconciler{
@@ -180,8 +61,8 @@ func TestReconcileServerGroup_FindsExisting_SetsStatusID(t *testing.T) {
 	g := NewWithT(t)
 
 	createCalled := false
-	serverGroupService := &mockServerGroupService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
+	serverGroupService := &testutils.MockServerGroupService{
+		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
 			return []cloudscalesdk.ServerGroup{
 				{
 					UUID:          "existing-group-uuid",
@@ -191,13 +72,13 @@ func TestReconcileServerGroup_FindsExisting_SetsStatusID(t *testing.T) {
 				},
 			}, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.ServerGroupRequest) (*cloudscalesdk.ServerGroup, error) {
+		CreateFn: func(ctx context.Context, req *cloudscalesdk.ServerGroupRequest) (*cloudscalesdk.ServerGroup, error) {
 			createCalled = true
 			return nil, nil
 		},
 	}
 
-	machineScope := newTestMachineScopeWithServerGroup(serverGroupService)
+	machineScope := testutils.NewMachineScope(nil, testutils.WithMachineServerGroupService(serverGroupService), testutils.WithServerGroup(&infrastructurev1beta2.ServerGroupSpec{Name: "test-group"}))
 	r := &CloudscaleMachineReconciler{
 		recorder: events.NewFakeRecorder(10),
 	}
@@ -217,8 +98,8 @@ func TestReconcileServerGroup_SkipsNonMatchingName(t *testing.T) {
 	g := NewWithT(t)
 
 	createCalled := false
-	serverGroupService := &mockServerGroupService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
+	serverGroupService := &testutils.MockServerGroupService{
+		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
 			return []cloudscalesdk.ServerGroup{
 				{
 					UUID:          "other-group-uuid",
@@ -228,7 +109,7 @@ func TestReconcileServerGroup_SkipsNonMatchingName(t *testing.T) {
 				},
 			}, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.ServerGroupRequest) (*cloudscalesdk.ServerGroup, error) {
+		CreateFn: func(ctx context.Context, req *cloudscalesdk.ServerGroupRequest) (*cloudscalesdk.ServerGroup, error) {
 			createCalled = true
 			return &cloudscalesdk.ServerGroup{
 				UUID:          "new-group-uuid",
@@ -239,7 +120,7 @@ func TestReconcileServerGroup_SkipsNonMatchingName(t *testing.T) {
 		},
 	}
 
-	machineScope := newTestMachineScopeWithServerGroup(serverGroupService)
+	machineScope := testutils.NewMachineScope(nil, testutils.WithMachineServerGroupService(serverGroupService), testutils.WithServerGroup(&infrastructurev1beta2.ServerGroupSpec{Name: "test-group"}))
 	r := &CloudscaleMachineReconciler{
 		recorder: events.NewFakeRecorder(10),
 	}
@@ -255,8 +136,8 @@ func TestReconcileServerGroup_SkipsNonMatchingZone(t *testing.T) {
 	g := NewWithT(t)
 
 	createCalled := false
-	serverGroupService := &mockServerGroupService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
+	serverGroupService := &testutils.MockServerGroupService{
+		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
 			return []cloudscalesdk.ServerGroup{
 				{
 					UUID:          "other-zone-group-uuid",
@@ -266,7 +147,7 @@ func TestReconcileServerGroup_SkipsNonMatchingZone(t *testing.T) {
 				},
 			}, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.ServerGroupRequest) (*cloudscalesdk.ServerGroup, error) {
+		CreateFn: func(ctx context.Context, req *cloudscalesdk.ServerGroupRequest) (*cloudscalesdk.ServerGroup, error) {
 			createCalled = true
 			return &cloudscalesdk.ServerGroup{
 				UUID:          "new-group-uuid",
@@ -277,7 +158,7 @@ func TestReconcileServerGroup_SkipsNonMatchingZone(t *testing.T) {
 		},
 	}
 
-	machineScope := newTestMachineScopeWithServerGroup(serverGroupService)
+	machineScope := testutils.NewMachineScope(nil, testutils.WithMachineServerGroupService(serverGroupService), testutils.WithServerGroup(&infrastructurev1beta2.ServerGroupSpec{Name: "test-group"}))
 	r := &CloudscaleMachineReconciler{
 		recorder: events.NewFakeRecorder(10),
 	}
@@ -293,11 +174,11 @@ func TestReconcileServerGroup_CreatesNew_SetsStatusID(t *testing.T) {
 	g := NewWithT(t)
 
 	var capturedReq *cloudscalesdk.ServerGroupRequest
-	serverGroupService := &mockServerGroupService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
+	serverGroupService := &testutils.MockServerGroupService{
+		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
 			return nil, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.ServerGroupRequest) (*cloudscalesdk.ServerGroup, error) {
+		CreateFn: func(ctx context.Context, req *cloudscalesdk.ServerGroupRequest) (*cloudscalesdk.ServerGroup, error) {
 			capturedReq = req
 			return &cloudscalesdk.ServerGroup{
 				UUID:          "created-group-uuid",
@@ -308,7 +189,7 @@ func TestReconcileServerGroup_CreatesNew_SetsStatusID(t *testing.T) {
 		},
 	}
 
-	machineScope := newTestMachineScopeWithServerGroup(serverGroupService)
+	machineScope := testutils.NewMachineScope(nil, testutils.WithMachineServerGroupService(serverGroupService), testutils.WithServerGroup(&infrastructurev1beta2.ServerGroupSpec{Name: "test-group"}))
 	r := &CloudscaleMachineReconciler{
 		recorder: events.NewFakeRecorder(10),
 	}
@@ -336,13 +217,13 @@ func TestReconcileServerGroup_CreatesNew_SetsStatusID(t *testing.T) {
 func TestReconcileServerGroup_ListError_PropagatesError(t *testing.T) {
 	g := NewWithT(t)
 
-	serverGroupService := &mockServerGroupService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
+	serverGroupService := &testutils.MockServerGroupService{
+		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
 			return nil, fmt.Errorf("api error")
 		},
 	}
 
-	machineScope := newTestMachineScopeWithServerGroup(serverGroupService)
+	machineScope := testutils.NewMachineScope(nil, testutils.WithMachineServerGroupService(serverGroupService), testutils.WithServerGroup(&infrastructurev1beta2.ServerGroupSpec{Name: "test-group"}))
 	r := &CloudscaleMachineReconciler{
 		recorder: events.NewFakeRecorder(10),
 	}
@@ -361,16 +242,16 @@ func TestReconcileServerGroup_ListError_PropagatesError(t *testing.T) {
 func TestReconcileServerGroup_CreateError_PropagatesError(t *testing.T) {
 	g := NewWithT(t)
 
-	serverGroupService := &mockServerGroupService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
+	serverGroupService := &testutils.MockServerGroupService{
+		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
 			return nil, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.ServerGroupRequest) (*cloudscalesdk.ServerGroup, error) {
+		CreateFn: func(ctx context.Context, req *cloudscalesdk.ServerGroupRequest) (*cloudscalesdk.ServerGroup, error) {
 			return nil, fmt.Errorf("create failed")
 		},
 	}
 
-	machineScope := newTestMachineScopeWithServerGroup(serverGroupService)
+	machineScope := testutils.NewMachineScope(nil, testutils.WithMachineServerGroupService(serverGroupService), testutils.WithServerGroup(&infrastructurev1beta2.ServerGroupSpec{Name: "test-group"}))
 	r := &CloudscaleMachineReconciler{
 		recorder: events.NewFakeRecorder(10),
 	}
@@ -389,7 +270,7 @@ func TestReconcileServerGroup_CreateError_PropagatesError(t *testing.T) {
 func TestDeleteServerGroup_ClearsStatusID(t *testing.T) {
 	g := NewWithT(t)
 
-	machineScope := newTestMachineScopeWithServerGroup(nil)
+	machineScope := testutils.NewMachineScope(nil, testutils.WithServerGroup(&infrastructurev1beta2.ServerGroupSpec{Name: "test-group"}))
 	machineScope.CloudscaleMachine.Status.ServerGroupID = "group-to-clear"
 
 	r := &CloudscaleMachineReconciler{

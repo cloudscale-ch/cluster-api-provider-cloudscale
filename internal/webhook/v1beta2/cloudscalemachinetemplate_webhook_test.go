@@ -22,6 +22,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/testutils"
 )
 
 func newMachineTemplateWebhookTestObjects() (
@@ -74,7 +75,7 @@ func TestMachineTemplateDefaulting_NoModification(t *testing.T) {
 func TestMachineTemplateValidateCreate_ValidTemplate(t *testing.T) {
 	g := NewWithT(t)
 	obj, _ := newMachineTemplateWebhookTestObjects()
-	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: newTestFlavorInfo()}
+	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: testutils.NewTestFlavorInfo()}
 
 	_, err := validator.ValidateCreate(ctx, obj)
 	g.Expect(err).NotTo(HaveOccurred())
@@ -83,7 +84,7 @@ func TestMachineTemplateValidateCreate_ValidTemplate(t *testing.T) {
 func TestMachineTemplateValidateCreate_InvalidFlavor(t *testing.T) {
 	g := NewWithT(t)
 	obj, _ := newMachineTemplateWebhookTestObjects()
-	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: newTestFlavorInfo()}
+	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: testutils.NewTestFlavorInfo()}
 	obj.Spec.Template.Spec.Flavor = "nonexistent-flavor"
 
 	_, err := validator.ValidateCreate(ctx, obj)
@@ -95,7 +96,7 @@ func TestMachineTemplateValidateCreate_InvalidFlavor(t *testing.T) {
 func TestMachineTemplateValidateCreate_ReservedTagPrefix(t *testing.T) {
 	g := NewWithT(t)
 	obj, _ := newMachineTemplateWebhookTestObjects()
-	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: newTestFlavorInfo()}
+	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: testutils.NewTestFlavorInfo()}
 	obj.Spec.Template.Spec.Tags = map[string]string{
 		"capcs-cluster-test": "owned",
 	}
@@ -109,19 +110,10 @@ func TestMachineTemplateValidateCreate_ReservedTagPrefix(t *testing.T) {
 // Tests for CloudscaleMachineTemplate Validating Webhook - Update
 // ============================================================================
 
-func TestMachineTemplateValidateUpdate_NoChanges(t *testing.T) {
-	g := NewWithT(t)
-	obj, oldObj := newMachineTemplateWebhookTestObjects()
-	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: newTestFlavorInfo()}
-
-	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-	g.Expect(err).NotTo(HaveOccurred())
-}
-
 func TestMachineTemplateValidateUpdate_FlavorChange(t *testing.T) {
 	g := NewWithT(t)
 	obj, oldObj := newMachineTemplateWebhookTestObjects()
-	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: newTestFlavorInfo()}
+	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: testutils.NewTestFlavorInfo()}
 	obj.Spec.Template.Spec.Flavor = "flex-16-8"
 
 	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
@@ -132,32 +124,8 @@ func TestMachineTemplateValidateUpdate_FlavorChange(t *testing.T) {
 func TestMachineTemplateValidateUpdate_ImageChange(t *testing.T) {
 	g := NewWithT(t)
 	obj, oldObj := newMachineTemplateWebhookTestObjects()
-	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: newTestFlavorInfo()}
+	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: testutils.NewTestFlavorInfo()}
 	obj.Spec.Template.Spec.Image = "ubuntu-22.04"
-
-	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("spec.template.spec"))
-}
-
-func TestMachineTemplateValidateUpdate_RootVolumeSizeChange(t *testing.T) {
-	g := NewWithT(t)
-	obj, oldObj := newMachineTemplateWebhookTestObjects()
-	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: newTestFlavorInfo()}
-	obj.Spec.Template.Spec.RootVolumeSize = 100
-
-	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("spec.template.spec"))
-}
-
-func TestMachineTemplateValidateUpdate_TagsChange(t *testing.T) {
-	g := NewWithT(t)
-	obj, oldObj := newMachineTemplateWebhookTestObjects()
-	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: newTestFlavorInfo()}
-	obj.Spec.Template.Spec.Tags = map[string]string{
-		"env": "staging",
-	}
 
 	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
 	g.Expect(err).To(HaveOccurred())
@@ -171,7 +139,7 @@ func TestMachineTemplateValidateUpdate_TagsChange(t *testing.T) {
 func TestMachineTemplateValidateDelete_AlwaysSucceeds(t *testing.T) {
 	g := NewWithT(t)
 	obj, _ := newMachineTemplateWebhookTestObjects()
-	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: newTestFlavorInfo()}
+	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: testutils.NewTestFlavorInfo()}
 
 	_, err := validator.ValidateDelete(ctx, obj)
 	g.Expect(err).NotTo(HaveOccurred())

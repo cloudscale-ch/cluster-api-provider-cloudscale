@@ -21,145 +21,28 @@ import (
 	"testing"
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
-	"github.com/go-logr/logr"
 	. "github.com/onsi/gomega"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
-	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
-	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
-	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/scope"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/testutils"
 )
 
 const testExistingServerUUID = "existing-server-uuid"
-
-type mockServerService struct {
-	createFn func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error)
-	getFn    func(ctx context.Context, id string) (*cloudscalesdk.Server, error)
-	listFn   func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error)
-	deleteFn func(ctx context.Context, id string) error
-	updateFn func(ctx context.Context, id string, req *cloudscalesdk.ServerUpdateRequest) error
-}
-
-func (m *mockServerService) Create(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
-	if m.createFn != nil {
-		return m.createFn(ctx, req)
-	}
-	return nil, nil
-}
-
-func (m *mockServerService) Get(ctx context.Context, id string) (*cloudscalesdk.Server, error) {
-	if m.getFn != nil {
-		return m.getFn(ctx, id)
-	}
-	return nil, nil
-}
-
-func (m *mockServerService) List(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
-	if m.listFn != nil {
-		return m.listFn(ctx, modifiers...)
-	}
-	return nil, nil
-}
-
-func (m *mockServerService) Delete(ctx context.Context, id string) error {
-	if m.deleteFn != nil {
-		return m.deleteFn(ctx, id)
-	}
-	return nil
-}
-
-func (m *mockServerService) Update(ctx context.Context, id string, req *cloudscalesdk.ServerUpdateRequest) error {
-	if m.updateFn != nil {
-		return m.updateFn(ctx, id, req)
-	}
-	return nil
-}
-
-func newTestMachineScopeWithServer(serverService cloudscale.ServerService) *scope.MachineScope {
-	cloudscaleClient := &cloudscale.Client{
-		Servers: serverService,
-	}
-
-	cloudscaleMachine := &infrastructurev1beta2.CloudscaleMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-machine",
-			Namespace: "default",
-		},
-		Spec: infrastructurev1beta2.CloudscaleMachineSpec{
-			Flavor: "flex-8-4",
-			Image:  "ubuntu-24.04",
-		},
-	}
-
-	bootstrapSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "bootstrap-secret",
-			Namespace: "default",
-		},
-		Data: map[string][]byte{
-			"value": []byte("#!/bin/bash\necho 'bootstrap script'"),
-		},
-	}
-
-	fakeClient := newTestFakeClient(cloudscaleMachine, bootstrapSecret)
-
-	machineScope, _ := scope.NewMachineScope(scope.MachineScopeParams{
-		Client: fakeClient,
-		Logger: logr.Discard(),
-		Cluster: &clusterv1.Cluster{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-cluster",
-				Namespace: "default",
-			},
-		},
-		Machine: &clusterv1.Machine{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-machine",
-				Namespace: "default",
-			},
-			Spec: clusterv1.MachineSpec{
-				Bootstrap: clusterv1.Bootstrap{
-					DataSecretName: ptr.To("bootstrap-secret"),
-				},
-			},
-		},
-		CloudscaleCluster: &infrastructurev1beta2.CloudscaleCluster{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-cluster",
-				Namespace: "default",
-			},
-			Spec: infrastructurev1beta2.CloudscaleClusterSpec{
-				Region: "rma",
-				Zone:   "rma1",
-			},
-			Status: infrastructurev1beta2.CloudscaleClusterStatus{
-				Networks: []infrastructurev1beta2.NetworkStatus{
-					{Name: "test", NetworkID: "net-uuid-123", SubnetID: "subnet-uuid-123", Managed: true},
-				},
-			},
-		},
-		CloudscaleMachine: cloudscaleMachine,
-		CloudscaleClient:  cloudscaleClient,
-	})
-
-	return machineScope
-}
 
 func TestReconcileServer_CreatesServer(t *testing.T) {
 	g := NewWithT(t)
 	var capturedReq *cloudscalesdk.ServerRequest
 
-	serverService := &mockServerService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
+	serverService := &testutils.MockServerService{
+		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
 			return nil, nil // No existing server
 		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
+		CreateFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
 			capturedReq = req
 			return &cloudscalesdk.Server{
 				UUID:          "server-uuid-123",
@@ -178,7 +61,7 @@ func TestReconcileServer_CreatesServer(t *testing.T) {
 		},
 	}
 
-	machineScope := newTestMachineScopeWithServer(serverService)
+	machineScope := testutils.NewMachineScope(serverService)
 	r := &CloudscaleMachineReconciler{
 		recorder: events.NewFakeRecorder(10),
 	}
@@ -201,11 +84,11 @@ func TestReconcileServer_CreatesServer(t *testing.T) {
 
 func TestReconcileServer_SetsProviderID(t *testing.T) {
 	g := NewWithT(t)
-	serverService := &mockServerService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
+	serverService := &testutils.MockServerService{
+		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
 			return nil, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
+		CreateFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
 			return &cloudscalesdk.Server{
 				UUID:          "server-uuid-456",
 				Name:          req.Name,
@@ -215,7 +98,7 @@ func TestReconcileServer_SetsProviderID(t *testing.T) {
 		},
 	}
 
-	machineScope := newTestMachineScopeWithServer(serverService)
+	machineScope := testutils.NewMachineScope(serverService)
 	r := &CloudscaleMachineReconciler{
 		recorder: events.NewFakeRecorder(10),
 	}
@@ -230,11 +113,11 @@ func TestReconcileServer_SetsProviderID(t *testing.T) {
 
 func TestReconcileServer_SetsAddresses(t *testing.T) {
 	g := NewWithT(t)
-	serverService := &mockServerService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
+	serverService := &testutils.MockServerService{
+		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
 			return nil, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
+		CreateFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
 			return &cloudscalesdk.Server{
 				UUID:          "server-uuid-789",
 				Name:          req.Name,
@@ -258,7 +141,7 @@ func TestReconcileServer_SetsAddresses(t *testing.T) {
 		},
 	}
 
-	machineScope := newTestMachineScopeWithServer(serverService)
+	machineScope := testutils.NewMachineScope(serverService)
 	r := &CloudscaleMachineReconciler{
 		recorder: events.NewFakeRecorder(10),
 	}
@@ -270,40 +153,10 @@ func TestReconcileServer_SetsAddresses(t *testing.T) {
 	g.Expect(machineScope.CloudscaleMachine.Status.Addresses).To(HaveLen(2))
 }
 
-func TestReconcileServer_SkipsIfAlreadyExists(t *testing.T) {
-	g := NewWithT(t)
-	serverService := &mockServerService{
-		getFn: func(ctx context.Context, id string) (*cloudscalesdk.Server, error) {
-			return &cloudscalesdk.Server{
-				UUID:          id,
-				Status:        "running",
-				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
-			}, nil
-		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
-			g.Fail("Create should not be called when server already exists")
-			return nil, nil
-		},
-	}
-
-	machineScope := newTestMachineScopeWithServer(serverService)
-	machineScope.CloudscaleMachine.Status.ServerID = testExistingServerUUID
-
-	r := &CloudscaleMachineReconciler{
-		recorder: events.NewFakeRecorder(10),
-	}
-
-	result, err := r.reconcileServer(context.Background(), machineScope)
-
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(result).To(Equal(ctrl.Result{}))
-	g.Expect(machineScope.CloudscaleMachine.Status.ServerID).To(Equal(testExistingServerUUID))
-}
-
 func TestReconcileServer_FindsExistingByTag(t *testing.T) {
 	g := NewWithT(t)
-	serverService := &mockServerService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
+	serverService := &testutils.MockServerService{
+		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
 			return []cloudscalesdk.Server{
 				{
 					UUID:          "found-server-uuid",
@@ -312,13 +165,13 @@ func TestReconcileServer_FindsExistingByTag(t *testing.T) {
 				},
 			}, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
+		CreateFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
 			g.Fail("Create should not be called when server is found by tag")
 			return nil, nil
 		},
 	}
 
-	machineScope := newTestMachineScopeWithServer(serverService)
+	machineScope := testutils.NewMachineScope(serverService)
 	r := &CloudscaleMachineReconciler{
 		recorder: events.NewFakeRecorder(10),
 	}
@@ -332,8 +185,8 @@ func TestReconcileServer_FindsExistingByTag(t *testing.T) {
 
 func TestReconcileServer_ErrorsOnMultipleByTag(t *testing.T) {
 	g := NewWithT(t)
-	serverService := &mockServerService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
+	serverService := &testutils.MockServerService{
+		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
 			return []cloudscalesdk.Server{
 				{
 					UUID:          "server-uuid-1",
@@ -349,7 +202,7 @@ func TestReconcileServer_ErrorsOnMultipleByTag(t *testing.T) {
 		},
 	}
 
-	machineScope := newTestMachineScopeWithServer(serverService)
+	machineScope := testutils.NewMachineScope(serverService)
 	r := &CloudscaleMachineReconciler{
 		recorder: events.NewFakeRecorder(10),
 	}
@@ -367,70 +220,62 @@ func TestReconcileServer_ErrorsOnMultipleByTag(t *testing.T) {
 	g.Expect(cond.Reason).To(Equal(infrastructurev1beta2.ServerErrorReason))
 }
 
-func TestDeleteServer_DeletesServer(t *testing.T) {
-	g := NewWithT(t)
-	var deletedID string
-
-	serverService := &mockServerService{
-		deleteFn: func(ctx context.Context, id string) error {
-			deletedID = id
-			return nil
+func TestDeleteServer_BasicScenarios(t *testing.T) {
+	testCases := []struct {
+		name         string
+		serverID     string
+		deleteErr    error
+		wantServerID string
+	}{
+		{
+			name:         "Deletes server",
+			serverID:     "server-to-delete",
+			wantServerID: "",
+		},
+		{
+			name:         "Skips if no server",
+			serverID:     "",
+			wantServerID: "",
+		},
+		{
+			name:         "Ignores already deleted",
+			serverID:     "already-deleted-server",
+			deleteErr:    &cloudscalesdk.ErrorResponse{StatusCode: 404},
+			wantServerID: "",
 		},
 	}
 
-	machineScope := newTestMachineScopeWithServer(serverService)
-	machineScope.CloudscaleMachine.Status.ServerID = "server-to-delete"
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var deletedID string
+			g := NewWithT(t)
 
-	r := &CloudscaleMachineReconciler{
-		recorder: events.NewFakeRecorder(10),
+			serverService := &testutils.MockServerService{
+				DeleteFn: func(ctx context.Context, id string) error {
+					deletedID = id
+					if tc.serverID == "" {
+						g.Fail("Delete should not be called when no server exists")
+					}
+					return tc.deleteErr
+				},
+			}
+
+			machineScope := testutils.NewMachineScope(serverService)
+			machineScope.CloudscaleMachine.Status.ServerID = tc.serverID
+
+			r := &CloudscaleMachineReconciler{
+				recorder: events.NewFakeRecorder(10),
+			}
+
+			err := r.deleteServer(context.Background(), machineScope)
+
+			g.Expect(err).ToNot(HaveOccurred())
+			g.Expect(machineScope.CloudscaleMachine.Status.ServerID).To(Equal(tc.wantServerID))
+			if tc.serverID != "" {
+				g.Expect(deletedID).To(Equal(tc.serverID))
+			}
+		})
 	}
-
-	err := r.deleteServer(context.Background(), machineScope)
-
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(deletedID).To(Equal("server-to-delete"))
-	g.Expect(machineScope.CloudscaleMachine.Status.ServerID).To(BeEmpty())
-}
-
-func TestDeleteServer_SkipsIfNoServer(t *testing.T) {
-	g := NewWithT(t)
-	serverService := &mockServerService{
-		deleteFn: func(ctx context.Context, id string) error {
-			g.Fail("Delete should not be called when no server exists")
-			return nil
-		},
-	}
-
-	machineScope := newTestMachineScopeWithServer(serverService)
-
-	r := &CloudscaleMachineReconciler{
-		recorder: events.NewFakeRecorder(10),
-	}
-
-	err := r.deleteServer(context.Background(), machineScope)
-
-	g.Expect(err).ToNot(HaveOccurred())
-}
-
-func TestDeleteServer_IgnoresAlreadyDeleted(t *testing.T) {
-	g := NewWithT(t)
-	serverService := &mockServerService{
-		deleteFn: func(ctx context.Context, id string) error {
-			return &cloudscalesdk.ErrorResponse{StatusCode: 404}
-		},
-	}
-
-	machineScope := newTestMachineScopeWithServer(serverService)
-	machineScope.CloudscaleMachine.Status.ServerID = "already-deleted-server"
-
-	r := &CloudscaleMachineReconciler{
-		recorder: events.NewFakeRecorder(10),
-	}
-
-	err := r.deleteServer(context.Background(), machineScope)
-
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(machineScope.CloudscaleMachine.Status.ServerID).To(BeEmpty())
 }
 
 func TestReconcileServer_SetsServerStatusCondition(t *testing.T) {
@@ -454,8 +299,8 @@ func TestReconcileServer_SetsServerStatusCondition(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			g := NewWithT(t)
-			serverService := &mockServerService{
-				getFn: func(ctx context.Context, id string) (*cloudscalesdk.Server, error) {
+			serverService := &testutils.MockServerService{
+				GetFn: func(ctx context.Context, id string) (*cloudscalesdk.Server, error) {
 					return &cloudscalesdk.Server{
 						UUID:          id,
 						Status:        tc.serverStatus,
@@ -464,7 +309,7 @@ func TestReconcileServer_SetsServerStatusCondition(t *testing.T) {
 				},
 			}
 
-			machineScope := newTestMachineScopeWithServer(serverService)
+			machineScope := testutils.NewMachineScope(serverService)
 			machineScope.CloudscaleMachine.Status.ServerID = testExistingServerUUID
 
 			r := &CloudscaleMachineReconciler{
@@ -493,17 +338,21 @@ func TestReconcileServer_ProvisionedNotModified(t *testing.T) {
 	g := NewWithT(t)
 	// Verify that reconcileServer does not modify the Provisioned flag
 	// (that's the controller's responsibility)
-	serverService := &mockServerService{
-		getFn: func(ctx context.Context, id string) (*cloudscalesdk.Server, error) {
+	serverService := &testutils.MockServerService{
+		GetFn: func(ctx context.Context, id string) (*cloudscalesdk.Server, error) {
 			return &cloudscalesdk.Server{
 				UUID:          id,
 				Status:        "changing",
 				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
 			}, nil
 		},
+		CreateFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
+			g.Fail("Create should not be called when server already exists")
+			return nil, nil
+		},
 	}
 
-	machineScope := newTestMachineScopeWithServer(serverService)
+	machineScope := testutils.NewMachineScope(serverService)
 	machineScope.CloudscaleMachine.Status.ServerID = testExistingServerUUID
 	machineScope.CloudscaleMachine.Status.Initialization = &infrastructurev1beta2.MachineInitializationStatus{
 		Provisioned: ptr.To(true),
@@ -535,11 +384,11 @@ func TestReconcileServer_SetsServerGroupInRequest(t *testing.T) {
 
 	var capturedReq *cloudscalesdk.ServerRequest
 
-	serverService := &mockServerService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
+	serverService := &testutils.MockServerService{
+		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
 			return nil, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
+		CreateFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
 			capturedReq = req
 			return &cloudscalesdk.Server{
 				UUID:          "server-uuid-sg",
@@ -550,7 +399,7 @@ func TestReconcileServer_SetsServerGroupInRequest(t *testing.T) {
 		},
 	}
 
-	machineScope := newTestMachineScopeWithServer(serverService)
+	machineScope := testutils.NewMachineScope(serverService)
 	machineScope.CloudscaleMachine.Status.ServerGroupID = "server-group-uuid-123"
 
 	r := &CloudscaleMachineReconciler{
@@ -570,11 +419,11 @@ func TestReconcileServer_NoServerGroupWhenStatusEmpty(t *testing.T) {
 
 	var capturedReq *cloudscalesdk.ServerRequest
 
-	serverService := &mockServerService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
+	serverService := &testutils.MockServerService{
+		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
 			return nil, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
+		CreateFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
 			capturedReq = req
 			return &cloudscalesdk.Server{
 				UUID:          "server-uuid-no-sg",
@@ -585,7 +434,7 @@ func TestReconcileServer_NoServerGroupWhenStatusEmpty(t *testing.T) {
 		},
 	}
 
-	machineScope := newTestMachineScopeWithServer(serverService)
+	machineScope := testutils.NewMachineScope(serverService)
 
 	r := &CloudscaleMachineReconciler{
 		recorder: events.NewFakeRecorder(10),
@@ -604,7 +453,7 @@ func TestReconcileServer_NoServerGroupWhenStatusEmpty(t *testing.T) {
 func TestBuildInterfaceRequests_DefaultsToPublicPlusFirstNetwork(t *testing.T) {
 	g := NewWithT(t)
 
-	machineScope := newTestMachineScopeWithServer(&mockServerService{})
+	machineScope := testutils.NewMachineScope(&testutils.MockServerService{})
 	// No interfaces in spec → uses runtime defaults
 
 	r := &CloudscaleMachineReconciler{}
@@ -622,7 +471,7 @@ func TestBuildInterfaceRequests_DefaultsToPublicPlusFirstNetwork(t *testing.T) {
 func TestBuildInterfaceRequests_NoClusterNetworksErrors(t *testing.T) {
 	g := NewWithT(t)
 
-	machineScope := newTestMachineScopeWithServer(&mockServerService{})
+	machineScope := testutils.NewMachineScope(&testutils.MockServerService{})
 	machineScope.CloudscaleCluster.Status.Networks = nil
 
 	r := &CloudscaleMachineReconciler{}
@@ -636,7 +485,7 @@ func TestBuildInterfaceRequests_NoClusterNetworksErrors(t *testing.T) {
 func TestBuildInterfaceRequests_PublicInterface(t *testing.T) {
 	g := NewWithT(t)
 
-	machineScope := newTestMachineScopeWithServer(&mockServerService{})
+	machineScope := testutils.NewMachineScope(&testutils.MockServerService{})
 	machineScope.CloudscaleMachine.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
 		{Type: "public"},
 	}
@@ -653,7 +502,7 @@ func TestBuildInterfaceRequests_PublicInterface(t *testing.T) {
 func TestBuildInterfaceRequests_NamedNetworkFound(t *testing.T) {
 	g := NewWithT(t)
 
-	machineScope := newTestMachineScopeWithServer(&mockServerService{})
+	machineScope := testutils.NewMachineScope(&testutils.MockServerService{})
 	machineScope.CloudscaleMachine.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
 		{Network: "test"},
 	}
@@ -670,7 +519,7 @@ func TestBuildInterfaceRequests_NamedNetworkFound(t *testing.T) {
 func TestBuildInterfaceRequests_NamedNetworkNotFound(t *testing.T) {
 	g := NewWithT(t)
 
-	machineScope := newTestMachineScopeWithServer(&mockServerService{})
+	machineScope := testutils.NewMachineScope(&testutils.MockServerService{})
 	machineScope.CloudscaleMachine.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
 		{Network: "nonexistent"},
 	}
@@ -686,7 +535,7 @@ func TestBuildInterfaceRequests_NamedNetworkNotFound(t *testing.T) {
 func TestBuildInterfaceRequests_NamedNetworkNotProvisioned(t *testing.T) {
 	g := NewWithT(t)
 
-	machineScope := newTestMachineScopeWithServer(&mockServerService{})
+	machineScope := testutils.NewMachineScope(&testutils.MockServerService{})
 	machineScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
 		{Name: "test", NetworkID: "", SubnetID: "subnet-uuid-123", Managed: true},
 	}
@@ -705,7 +554,7 @@ func TestBuildInterfaceRequests_NamedNetworkNotProvisioned(t *testing.T) {
 func TestBuildInterfaceRequests_MixedPublicAndNetwork(t *testing.T) {
 	g := NewWithT(t)
 
-	machineScope := newTestMachineScopeWithServer(&mockServerService{})
+	machineScope := testutils.NewMachineScope(&testutils.MockServerService{})
 	machineScope.CloudscaleMachine.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
 		{Network: "test"},
 		{Type: "public"},
@@ -724,7 +573,7 @@ func TestBuildInterfaceRequests_MixedPublicAndNetwork(t *testing.T) {
 func TestBuildInterfaceRequests_InvalidInterfaceErrors(t *testing.T) {
 	g := NewWithT(t)
 
-	machineScope := newTestMachineScopeWithServer(&mockServerService{})
+	machineScope := testutils.NewMachineScope(&testutils.MockServerService{})
 	machineScope.CloudscaleMachine.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
 		{}, // neither type nor network
 	}
@@ -741,7 +590,7 @@ func TestBuildInterfaceRequests_ReturnsIPFamilyFromPublicInterface(t *testing.T)
 	g := NewWithT(t)
 
 	dualStack := infrastructurev1beta2.IPFamilyDualStack
-	machineScope := newTestMachineScopeWithServer(&mockServerService{})
+	machineScope := testutils.NewMachineScope(&testutils.MockServerService{})
 	machineScope.CloudscaleMachine.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
 		{Network: "test"},
 		{Type: "public", IPFamily: &dualStack},
@@ -759,7 +608,7 @@ func TestBuildInterfaceRequests_ReturnsIPFamilyFromPublicInterface(t *testing.T)
 func TestBuildInterfaceRequests_NilIPFamilyWhenNoPublicInterface(t *testing.T) {
 	g := NewWithT(t)
 
-	machineScope := newTestMachineScopeWithServer(&mockServerService{})
+	machineScope := testutils.NewMachineScope(&testutils.MockServerService{})
 	machineScope.CloudscaleMachine.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
 		{Network: "test"},
 	}
@@ -802,11 +651,11 @@ func TestReconcileServer_SetsUseIPV6DualStack(t *testing.T) {
 	g := NewWithT(t)
 	var capturedReq *cloudscalesdk.ServerRequest
 
-	serverService := &mockServerService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
+	serverService := &testutils.MockServerService{
+		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
 			return nil, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
+		CreateFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
 			capturedReq = req
 			return &cloudscalesdk.Server{
 				UUID:          "server-uuid-ipv6",
@@ -818,7 +667,7 @@ func TestReconcileServer_SetsUseIPV6DualStack(t *testing.T) {
 	}
 
 	dualStack := infrastructurev1beta2.IPFamilyDualStack
-	machineScope := newTestMachineScopeWithServer(serverService)
+	machineScope := testutils.NewMachineScope(serverService)
 	machineScope.CloudscaleMachine.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
 		{Network: "test"},
 		{Type: "public", IPFamily: &dualStack},
@@ -840,11 +689,11 @@ func TestReconcileServer_SetsUseIPV6IPv4Only(t *testing.T) {
 	g := NewWithT(t)
 	var capturedReq *cloudscalesdk.ServerRequest
 
-	serverService := &mockServerService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
+	serverService := &testutils.MockServerService{
+		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
 			return nil, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
+		CreateFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
 			capturedReq = req
 			return &cloudscalesdk.Server{
 				UUID:          "server-uuid-ipv4",
@@ -856,7 +705,7 @@ func TestReconcileServer_SetsUseIPV6IPv4Only(t *testing.T) {
 	}
 
 	ipv4 := infrastructurev1beta2.IPFamilyIPv4
-	machineScope := newTestMachineScopeWithServer(serverService)
+	machineScope := testutils.NewMachineScope(serverService)
 	machineScope.CloudscaleMachine.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
 		{Network: "test"},
 		{Type: "public", IPFamily: &ipv4},

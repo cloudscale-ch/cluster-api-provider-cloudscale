@@ -56,484 +56,226 @@ func newTestCloudscaleMachine() *infrastructurev1beta2.CloudscaleMachine {
 	}
 }
 
-// ============================================================================
-// Tests for NewMachineScope
-// ============================================================================
+// validMachineScopeParams returns a fully populated MachineScopeParams; tests
+// blank fields to drive validation errors.
+func validMachineScopeParams(t *testing.T) (MachineScopeParams, *infrastructurev1beta2.CloudscaleMachine) {
+	t.Helper()
+	cloudscaleMachine := newTestCloudscaleMachine()
+	return MachineScopeParams{
+		Client:            newFakeClient(cloudscaleMachine),
+		Logger:            logr.Discard(),
+		Cluster:           newTestCluster(),
+		Machine:           newTestMachine(),
+		CloudscaleCluster: newTestCloudscaleCluster(),
+		CloudscaleMachine: cloudscaleMachine,
+		CloudscaleClient:  newTestCloudscaleClient(),
+	}, cloudscaleMachine
+}
 
 func TestNewMachineScope_Success(t *testing.T) {
 	g := NewWithT(t)
+	params, _ := validMachineScopeParams(t)
 
-	cluster := newTestCluster()
-	machine := newTestMachine()
-	cloudscaleCluster := newTestCloudscaleCluster()
-	cloudscaleMachine := newTestCloudscaleMachine()
-	fakeClient := newFakeClient(cloudscaleCluster, cloudscaleMachine)
-	cloudscaleClient := newTestCloudscaleClient()
-
-	scope, err := NewMachineScope(MachineScopeParams{
-		Client:            fakeClient,
-		Logger:            logr.Discard(),
-		Cluster:           cluster,
-		Machine:           machine,
-		CloudscaleCluster: cloudscaleCluster,
-		CloudscaleMachine: cloudscaleMachine,
-		CloudscaleClient:  cloudscaleClient,
-	})
+	scope, err := NewMachineScope(params)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(scope).ToNot(BeNil())
-	g.Expect(scope.Cluster).To(Equal(cluster))
-	g.Expect(scope.Machine).To(Equal(machine))
-	g.Expect(scope.CloudscaleCluster).To(Equal(cloudscaleCluster))
-	g.Expect(scope.CloudscaleMachine).To(Equal(cloudscaleMachine))
-	g.Expect(scope.CloudscaleClient).To(Equal(cloudscaleClient))
-}
-
-func TestNewMachineScope_NilClient(t *testing.T) {
-	g := NewWithT(t)
-
-	scope, err := NewMachineScope(MachineScopeParams{
-		Client:            nil,
-		Logger:            logr.Discard(),
-		Cluster:           newTestCluster(),
-		Machine:           newTestMachine(),
-		CloudscaleCluster: newTestCloudscaleCluster(),
-		CloudscaleMachine: newTestCloudscaleMachine(),
-		CloudscaleClient:  newTestCloudscaleClient(),
-	})
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(scope).To(BeNil())
-	g.Expect(err.Error()).To(ContainSubstring("client is required"))
-}
-
-func TestNewMachineScope_NilCluster(t *testing.T) {
-	g := NewWithT(t)
-
-	cloudscaleMachine := newTestCloudscaleMachine()
-	fakeClient := newFakeClient(cloudscaleMachine)
-
-	scope, err := NewMachineScope(MachineScopeParams{
-		Client:            fakeClient,
-		Logger:            logr.Discard(),
-		Cluster:           nil,
-		Machine:           newTestMachine(),
-		CloudscaleCluster: newTestCloudscaleCluster(),
-		CloudscaleMachine: cloudscaleMachine,
-		CloudscaleClient:  newTestCloudscaleClient(),
-	})
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(scope).To(BeNil())
-	g.Expect(err.Error()).To(ContainSubstring("cluster is required"))
-}
-
-func TestNewMachineScope_NilMachine(t *testing.T) {
-	g := NewWithT(t)
-
-	cloudscaleMachine := newTestCloudscaleMachine()
-	fakeClient := newFakeClient(cloudscaleMachine)
-
-	scope, err := NewMachineScope(MachineScopeParams{
-		Client:            fakeClient,
-		Logger:            logr.Discard(),
-		Cluster:           newTestCluster(),
-		Machine:           nil,
-		CloudscaleCluster: newTestCloudscaleCluster(),
-		CloudscaleMachine: cloudscaleMachine,
-		CloudscaleClient:  newTestCloudscaleClient(),
-	})
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(scope).To(BeNil())
-	g.Expect(err.Error()).To(ContainSubstring("machine is required"))
-}
-
-func TestNewMachineScope_NilCloudscaleCluster(t *testing.T) {
-	g := NewWithT(t)
-
-	cloudscaleMachine := newTestCloudscaleMachine()
-	fakeClient := newFakeClient(cloudscaleMachine)
-
-	scope, err := NewMachineScope(MachineScopeParams{
-		Client:            fakeClient,
-		Logger:            logr.Discard(),
-		Cluster:           newTestCluster(),
-		Machine:           newTestMachine(),
-		CloudscaleCluster: nil,
-		CloudscaleMachine: cloudscaleMachine,
-		CloudscaleClient:  newTestCloudscaleClient(),
-	})
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(scope).To(BeNil())
-	g.Expect(err.Error()).To(ContainSubstring("cloudscaleCluster is required"))
-}
-
-func TestNewMachineScope_NilCloudscaleMachine(t *testing.T) {
-	g := NewWithT(t)
-
-	fakeClient := newFakeClient()
-
-	scope, err := NewMachineScope(MachineScopeParams{
-		Client:            fakeClient,
-		Logger:            logr.Discard(),
-		Cluster:           newTestCluster(),
-		Machine:           newTestMachine(),
-		CloudscaleCluster: newTestCloudscaleCluster(),
-		CloudscaleMachine: nil,
-		CloudscaleClient:  newTestCloudscaleClient(),
-	})
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(scope).To(BeNil())
-	g.Expect(err.Error()).To(ContainSubstring("cloudscaleMachine is required"))
-}
-
-func TestNewMachineScope_NilCloudscaleClient(t *testing.T) {
-	g := NewWithT(t)
-
-	cloudscaleMachine := newTestCloudscaleMachine()
-	fakeClient := newFakeClient(cloudscaleMachine)
-
-	scope, err := NewMachineScope(MachineScopeParams{
-		Client:            fakeClient,
-		Logger:            logr.Discard(),
-		Cluster:           newTestCluster(),
-		Machine:           newTestMachine(),
-		CloudscaleCluster: newTestCloudscaleCluster(),
-		CloudscaleMachine: cloudscaleMachine,
-		CloudscaleClient:  nil,
-	})
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(scope).To(BeNil())
-	g.Expect(err.Error()).To(ContainSubstring("cloudscaleClient is required"))
-}
-
-// ============================================================================
-// Tests for Name and Namespace
-// ============================================================================
-
-func TestMachineScope_Name(t *testing.T) {
-	g := NewWithT(t)
-
-	cloudscaleMachine := newTestCloudscaleMachine()
-	fakeClient := newFakeClient(cloudscaleMachine)
-
-	scope, err := NewMachineScope(MachineScopeParams{
-		Client:            fakeClient,
-		Logger:            logr.Discard(),
-		Cluster:           newTestCluster(),
-		Machine:           newTestMachine(),
-		CloudscaleCluster: newTestCloudscaleCluster(),
-		CloudscaleMachine: cloudscaleMachine,
-		CloudscaleClient:  newTestCloudscaleClient(),
-	})
-
-	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(scope.Cluster).To(Equal(params.Cluster))
+	g.Expect(scope.Machine).To(Equal(params.Machine))
+	g.Expect(scope.CloudscaleCluster).To(Equal(params.CloudscaleCluster))
+	g.Expect(scope.CloudscaleMachine).To(Equal(params.CloudscaleMachine))
+	g.Expect(scope.CloudscaleClient).To(Equal(params.CloudscaleClient))
 	g.Expect(scope.Name()).To(Equal("test-machine"))
-}
-
-func TestMachineScope_Namespace(t *testing.T) {
-	g := NewWithT(t)
-
-	cloudscaleMachine := newTestCloudscaleMachine()
-	fakeClient := newFakeClient(cloudscaleMachine)
-
-	scope, err := NewMachineScope(MachineScopeParams{
-		Client:            fakeClient,
-		Logger:            logr.Discard(),
-		Cluster:           newTestCluster(),
-		Machine:           newTestMachine(),
-		CloudscaleCluster: newTestCloudscaleCluster(),
-		CloudscaleMachine: cloudscaleMachine,
-		CloudscaleClient:  newTestCloudscaleClient(),
-	})
-
-	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(scope.Namespace()).To(Equal("test-namespace"))
 }
 
-// ============================================================================
-// Tests for IsControlPlane
-// ============================================================================
-
-func TestMachineScope_IsControlPlane_True(t *testing.T) {
-	g := NewWithT(t)
-
-	machine := newTestMachine()
-	machine.Labels = map[string]string{
-		clusterv1.MachineControlPlaneLabel: "",
-	}
-	cloudscaleMachine := newTestCloudscaleMachine()
-	fakeClient := newFakeClient(cloudscaleMachine)
-
-	scope, err := NewMachineScope(MachineScopeParams{
-		Client:            fakeClient,
-		Logger:            logr.Discard(),
-		Cluster:           newTestCluster(),
-		Machine:           machine,
-		CloudscaleCluster: newTestCloudscaleCluster(),
-		CloudscaleMachine: cloudscaleMachine,
-		CloudscaleClient:  newTestCloudscaleClient(),
-	})
-
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(scope.IsControlPlane()).To(BeTrue())
-}
-
-func TestMachineScope_IsControlPlane_False(t *testing.T) {
-	g := NewWithT(t)
-
-	machine := newTestMachine()
-	cloudscaleMachine := newTestCloudscaleMachine()
-	fakeClient := newFakeClient(cloudscaleMachine)
-
-	scope, err := NewMachineScope(MachineScopeParams{
-		Client:            fakeClient,
-		Logger:            logr.Discard(),
-		Cluster:           newTestCluster(),
-		Machine:           machine,
-		CloudscaleCluster: newTestCloudscaleCluster(),
-		CloudscaleMachine: cloudscaleMachine,
-		CloudscaleClient:  newTestCloudscaleClient(),
-	})
-
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(scope.IsControlPlane()).To(BeFalse())
-}
-
-// ============================================================================
-// Tests for GetBootstrapData
-// ============================================================================
-
-func TestMachineScope_GetBootstrapData_Success(t *testing.T) {
-	g := NewWithT(t)
-
-	machine := newTestMachine()
-	machine.Spec.Bootstrap.DataSecretName = ptr.To("bootstrap-secret")
-
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "bootstrap-secret",
-			Namespace: "test-namespace",
-		},
-		Data: map[string][]byte{
-			"value": []byte("#cloud-config\nruncmd:\n  - echo hello"),
-		},
+func TestNewMachineScope_Validation(t *testing.T) {
+	cases := []struct {
+		name      string
+		blank     func(p *MachineScopeParams)
+		errPhrase string
+	}{
+		{"nil Client", func(p *MachineScopeParams) { p.Client = nil }, "client is required"},
+		{"nil Cluster", func(p *MachineScopeParams) { p.Cluster = nil }, "cluster is required"},
+		{"nil Machine", func(p *MachineScopeParams) { p.Machine = nil }, "machine is required"},
+		{"nil CloudscaleCluster", func(p *MachineScopeParams) { p.CloudscaleCluster = nil }, "cloudscaleCluster is required"},
+		{"nil CloudscaleMachine", func(p *MachineScopeParams) { p.CloudscaleMachine = nil }, "cloudscaleMachine is required"},
+		{"nil CloudscaleClient", func(p *MachineScopeParams) { p.CloudscaleClient = nil }, "cloudscaleClient is required"},
 	}
 
-	cloudscaleMachine := newTestCloudscaleMachine()
-	fakeClient := newFakeClient(cloudscaleMachine, secret)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			params, _ := validMachineScopeParams(t)
+			tc.blank(&params)
 
-	scope, err := NewMachineScope(MachineScopeParams{
-		Client:            fakeClient,
-		Logger:            logr.Discard(),
-		Cluster:           newTestCluster(),
-		Machine:           machine,
-		CloudscaleCluster: newTestCloudscaleCluster(),
-		CloudscaleMachine: cloudscaleMachine,
-		CloudscaleClient:  newTestCloudscaleClient(),
-	})
-	g.Expect(err).ToNot(HaveOccurred())
-
-	data, err := scope.GetBootstrapData(context.Background())
-
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(data).To(Equal("#cloud-config\nruncmd:\n  - echo hello"))
+			scope, err := NewMachineScope(params)
+			g.Expect(err).To(HaveOccurred())
+			g.Expect(scope).To(BeNil())
+			g.Expect(err.Error()).To(ContainSubstring(tc.errPhrase))
+		})
+	}
 }
 
-func TestMachineScope_GetBootstrapData_NilSecretName(t *testing.T) {
-	g := NewWithT(t)
+func TestMachineScope_IsControlPlane(t *testing.T) {
+	cases := []struct {
+		name           string
+		labels         map[string]string
+		isControlPlane bool
+	}{
+		{"no labels", nil, false},
+		{"control-plane label set", map[string]string{clusterv1.MachineControlPlaneLabel: ""}, true},
+	}
 
-	machine := newTestMachine()
-	// DataSecretName is nil
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			params, _ := validMachineScopeParams(t)
+			params.Machine = newTestMachine()
+			params.Machine.Labels = tc.labels
 
-	cloudscaleMachine := newTestCloudscaleMachine()
-	fakeClient := newFakeClient(cloudscaleMachine)
-
-	scope, err := NewMachineScope(MachineScopeParams{
-		Client:            fakeClient,
-		Logger:            logr.Discard(),
-		Cluster:           newTestCluster(),
-		Machine:           machine,
-		CloudscaleCluster: newTestCloudscaleCluster(),
-		CloudscaleMachine: cloudscaleMachine,
-		CloudscaleClient:  newTestCloudscaleClient(),
-	})
-	g.Expect(err).ToNot(HaveOccurred())
-
-	_, err = scope.GetBootstrapData(context.Background())
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("bootstrap data secret name is nil"))
+			scope, err := NewMachineScope(params)
+			g.Expect(err).ToNot(HaveOccurred())
+			g.Expect(scope.IsControlPlane()).To(Equal(tc.isControlPlane))
+		})
+	}
 }
 
-func TestMachineScope_GetBootstrapData_SecretNotFound(t *testing.T) {
-	g := NewWithT(t)
-
-	machine := newTestMachine()
-	machine.Spec.Bootstrap.DataSecretName = ptr.To("nonexistent-secret")
-
-	cloudscaleMachine := newTestCloudscaleMachine()
-	fakeClient := newFakeClient(cloudscaleMachine)
-
-	scope, err := NewMachineScope(MachineScopeParams{
-		Client:            fakeClient,
-		Logger:            logr.Discard(),
-		Cluster:           newTestCluster(),
-		Machine:           machine,
-		CloudscaleCluster: newTestCloudscaleCluster(),
-		CloudscaleMachine: cloudscaleMachine,
-		CloudscaleClient:  newTestCloudscaleClient(),
-	})
-	g.Expect(err).ToNot(HaveOccurred())
-
-	_, err = scope.GetBootstrapData(context.Background())
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("getting bootstrap data secret"))
-}
-
-func TestMachineScope_GetBootstrapData_MissingValueKey(t *testing.T) {
-	g := NewWithT(t)
-
-	machine := newTestMachine()
-	machine.Spec.Bootstrap.DataSecretName = ptr.To("bootstrap-secret")
-
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "bootstrap-secret",
-			Namespace: "test-namespace",
+func TestMachineScope_GetBootstrapData(t *testing.T) {
+	cases := []struct {
+		name       string
+		secretName *string
+		secret     *corev1.Secret
+		wantData   string
+		wantErrSub string
+	}{
+		{
+			name:       "happy path",
+			secretName: ptr.To("bootstrap-secret"),
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "bootstrap-secret", Namespace: "test-namespace"},
+				Data:       map[string][]byte{"value": []byte("#cloud-config\nruncmd:\n  - echo hello")},
+			},
+			wantData: "#cloud-config\nruncmd:\n  - echo hello",
 		},
-		Data: map[string][]byte{
-			"other-key": []byte("some data"),
+		{
+			name:       "nil DataSecretName",
+			secretName: nil,
+			wantErrSub: "bootstrap data secret name is nil",
+		},
+		{
+			name:       "secret not found",
+			secretName: ptr.To("nonexistent-secret"),
+			wantErrSub: "getting bootstrap data secret",
+		},
+		{
+			name:       "missing value key",
+			secretName: ptr.To("bootstrap-secret"),
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "bootstrap-secret", Namespace: "test-namespace"},
+				Data:       map[string][]byte{"other-key": []byte("some data")},
+			},
+			wantErrSub: "missing 'value' key",
 		},
 	}
 
-	cloudscaleMachine := newTestCloudscaleMachine()
-	fakeClient := newFakeClient(cloudscaleMachine, secret)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			machine := newTestMachine()
+			machine.Spec.Bootstrap.DataSecretName = tc.secretName
 
-	scope, err := NewMachineScope(MachineScopeParams{
-		Client:            fakeClient,
-		Logger:            logr.Discard(),
-		Cluster:           newTestCluster(),
-		Machine:           machine,
-		CloudscaleCluster: newTestCloudscaleCluster(),
-		CloudscaleMachine: cloudscaleMachine,
-		CloudscaleClient:  newTestCloudscaleClient(),
-	})
-	g.Expect(err).ToNot(HaveOccurred())
+			cloudscaleMachine := newTestCloudscaleMachine()
+			objs := []client.Object{cloudscaleMachine}
+			if tc.secret != nil {
+				objs = append(objs, tc.secret)
+			}
 
-	_, err = scope.GetBootstrapData(context.Background())
+			scope, err := NewMachineScope(MachineScopeParams{
+				Client:            newFakeClient(objs...),
+				Logger:            logr.Discard(),
+				Cluster:           newTestCluster(),
+				Machine:           machine,
+				CloudscaleCluster: newTestCloudscaleCluster(),
+				CloudscaleMachine: cloudscaleMachine,
+				CloudscaleClient:  newTestCloudscaleClient(),
+			})
+			g.Expect(err).ToNot(HaveOccurred())
 
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("missing 'value' key"))
+			data, err := scope.GetBootstrapData(context.Background())
+			if tc.wantErrSub != "" {
+				g.Expect(err).To(HaveOccurred())
+				g.Expect(err.Error()).To(ContainSubstring(tc.wantErrSub))
+				return
+			}
+			g.Expect(err).ToNot(HaveOccurred())
+			g.Expect(data).To(Equal(tc.wantData))
+		})
+	}
 }
 
-// ============================================================================
-// Tests for GetProviderID / SetProviderID
-// ============================================================================
+func TestMachineScope_ProviderID(t *testing.T) {
+	cases := []struct {
+		name           string
+		seeded         *string
+		setTo          string
+		wantInitialGet string
+		wantAfterSet   string
+	}{
+		{
+			name:           "already set is read back verbatim",
+			seeded:         ptr.To("cloudscale://server-uuid"),
+			wantInitialGet: "cloudscale://server-uuid",
+		},
+		{
+			name:           "nil returns empty string",
+			seeded:         nil,
+			wantInitialGet: "",
+		},
+		{
+			name:         "Set prefixes raw uuid with cloudscale://",
+			seeded:       nil,
+			setTo:        "new-server-uuid",
+			wantAfterSet: "cloudscale://new-server-uuid",
+		},
+	}
 
-func TestMachineScope_GetProviderID_WhenSet(t *testing.T) {
-	g := NewWithT(t)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			params, cloudscaleMachine := validMachineScopeParams(t)
+			cloudscaleMachine.Spec.ProviderID = tc.seeded
 
-	cloudscaleMachine := newTestCloudscaleMachine()
-	cloudscaleMachine.Spec.ProviderID = ptr.To("cloudscale://server-uuid")
-	fakeClient := newFakeClient(cloudscaleMachine)
+			scope, err := NewMachineScope(params)
+			g.Expect(err).ToNot(HaveOccurred())
 
-	scope, err := NewMachineScope(MachineScopeParams{
-		Client:            fakeClient,
-		Logger:            logr.Discard(),
-		Cluster:           newTestCluster(),
-		Machine:           newTestMachine(),
-		CloudscaleCluster: newTestCloudscaleCluster(),
-		CloudscaleMachine: cloudscaleMachine,
-		CloudscaleClient:  newTestCloudscaleClient(),
-	})
-	g.Expect(err).ToNot(HaveOccurred())
-
-	g.Expect(scope.GetProviderID()).To(Equal("cloudscale://server-uuid"))
+			if tc.setTo != "" {
+				scope.SetProviderID(tc.setTo)
+				g.Expect(scope.GetProviderID()).To(Equal(tc.wantAfterSet))
+				g.Expect(*scope.CloudscaleMachine.Spec.ProviderID).To(Equal(tc.wantAfterSet))
+				return
+			}
+			g.Expect(scope.GetProviderID()).To(Equal(tc.wantInitialGet))
+		})
+	}
 }
 
-func TestMachineScope_GetProviderID_WhenNil(t *testing.T) {
+func TestMachineScope_Close_PatchesStatus(t *testing.T) {
 	g := NewWithT(t)
+	params, cloudscaleMachine := validMachineScopeParams(t)
+	fakeClient := params.Client
 
-	cloudscaleMachine := newTestCloudscaleMachine()
-	// ProviderID is nil
-	fakeClient := newFakeClient(cloudscaleMachine)
-
-	scope, err := NewMachineScope(MachineScopeParams{
-		Client:            fakeClient,
-		Logger:            logr.Discard(),
-		Cluster:           newTestCluster(),
-		Machine:           newTestMachine(),
-		CloudscaleCluster: newTestCloudscaleCluster(),
-		CloudscaleMachine: cloudscaleMachine,
-		CloudscaleClient:  newTestCloudscaleClient(),
-	})
+	scope, err := NewMachineScope(params)
 	g.Expect(err).ToNot(HaveOccurred())
 
-	g.Expect(scope.GetProviderID()).To(Equal(""))
-}
-
-func TestMachineScope_SetProviderID(t *testing.T) {
-	g := NewWithT(t)
-
-	cloudscaleMachine := newTestCloudscaleMachine()
-	fakeClient := newFakeClient(cloudscaleMachine)
-
-	scope, err := NewMachineScope(MachineScopeParams{
-		Client:            fakeClient,
-		Logger:            logr.Discard(),
-		Cluster:           newTestCluster(),
-		Machine:           newTestMachine(),
-		CloudscaleCluster: newTestCloudscaleCluster(),
-		CloudscaleMachine: cloudscaleMachine,
-		CloudscaleClient:  newTestCloudscaleClient(),
-	})
-	g.Expect(err).ToNot(HaveOccurred())
-
-	scope.SetProviderID("new-server-uuid")
-
-	g.Expect(scope.GetProviderID()).To(Equal("cloudscale://new-server-uuid"))
-	g.Expect(*scope.CloudscaleMachine.Spec.ProviderID).To(Equal("cloudscale://new-server-uuid"))
-}
-
-// ============================================================================
-// Tests for Close
-// ============================================================================
-
-func TestMachineScope_Close(t *testing.T) {
-	g := NewWithT(t)
-
-	cloudscaleMachine := newTestCloudscaleMachine()
-	fakeClient := newFakeClient(cloudscaleMachine)
-
-	scope, err := NewMachineScope(MachineScopeParams{
-		Client:            fakeClient,
-		Logger:            logr.Discard(),
-		Cluster:           newTestCluster(),
-		Machine:           newTestMachine(),
-		CloudscaleCluster: newTestCloudscaleCluster(),
-		CloudscaleMachine: cloudscaleMachine,
-		CloudscaleClient:  newTestCloudscaleClient(),
-	})
-	g.Expect(err).ToNot(HaveOccurred())
-
-	// Modify status to verify patch happens
 	scope.CloudscaleMachine.Status.ServerID = "patched-server-id"
 
-	err = scope.Close(context.Background())
-	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(scope.Close(context.Background())).To(Succeed())
 
-	// Verify the status was patched by fetching the object again
 	updated := &infrastructurev1beta2.CloudscaleMachine{}
-	err = fakeClient.Get(context.Background(), client.ObjectKey{
+	g.Expect(fakeClient.Get(context.Background(), client.ObjectKey{
 		Name:      cloudscaleMachine.Name,
 		Namespace: cloudscaleMachine.Namespace,
-	}, updated)
-	g.Expect(err).ToNot(HaveOccurred())
+	}, updated)).To(Succeed())
 	g.Expect(updated.Status.ServerID).To(Equal("patched-server-id"))
 }

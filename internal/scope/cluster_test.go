@@ -74,180 +74,80 @@ func newTestCloudscaleClient() *cloudscale.Client {
 	return &cloudscale.Client{}
 }
 
-// ============================================================================
-// Tests for NewClusterScope
-// ============================================================================
+// validClusterScopeParams returns a fully-populated parameter set; tests
+// blank out individual fields to provoke validation errors.
+func validClusterScopeParams(t *testing.T) ClusterScopeParams {
+	t.Helper()
+	cloudscaleCluster := newTestCloudscaleCluster()
+	return ClusterScopeParams{
+		Client:            newFakeClient(cloudscaleCluster),
+		Logger:            logr.Discard(),
+		Cluster:           newTestCluster(),
+		CloudscaleCluster: cloudscaleCluster,
+		CloudscaleClient:  newTestCloudscaleClient(),
+	}
+}
 
 func TestNewClusterScope_Success(t *testing.T) {
 	g := NewWithT(t)
+	params := validClusterScopeParams(t)
 
-	cluster := newTestCluster()
-	cloudscaleCluster := newTestCloudscaleCluster()
-	fakeClient := newFakeClient(cloudscaleCluster)
-	cloudscaleClient := newTestCloudscaleClient()
-
-	scope, err := NewClusterScope(ClusterScopeParams{
-		Client:            fakeClient,
-		Logger:            logr.Discard(),
-		Cluster:           cluster,
-		CloudscaleCluster: cloudscaleCluster,
-		CloudscaleClient:  cloudscaleClient,
-	})
+	scope, err := NewClusterScope(params)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(scope).ToNot(BeNil())
-	g.Expect(scope.Cluster).To(Equal(cluster))
-	g.Expect(scope.CloudscaleCluster).To(Equal(cloudscaleCluster))
-	g.Expect(scope.CloudscaleClient).To(Equal(cloudscaleClient))
-}
-
-func TestNewClusterScope_NilClient(t *testing.T) {
-	g := NewWithT(t)
-
-	scope, err := NewClusterScope(ClusterScopeParams{
-		Client:            nil,
-		Logger:            logr.Discard(),
-		Cluster:           newTestCluster(),
-		CloudscaleCluster: newTestCloudscaleCluster(),
-		CloudscaleClient:  newTestCloudscaleClient(),
-	})
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(scope).To(BeNil())
-	g.Expect(err.Error()).To(ContainSubstring("client is required"))
-}
-
-func TestNewClusterScope_NilCluster(t *testing.T) {
-	g := NewWithT(t)
-
-	cloudscaleCluster := newTestCloudscaleCluster()
-	fakeClient := newFakeClient(cloudscaleCluster)
-
-	scope, err := NewClusterScope(ClusterScopeParams{
-		Client:            fakeClient,
-		Logger:            logr.Discard(),
-		Cluster:           nil,
-		CloudscaleCluster: cloudscaleCluster,
-		CloudscaleClient:  newTestCloudscaleClient(),
-	})
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(scope).To(BeNil())
-	g.Expect(err.Error()).To(ContainSubstring("cluster is required"))
-}
-
-func TestNewClusterScope_NilCloudscaleCluster(t *testing.T) {
-	g := NewWithT(t)
-
-	fakeClient := newFakeClient()
-
-	scope, err := NewClusterScope(ClusterScopeParams{
-		Client:            fakeClient,
-		Logger:            logr.Discard(),
-		Cluster:           newTestCluster(),
-		CloudscaleCluster: nil,
-		CloudscaleClient:  newTestCloudscaleClient(),
-	})
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(scope).To(BeNil())
-	g.Expect(err.Error()).To(ContainSubstring("cloudscaleCluster is required"))
-}
-
-func TestNewClusterScope_NilCloudscaleClient(t *testing.T) {
-	g := NewWithT(t)
-
-	cloudscaleCluster := newTestCloudscaleCluster()
-	fakeClient := newFakeClient(cloudscaleCluster)
-
-	scope, err := NewClusterScope(ClusterScopeParams{
-		Client:            fakeClient,
-		Logger:            logr.Discard(),
-		Cluster:           newTestCluster(),
-		CloudscaleCluster: cloudscaleCluster,
-		CloudscaleClient:  nil,
-	})
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(scope).To(BeNil())
-	g.Expect(err.Error()).To(ContainSubstring("cloudscaleClient is required"))
-}
-
-// ============================================================================
-// Tests for Name and Namespace
-// ============================================================================
-
-func TestClusterScope_Name(t *testing.T) {
-	g := NewWithT(t)
-
-	cluster := newTestCluster()
-	cloudscaleCluster := newTestCloudscaleCluster()
-	fakeClient := newFakeClient(cloudscaleCluster)
-
-	scope, err := NewClusterScope(ClusterScopeParams{
-		Client:            fakeClient,
-		Logger:            logr.Discard(),
-		Cluster:           cluster,
-		CloudscaleCluster: cloudscaleCluster,
-		CloudscaleClient:  newTestCloudscaleClient(),
-	})
-
-	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(scope.Cluster).To(Equal(params.Cluster))
+	g.Expect(scope.CloudscaleCluster).To(Equal(params.CloudscaleCluster))
+	g.Expect(scope.CloudscaleClient).To(Equal(params.CloudscaleClient))
 	g.Expect(scope.Name()).To(Equal("test-cluster"))
-}
-
-func TestClusterScope_Namespace(t *testing.T) {
-	g := NewWithT(t)
-
-	cluster := newTestCluster()
-	cloudscaleCluster := newTestCloudscaleCluster()
-	fakeClient := newFakeClient(cloudscaleCluster)
-
-	scope, err := NewClusterScope(ClusterScopeParams{
-		Client:            fakeClient,
-		Logger:            logr.Discard(),
-		Cluster:           cluster,
-		CloudscaleCluster: cloudscaleCluster,
-		CloudscaleClient:  newTestCloudscaleClient(),
-	})
-
-	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(scope.Namespace()).To(Equal("test-namespace"))
 }
 
-// ============================================================================
-// Tests for Close
-// ============================================================================
+func TestNewClusterScope_Validation(t *testing.T) {
+	cases := []struct {
+		name      string
+		blank     func(p *ClusterScopeParams)
+		errPhrase string
+	}{
+		{"nil Client", func(p *ClusterScopeParams) { p.Client = nil }, "client is required"},
+		{"nil Cluster", func(p *ClusterScopeParams) { p.Cluster = nil }, "cluster is required"},
+		{"nil CloudscaleCluster", func(p *ClusterScopeParams) { p.CloudscaleCluster = nil }, "cloudscaleCluster is required"},
+		{"nil CloudscaleClient", func(p *ClusterScopeParams) { p.CloudscaleClient = nil }, "cloudscaleClient is required"},
+	}
 
-func TestClusterScope_Close(t *testing.T) {
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			params := validClusterScopeParams(t)
+			tc.blank(&params)
+
+			scope, err := NewClusterScope(params)
+			g.Expect(err).To(HaveOccurred())
+			g.Expect(scope).To(BeNil())
+			g.Expect(err.Error()).To(ContainSubstring(tc.errPhrase))
+		})
+	}
+}
+
+func TestClusterScope_Close_PatchesStatus(t *testing.T) {
 	g := NewWithT(t)
+	params := validClusterScopeParams(t)
+	fakeClient := params.Client
 
-	cluster := newTestCluster()
-	cloudscaleCluster := newTestCloudscaleCluster()
-	fakeClient := newFakeClient(cloudscaleCluster)
-
-	scope, err := NewClusterScope(ClusterScopeParams{
-		Client:            fakeClient,
-		Logger:            logr.Discard(),
-		Cluster:           cluster,
-		CloudscaleCluster: cloudscaleCluster,
-		CloudscaleClient:  newTestCloudscaleClient(),
-	})
+	scope, err := NewClusterScope(params)
 	g.Expect(err).ToNot(HaveOccurred())
 
-	// Modify status to verify patch happens
-	scope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{{Name: "test", NetworkID: "patched-network-id", Managed: true}}
+	scope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "test", NetworkID: "patched-network-id", Managed: true},
+	}
 
-	err = scope.Close(context.Background())
-	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(scope.Close(context.Background())).To(Succeed())
 
-	// Verify the status was patched by fetching the object again
 	updated := &infrastructurev1beta2.CloudscaleCluster{}
-	err = fakeClient.Get(context.Background(), client.ObjectKey{
-		Name:      cloudscaleCluster.Name,
-		Namespace: cloudscaleCluster.Namespace,
-	}, updated)
-	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(fakeClient.Get(context.Background(), client.ObjectKey{
+		Name:      params.CloudscaleCluster.Name,
+		Namespace: params.CloudscaleCluster.Namespace,
+	}, updated)).To(Succeed())
 	g.Expect(updated.Status.Networks).To(HaveLen(1))
 	g.Expect(updated.Status.Networks[0].NetworkID).To(Equal("patched-network-id"))
 }
