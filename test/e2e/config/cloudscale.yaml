@@ -73,7 +73,7 @@ variables:
   CLOUDSCALE_MACHINE_IMAGE_UPGRADE_FROM: "custom:ubuntu-2404-kube-v1.34.3"
   # CLOUDSCALE_SSH_PUBLIC_KEY: Set via environment variable
   CLOUDSCALE_ROOT_VOLUME_SIZE: "20"
-  CLOUDSCALE_NETWORK_CIDR: "10.100.0.0/24"
+  CLOUDSCALE_NETWORK_CIDR: "172.18.0.0/24"
 
   # Machine template names for upgrade tests
   CONTROL_PLANE_MACHINE_TEMPLATE_UPGRADE_TO: "k8s-upgrade-control-plane"

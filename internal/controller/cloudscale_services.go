@@ -3,19 +3,11 @@ package controller
 import (
 	"context"
 	"fmt"
-	"time"
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/scope"
-)
-
-const (
-	// CreateTimeoutRequeueInterval is the requeue interval after an HTTP timeout
-	// on a Create call. This MUST be longer than cloudscale.WriteTimeout (2m) so the
-	// original request has time to complete before we retry.
-	CreateTimeoutRequeueInterval = 150 * time.Second
 )
 
 // getListService is satisfied by all cloudscale SDK resource services.
@@ -48,6 +40,12 @@ func ensureResource[T any](
 		}
 		// Resource was deleted externally, fall through to list/recreate
 	}
+
+	// tag-based lookup can happen after the resource has been created just before due to the caching behavior of
+	// controller-runtime. It is therefore expected to have the following in the logs:
+	// Reconcile 1: Create & Patch Status to have the ID recorded
+	// Reconcile 2: Get 404, List 200 (found existing ...)
+	// Reconcile 3: Get 200 -> here the cache is up-to-date
 
 	listCtx, cancel := context.WithTimeout(ctx, cloudscale.ReadTimeout)
 	defer cancel()

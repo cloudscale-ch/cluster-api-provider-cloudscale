@@ -139,19 +139,6 @@ spec:
                         minimum: 1
                         type: integer
                     type: object
-                  ipFamily:
-                    allOf:
-                    - enum:
-                      - IPv4
-                      - IPv6
-                      - DualStack
-                    - enum:
-                      - IPv4
-                      - IPv6
-                      - DualStack
-                    default: DualStack
-                    description: IPFamily specifies the IP family for the LB VIP address(es).
-                    type: string
                   network:
                     description: |-
                       Network places the LB VIP on a private network (internal LB).

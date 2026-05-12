@@ -144,9 +144,8 @@ func (r *CloudscaleClusterReconciler) reconcileManagedFloatingIP(ctx context.Con
 	fip, err = clusterScope.CloudscaleClient.FloatingIPs.Create(createCtx, req)
 	if err != nil {
 		if cloudscale.IsTimeoutError(err) {
-			const timeout = createFloatingIPTimeoutRequeueAfter
-			clusterScope.Info("Floating IP creation timed out, waiting before retry", "requeueAfter", timeout)
-			return ctrl.Result{RequeueAfter: timeout}, nil
+			clusterScope.Info("Floating IP creation timed out, waiting before retry", "requeueAfter", createFloatingIPTimeoutRequeueAfter)
+			return ctrl.Result{RequeueAfter: createFloatingIPTimeoutRequeueAfter}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("creating floating IP: %w", err)
 	}

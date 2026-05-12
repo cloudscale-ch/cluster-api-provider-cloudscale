@@ -56,12 +56,13 @@ func (r *CloudscaleClusterReconciler) reconcileLoadBalancer(ctx context.Context,
 	}
 
 	var lbPending bool
+	lbPendingMsg := "Load balancer is not yet running"
 
 	defer func() {
 		if reterr != nil {
 			r.setCondition(clusterScope, infrastructurev1beta2.LoadBalancerReadyCondition, metav1.ConditionFalse, infrastructurev1beta2.LoadBalancerErrorReason, reterr.Error())
 		} else if lbPending {
-			r.setCondition(clusterScope, infrastructurev1beta2.LoadBalancerReadyCondition, metav1.ConditionFalse, infrastructurev1beta2.LoadBalancerNotReadyReason, "Load balancer is not yet running")
+			r.setCondition(clusterScope, infrastructurev1beta2.LoadBalancerReadyCondition, metav1.ConditionFalse, infrastructurev1beta2.LoadBalancerNotReadyReason, lbPendingMsg)
 		} else {
 			r.setCondition(clusterScope, infrastructurev1beta2.LoadBalancerReadyCondition, metav1.ConditionTrue, infrastructurev1beta2.LoadBalancerRunningReason, "")
 		}
@@ -100,6 +101,25 @@ func (r *CloudscaleClusterReconciler) reconcileLoadBalancer(ctx context.Context,
 		// because removing stale members is the only path back to "running"
 		clusterScope.Info("Load balancer is not running, proceeding with member reconciliation", "status", lb.Status)
 		lbPending = true
+		lbPendingMsg = fmt.Sprintf("Load balancer is in %s", lb.Status)
+		if poolID := clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID; poolID != "" {
+			listCtx, listCancel := context.WithTimeout(ctx, cloudscale.ReadTimeout)
+			members, err := clusterScope.CloudscaleClient.LoadBalancerPoolMembers.List(listCtx, poolID)
+			listCancel()
+			if err != nil {
+				clusterScope.Info("Failed to list pool members for diagnostics", "err", err.Error())
+			} else {
+				var down []string
+				for _, m := range members {
+					if m.MonitorStatus == "down" {
+						down = append(down, fmt.Sprintf("%s@%s:%d", m.Name, m.Address, m.ProtocolPort))
+					}
+				}
+				if len(down) > 0 {
+					lbPendingMsg = fmt.Sprintf("%s; pool members failing health check: %v", lbPendingMsg, down)
+				}
+			}
+		}
 	}
 
 	// 2. Reconcile the pool

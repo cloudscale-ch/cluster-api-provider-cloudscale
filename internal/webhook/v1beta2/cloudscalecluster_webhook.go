@@ -59,7 +59,7 @@ type CloudscaleClusterCustomDefaulter struct {
 	RegionInfo *cloudscale.RegionInfo
 }
 
-const defaultSubnetCIDR = "10.0.0.0/24"
+const defaultSubnetCIDR = "172.18.0.0/24"
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the Kind CloudscaleCluster.
 func (d *CloudscaleClusterCustomDefaulter) Default(_ context.Context, cluster *infrastructurev1beta2.CloudscaleCluster) error {
@@ -92,9 +92,6 @@ func (d *CloudscaleClusterCustomDefaulter) Default(_ context.Context, cluster *i
 	}
 	if cluster.Spec.ControlPlaneLoadBalancer.APIServerPort == 0 {
 		cluster.Spec.ControlPlaneLoadBalancer.APIServerPort = 6443
-	}
-	if cluster.Spec.ControlPlaneLoadBalancer.IPFamily == "" {
-		cluster.Spec.ControlPlaneLoadBalancer.IPFamily = infrastructurev1beta2.IPFamilyDualStack
 	}
 
 	if cluster.Spec.ControlPlaneLoadBalancer.HealthMonitor.DelayS == 0 {
@@ -405,7 +402,7 @@ func validateFloatingIPRequiresLBOrPreExisting(cluster *infrastructurev1beta2.Cl
 }
 
 // validateLBImmutability forbids changes to LB fields that are baked into the LB at creation.
-// Algorithm, Flavor, APIServerPort, IPFamily and the HealthMonitor settings cannot be reissued
+// Algorithm, Flavor, APIServerPort and the HealthMonitor settings cannot be reissued
 // to an existing cloudscale.ch LB, so changing them in spec would silently lie to the user.
 func validateLBImmutability(oldLB, newLB *infrastructurev1beta2.LoadBalancerSpec, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
@@ -421,7 +418,6 @@ func validateLBImmutability(oldLB, newLB *infrastructurev1beta2.LoadBalancerSpec
 	forbidIfChanged("algorithm", oldLB.Algorithm, newLB.Algorithm)
 	forbidIfChanged("flavor", oldLB.Flavor, newLB.Flavor)
 	forbidIfChanged("apiServerPort", oldLB.APIServerPort, newLB.APIServerPort)
-	forbidIfChanged("ipFamily", oldLB.IPFamily, newLB.IPFamily)
 
 	hmPath := fldPath.Child("healthMonitor")
 	hmForbid := func(child string, oldV, newV int) {
