@@ -20,7 +20,6 @@ import (
 	"context"
 	"testing"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,20 +31,8 @@ import (
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/testutils"
 )
-
-func newTestFlavorInfo() *cloudscale.FlavorInfo {
-	return cloudscale.NewFlavorInfo([]cloudscalesdk.Flavor{
-		{Slug: "flex-4-2", Name: "Flex-4-2", VCPUCount: 2, MemoryGB: 4},
-		{Slug: "flex-8-4", Name: "Flex-8-4", VCPUCount: 4, MemoryGB: 8},
-		{Slug: "plus-16-8", Name: "Plus-16-8", VCPUCount: 8, MemoryGB: 16},
-		{Slug: "gpu2-640-80-4-400", Name: "GPU2-640-80-4-400", VCPUCount: 80, MemoryGB: 640, GPU: &cloudscalesdk.FlavorGPU{
-			Name:         "RTX PRO 6000 Max-Q",
-			Count:        4,
-			VRAMPerGPUGB: 96,
-		}},
-	})
-}
 
 func TestCloudscaleMachineTemplateReconciler_Reconcile(t *testing.T) {
 	scheme := runtime.NewScheme()
@@ -77,7 +64,7 @@ func TestCloudscaleMachineTemplateReconciler_Reconcile(t *testing.T) {
 					},
 				},
 			},
-			flavorInfo:              newTestFlavorInfo(),
+			flavorInfo:              testutils.NewTestFlavorInfo(),
 			expectedCPU:             "4",
 			expectedMemory:          "8Gi",
 			expectedGPU:             "",
@@ -100,7 +87,7 @@ func TestCloudscaleMachineTemplateReconciler_Reconcile(t *testing.T) {
 					},
 				},
 			},
-			flavorInfo:              newTestFlavorInfo(),
+			flavorInfo:              testutils.NewTestFlavorInfo(),
 			expectedCPU:             "80",
 			expectedMemory:          "640Gi",
 			expectedGPU:             "4",
@@ -122,7 +109,7 @@ func TestCloudscaleMachineTemplateReconciler_Reconcile(t *testing.T) {
 					},
 				},
 			},
-			flavorInfo:              newTestFlavorInfo(),
+			flavorInfo:              testutils.NewTestFlavorInfo(),
 			expectCapacityPopulated: false,
 		},
 		{
@@ -217,7 +204,7 @@ func TestCloudscaleMachineTemplateReconciler_Reconcile_NotFound(t *testing.T) {
 	reconciler := &CloudscaleMachineTemplateReconciler{
 		Client:     fakeClient,
 		Scheme:     scheme,
-		FlavorInfo: newTestFlavorInfo(),
+		FlavorInfo: testutils.NewTestFlavorInfo(),
 	}
 
 	req := ctrl.Request{

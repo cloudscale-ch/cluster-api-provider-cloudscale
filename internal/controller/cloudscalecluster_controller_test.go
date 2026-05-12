@@ -32,305 +32,184 @@ import (
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/scope"
 )
 
-func TestCloudscaleClusterReconciler_ResourceNotFound(t *testing.T) {
-	g := NewWithT(t)
+// TestCloudscaleClusterReconciler_Reconcile_EntryPoint covers the cheap
+// early-exit paths of Reconcile against the envtest API server.
+func TestCloudscaleClusterReconciler_Reconcile_EntryPoint(t *testing.T) {
+	t.Run("ResourceNotFound", func(t *testing.T) {
+		g := NewWithT(t)
+		r := &CloudscaleClusterReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
 
-	controllerReconciler := &CloudscaleClusterReconciler{
-		Client: k8sClient,
-		Scheme: k8sClient.Scheme(),
-	}
-
-	_, err := controllerReconciler.Reconcile(context.Background(), reconcile.Request{
-		NamespacedName: types.NamespacedName{Name: "nonexistent", Namespace: "default"},
+		_, err := r.Reconcile(context.Background(), reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: "nonexistent", Namespace: "default"},
+		})
+		g.Expect(err).NotTo(HaveOccurred())
 	})
-	g.Expect(err).NotTo(HaveOccurred())
-}
 
-func TestCloudscaleClusterReconciler_NoOwnerCluster(t *testing.T) {
-	g := NewWithT(t)
-	ctx := context.Background()
+	t.Run("NoOwnerCluster", func(t *testing.T) {
+		g := NewWithT(t)
+		ctx := context.Background()
 
-	resource := &infrastructurev1beta2.CloudscaleCluster{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "no-owner-cluster",
-			Namespace: "default",
-		},
-		Spec: infrastructurev1beta2.CloudscaleClusterSpec{
-			Region: "rma",
-			CredentialsRef: infrastructurev1beta2.CloudscaleCredentialsReference{
-				Name: "cloudscale-credentials",
+		resource := &infrastructurev1beta2.CloudscaleCluster{
+			ObjectMeta: metav1.ObjectMeta{Name: "no-owner-cluster", Namespace: "default"},
+			Spec: infrastructurev1beta2.CloudscaleClusterSpec{
+				Region:         "rma",
+				CredentialsRef: infrastructurev1beta2.CloudscaleCredentialsReference{Name: "cloudscale-credentials"},
 			},
-		},
-	}
-	g.Expect(k8sClient.Create(ctx, resource)).To(Succeed())
-	defer func() {
-		g.Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-	}()
+		}
+		g.Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+		defer func() {
+			g.Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+		}()
 
-	controllerReconciler := &CloudscaleClusterReconciler{
-		Client: k8sClient,
-		Scheme: k8sClient.Scheme(),
-	}
-
-	result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-		NamespacedName: types.NamespacedName{Name: resource.Name, Namespace: resource.Namespace},
+		r := &CloudscaleClusterReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+		result, err := r.Reconcile(ctx, reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: resource.Name, Namespace: resource.Namespace},
+		})
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(result.IsZero()).To(BeTrue())
 	})
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(result.IsZero()).To(BeTrue())
 }
 
-func TestCloudscaleClusterReconciler_IsInfrastructureProvisioned_LBEnabledAllResources(t *testing.T) {
-	g := NewWithT(t)
-	reconciler := &CloudscaleClusterReconciler{}
-
-	clusterScope := &scope.ClusterScope{
-		CloudscaleCluster: &infrastructurev1beta2.CloudscaleCluster{
-			Spec: infrastructurev1beta2.CloudscaleClusterSpec{
-				ControlPlaneEndpoint: clusterv1.APIEndpoint{
-					Host: "1.2.3.4",
-					Port: 6443,
-				},
-				ControlPlaneLoadBalancer: infrastructurev1beta2.LoadBalancerSpec{
-					Enabled: ptr.To(true),
-				},
-			},
-			Status: infrastructurev1beta2.CloudscaleClusterStatus{
-				Networks: []infrastructurev1beta2.NetworkStatus{{
-					Name: "test", NetworkID: "network-123", SubnetID: "subnet-123", Managed: true,
-				}},
-				LoadBalancerID:         "lb-123",
-				LoadBalancerPoolID:     "pool-123",
-				LoadBalancerListenerID: "listener-123",
-			},
+// TestIsInfrastructureProvisioned exercises the readiness predicate used by
+// reconcileNormal to decide when to flip Status.Initialization.Provisioned.
+func TestIsInfrastructureProvisioned(t *testing.T) {
+	cases := []struct {
+		name            string
+		lbEnabled       bool
+		networks        []infrastructurev1beta2.NetworkStatus
+		endpointHost    string
+		endpointPort    int32
+		lbID            string
+		lbPoolID        string
+		lbListenerID    string
+		wantProvisioned bool
+	}{
+		{
+			name:            "LB enabled and all resources present",
+			lbEnabled:       true,
+			networks:        []infrastructurev1beta2.NetworkStatus{{Name: "test", NetworkID: "network-123", SubnetID: "subnet-123", Managed: true}},
+			endpointHost:    "1.2.3.4",
+			endpointPort:    6443,
+			lbID:            "lb-123",
+			lbPoolID:        "pool-123",
+			lbListenerID:    "listener-123",
+			wantProvisioned: true,
+		},
+		{
+			name:         "LB enabled but LB resources missing",
+			lbEnabled:    true,
+			networks:     []infrastructurev1beta2.NetworkStatus{{Name: "test", NetworkID: "network-123", SubnetID: "subnet-123", Managed: true}},
+			endpointHost: "1.2.3.4",
+			endpointPort: 6443,
+		},
+		{
+			name:            "LB disabled with external endpoint",
+			lbEnabled:       false,
+			networks:        []infrastructurev1beta2.NetworkStatus{{Name: "test", NetworkID: "network-123", SubnetID: "subnet-123", Managed: true}},
+			endpointHost:    "external-controlplane.example.com",
+			endpointPort:    6443,
+			wantProvisioned: true,
+		},
+		{
+			name:      "LB disabled without endpoint not provisioned",
+			lbEnabled: false,
+			networks:  []infrastructurev1beta2.NetworkStatus{{Name: "test", NetworkID: "network-123", SubnetID: "subnet-123", Managed: true}},
 		},
 	}
 
-	g.Expect(reconciler.isInfrastructureProvisioned(clusterScope)).To(BeTrue())
-}
-
-func TestCloudscaleClusterReconciler_IsInfrastructureProvisioned_LBEnabledMissingResources(t *testing.T) {
-	g := NewWithT(t)
-	reconciler := &CloudscaleClusterReconciler{}
-
-	clusterScope := &scope.ClusterScope{
-		CloudscaleCluster: &infrastructurev1beta2.CloudscaleCluster{
-			Spec: infrastructurev1beta2.CloudscaleClusterSpec{
-				ControlPlaneEndpoint: clusterv1.APIEndpoint{
-					Host: "1.2.3.4",
-					Port: 6443,
-				},
-				ControlPlaneLoadBalancer: infrastructurev1beta2.LoadBalancerSpec{
-					Enabled: ptr.To(true),
-				},
-			},
-			Status: infrastructurev1beta2.CloudscaleClusterStatus{
-				Networks: []infrastructurev1beta2.NetworkStatus{{
-					Name: "test", NetworkID: "network-123", SubnetID: "subnet-123", Managed: true,
-				}},
-				// LB resources missing
-			},
-		},
-	}
-
-	g.Expect(reconciler.isInfrastructureProvisioned(clusterScope)).To(BeFalse())
-}
-
-func TestCloudscaleClusterReconciler_IsInfrastructureProvisioned_LBDisabledExternalEndpoint(t *testing.T) {
-	g := NewWithT(t)
-	reconciler := &CloudscaleClusterReconciler{}
-
-	clusterScope := &scope.ClusterScope{
-		CloudscaleCluster: &infrastructurev1beta2.CloudscaleCluster{
-			Spec: infrastructurev1beta2.CloudscaleClusterSpec{
-				ControlPlaneEndpoint: clusterv1.APIEndpoint{
-					Host: "external-controlplane.example.com",
-					Port: 6443,
-				},
-				ControlPlaneLoadBalancer: infrastructurev1beta2.LoadBalancerSpec{
-					Enabled: ptr.To(false), // LB disabled for external control plane
-				},
-			},
-			Status: infrastructurev1beta2.CloudscaleClusterStatus{
-				Networks: []infrastructurev1beta2.NetworkStatus{{
-					Name: "test", NetworkID: "network-123", SubnetID: "subnet-123", Managed: true,
-				}},
-				// No LB resources needed
-			},
-		},
-	}
-
-	g.Expect(reconciler.isInfrastructureProvisioned(clusterScope)).To(BeTrue())
-}
-
-func TestCloudscaleClusterReconciler_IsInfrastructureProvisioned_LBDisabledNoEndpoint(t *testing.T) {
-	g := NewWithT(t)
-	reconciler := &CloudscaleClusterReconciler{}
-
-	clusterScope := &scope.ClusterScope{
-		CloudscaleCluster: &infrastructurev1beta2.CloudscaleCluster{
-			Spec: infrastructurev1beta2.CloudscaleClusterSpec{
-				ControlPlaneLoadBalancer: infrastructurev1beta2.LoadBalancerSpec{
-					Enabled: ptr.To(false), // LB disabled for external control plane
-				},
-				// ControlPlaneEndpoint not set
-			},
-			Status: infrastructurev1beta2.CloudscaleClusterStatus{
-				Networks: []infrastructurev1beta2.NetworkStatus{{
-					Name: "test", NetworkID: "network-123", SubnetID: "subnet-123", Managed: true,
-				}},
-			},
-		},
-	}
-
-	g.Expect(reconciler.isInfrastructureProvisioned(clusterScope)).To(BeFalse())
-}
-
-func TestCloudscaleClusterReconciler_SetReadyCondition_AllTrue(t *testing.T) {
-	g := NewWithT(t)
-	reconciler := &CloudscaleClusterReconciler{}
-
-	clusterScope := &scope.ClusterScope{
-		CloudscaleCluster: &infrastructurev1beta2.CloudscaleCluster{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:       "test-cluster",
-				Namespace:  "default",
-				Generation: 1,
-			},
-			Status: infrastructurev1beta2.CloudscaleClusterStatus{
-				Conditions: []metav1.Condition{
-					{
-						Type:               infrastructurev1beta2.NetworkReadyCondition,
-						Status:             metav1.ConditionTrue,
-						Reason:             "Provisioned",
-						ObservedGeneration: 1,
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			clusterScope := &scope.ClusterScope{
+				CloudscaleCluster: &infrastructurev1beta2.CloudscaleCluster{
+					Spec: infrastructurev1beta2.CloudscaleClusterSpec{
+						ControlPlaneEndpoint: clusterv1.APIEndpoint{Host: tc.endpointHost, Port: tc.endpointPort},
+						ControlPlaneLoadBalancer: infrastructurev1beta2.LoadBalancerSpec{
+							Enabled: ptr.To(tc.lbEnabled),
+						},
 					},
-					{
-						Type:               infrastructurev1beta2.LoadBalancerReadyCondition,
-						Status:             metav1.ConditionTrue,
-						Reason:             "Provisioned",
-						ObservedGeneration: 1,
-					},
-					{
-						Type:               infrastructurev1beta2.FloatingIPReadyCondition,
-						Status:             metav1.ConditionTrue,
-						Reason:             "Provisioned",
-						ObservedGeneration: 1,
+					Status: infrastructurev1beta2.CloudscaleClusterStatus{
+						Networks:               tc.networks,
+						LoadBalancerID:         tc.lbID,
+						LoadBalancerPoolID:     tc.lbPoolID,
+						LoadBalancerListenerID: tc.lbListenerID,
 					},
 				},
+			}
+
+			g.Expect((&CloudscaleClusterReconciler{}).isInfrastructureProvisioned(clusterScope)).To(Equal(tc.wantProvisioned))
+		})
+	}
+}
+
+// TestSetReadyCondition exercises the rollup of sub-conditions into the
+// top-level ReadyCondition.
+func TestSetReadyCondition(t *testing.T) {
+	cases := []struct {
+		name              string
+		subConditions     []metav1.Condition
+		expectStatus      metav1.ConditionStatus
+		expectReason      string
+		expectMsgContains string
+	}{
+		{
+			name: "all sub-conditions True yields Ready=True",
+			subConditions: []metav1.Condition{
+				{Type: infrastructurev1beta2.NetworkReadyCondition, Status: metav1.ConditionTrue, Reason: "Provisioned", ObservedGeneration: 1},
+				{Type: infrastructurev1beta2.LoadBalancerReadyCondition, Status: metav1.ConditionTrue, Reason: "Provisioned", ObservedGeneration: 1},
+				{Type: infrastructurev1beta2.FloatingIPReadyCondition, Status: metav1.ConditionTrue, Reason: "Provisioned", ObservedGeneration: 1},
 			},
+			expectStatus: metav1.ConditionTrue,
+			expectReason: infrastructurev1beta2.ReadyReason,
+		},
+		{
+			name: "Network=False propagates reason and message",
+			subConditions: []metav1.Condition{
+				{Type: infrastructurev1beta2.NetworkReadyCondition, Status: metav1.ConditionFalse, Reason: "Provisioning", Message: "Network is being provisioned", ObservedGeneration: 1},
+				{Type: infrastructurev1beta2.LoadBalancerReadyCondition, Status: metav1.ConditionTrue, Reason: "Provisioned", ObservedGeneration: 1},
+			},
+			expectStatus:      metav1.ConditionFalse,
+			expectReason:      "Provisioning",
+			expectMsgContains: "Network is being provisioned",
+		},
+		{
+			name: "LoadBalancer=False propagates reason and message",
+			subConditions: []metav1.Condition{
+				{Type: infrastructurev1beta2.NetworkReadyCondition, Status: metav1.ConditionTrue, Reason: "Provisioned", ObservedGeneration: 1},
+				{Type: infrastructurev1beta2.LoadBalancerReadyCondition, Status: metav1.ConditionFalse, Reason: infrastructurev1beta2.LoadBalancerNotReadyReason, Message: "Load balancer is not running", ObservedGeneration: 1},
+			},
+			expectStatus:      metav1.ConditionFalse,
+			expectReason:      infrastructurev1beta2.LoadBalancerNotReadyReason,
+			expectMsgContains: "Load balancer is not running",
+		},
+		{
+			name:              "no sub-conditions yields Ready=False/NotReady",
+			subConditions:     nil,
+			expectStatus:      metav1.ConditionFalse,
+			expectReason:      infrastructurev1beta2.NotReadyReason,
+			expectMsgContains: "Waiting for",
 		},
 	}
 
-	reconciler.setReadyCondition(clusterScope)
-
-	readyCond := conditions.Get(clusterScope.CloudscaleCluster, infrastructurev1beta2.ReadyCondition)
-	g.Expect(readyCond).NotTo(BeNil())
-	g.Expect(readyCond.Status).To(Equal(metav1.ConditionTrue))
-	g.Expect(readyCond.Reason).To(Equal(infrastructurev1beta2.ReadyReason))
-}
-
-func TestCloudscaleClusterReconciler_SetReadyCondition_NetworkFalse(t *testing.T) {
-	g := NewWithT(t)
-	reconciler := &CloudscaleClusterReconciler{}
-
-	clusterScope := &scope.ClusterScope{
-		CloudscaleCluster: &infrastructurev1beta2.CloudscaleCluster{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:       "test-cluster",
-				Namespace:  "default",
-				Generation: 1,
-			},
-			Status: infrastructurev1beta2.CloudscaleClusterStatus{
-				Conditions: []metav1.Condition{
-					{
-						Type:               infrastructurev1beta2.NetworkReadyCondition,
-						Status:             metav1.ConditionFalse,
-						Reason:             "Provisioning",
-						Message:            "Network is being provisioned",
-						ObservedGeneration: 1,
-					},
-					{
-						Type:               infrastructurev1beta2.LoadBalancerReadyCondition,
-						Status:             metav1.ConditionTrue,
-						Reason:             "Provisioned",
-						ObservedGeneration: 1,
-					},
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			clusterScope := &scope.ClusterScope{
+				CloudscaleCluster: &infrastructurev1beta2.CloudscaleCluster{
+					ObjectMeta: metav1.ObjectMeta{Name: "test-cluster", Namespace: "default", Generation: 1},
+					Status:     infrastructurev1beta2.CloudscaleClusterStatus{Conditions: tc.subConditions},
 				},
-			},
-		},
+			}
+
+			(&CloudscaleClusterReconciler{}).setReadyCondition(clusterScope)
+
+			readyCond := conditions.Get(clusterScope.CloudscaleCluster, infrastructurev1beta2.ReadyCondition)
+			g.Expect(readyCond).NotTo(BeNil())
+			g.Expect(readyCond.Status).To(Equal(tc.expectStatus))
+			g.Expect(readyCond.Reason).To(Equal(tc.expectReason))
+			if tc.expectMsgContains != "" {
+				g.Expect(readyCond.Message).To(ContainSubstring(tc.expectMsgContains))
+			}
+		})
 	}
-
-	reconciler.setReadyCondition(clusterScope)
-
-	readyCond := conditions.Get(clusterScope.CloudscaleCluster, infrastructurev1beta2.ReadyCondition)
-	g.Expect(readyCond).NotTo(BeNil())
-	g.Expect(readyCond.Status).To(Equal(metav1.ConditionFalse))
-	g.Expect(readyCond.Reason).To(Equal("Provisioning"))
-	g.Expect(readyCond.Message).To(Equal("Network is being provisioned"))
-}
-
-func TestCloudscaleClusterReconciler_SetReadyCondition_LoadBalancerFalse(t *testing.T) {
-	g := NewWithT(t)
-	reconciler := &CloudscaleClusterReconciler{}
-
-	clusterScope := &scope.ClusterScope{
-		CloudscaleCluster: &infrastructurev1beta2.CloudscaleCluster{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:       "test-cluster",
-				Namespace:  "default",
-				Generation: 1,
-			},
-			Status: infrastructurev1beta2.CloudscaleClusterStatus{
-				Conditions: []metav1.Condition{
-					{
-						Type:               infrastructurev1beta2.NetworkReadyCondition,
-						Status:             metav1.ConditionTrue,
-						Reason:             "Provisioned",
-						ObservedGeneration: 1,
-					},
-					{
-						Type:               infrastructurev1beta2.LoadBalancerReadyCondition,
-						Status:             metav1.ConditionFalse,
-						Reason:             infrastructurev1beta2.LoadBalancerNotReadyReason,
-						Message:            "Load balancer is not running",
-						ObservedGeneration: 1,
-					},
-				},
-			},
-		},
-	}
-
-	reconciler.setReadyCondition(clusterScope)
-
-	readyCond := conditions.Get(clusterScope.CloudscaleCluster, infrastructurev1beta2.ReadyCondition)
-	g.Expect(readyCond).NotTo(BeNil())
-	g.Expect(readyCond.Status).To(Equal(metav1.ConditionFalse))
-	g.Expect(readyCond.Reason).To(Equal(infrastructurev1beta2.LoadBalancerNotReadyReason))
-	g.Expect(readyCond.Message).To(Equal("Load balancer is not running"))
-}
-
-func TestCloudscaleClusterReconciler_SetReadyCondition_MissingConditions(t *testing.T) {
-	g := NewWithT(t)
-	reconciler := &CloudscaleClusterReconciler{}
-
-	clusterScope := &scope.ClusterScope{
-		CloudscaleCluster: &infrastructurev1beta2.CloudscaleCluster{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:       "test-cluster",
-				Namespace:  "default",
-				Generation: 1,
-			},
-			Status: infrastructurev1beta2.CloudscaleClusterStatus{
-				// No conditions set at all
-			},
-		},
-	}
-
-	reconciler.setReadyCondition(clusterScope)
-
-	readyCond := conditions.Get(clusterScope.CloudscaleCluster, infrastructurev1beta2.ReadyCondition)
-	g.Expect(readyCond).NotTo(BeNil())
-	g.Expect(readyCond.Status).To(Equal(metav1.ConditionFalse))
-	g.Expect(readyCond.Reason).To(Equal(infrastructurev1beta2.NotReadyReason))
-	g.Expect(readyCond.Message).To(ContainSubstring("Waiting for"))
 }

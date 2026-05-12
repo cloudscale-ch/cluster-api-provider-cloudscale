@@ -23,13 +23,12 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/testutils"
 )
 
 func TestGetToken(t *testing.T) {
-	scheme := runtime.NewScheme()
-	_ = corev1.AddToScheme(scheme)
 
 	tests := []struct {
 		name      string
@@ -131,13 +130,13 @@ func TestGetToken(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
-			var objs []runtime.Object
+			var objs []client.Object
 			if tt.secret != nil {
 				objs = append(objs, tt.secret)
 			}
-			client := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(objs...).Build()
+			cl := testutils.NewFakeClient(objs...)
 
-			token, err := GetToken(context.Background(), client, tt.secretRef, tt.namespace)
+			token, err := GetToken(context.Background(), cl, tt.secretRef, tt.namespace)
 
 			if tt.wantErr {
 				g.Expect(err).To(HaveOccurred())

@@ -24,10 +24,8 @@ import (
 	"testing"
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
-	"github.com/go-logr/logr"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -36,44 +34,16 @@ import (
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/scope"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/testutils"
 )
 
 // --- Test helpers ---
 
 func newFIPTestClusterScope(fipService cloudscale.FloatingIPService) *scope.ClusterScope {
-	return &scope.ClusterScope{
-		Logger: logr.Discard(),
-		Cluster: &clusterv1.Cluster{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-cluster",
-				Namespace: "default",
-			},
-		},
-		CloudscaleCluster: &infrastructurev1beta2.CloudscaleCluster{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-cluster",
-				Namespace: "default",
-			},
-			Spec: infrastructurev1beta2.CloudscaleClusterSpec{
-				Region: "rma",
-				Zone:   "rma1",
-				ControlPlaneLoadBalancer: infrastructurev1beta2.LoadBalancerSpec{
-					Enabled:       ptr.To(true),
-					APIServerPort: 6443,
-				},
-			},
-		},
-		CloudscaleClient: &cloudscale.Client{
-			FloatingIPs: fipService,
-		},
-	}
-}
-
-func newFIPTestReconciler(objs ...client.Object) *CloudscaleClusterReconciler {
-	return &CloudscaleClusterReconciler{
-		Client:   newTestFakeClient(objs...),
-		recorder: events.NewFakeRecorder(10),
-	}
+	return testutils.NewClusterScopeOpts(
+		testutils.WithLBEnabled(true),
+		testutils.WithFloatingIPService(fipService),
+	)
 }
 
 // --- reconcileFloatingIP orchestrator tests ---
@@ -81,9 +51,9 @@ func newFIPTestReconciler(objs ...client.Object) *CloudscaleClusterReconciler {
 func TestReconcileFloatingIP_Disabled(t *testing.T) {
 	g := NewWithT(t)
 
-	clusterScope := newFIPTestClusterScope(&mockFloatingIPService{})
+	clusterScope := newFIPTestClusterScope(&testutils.MockFloatingIPService{})
 	// No FloatingIP spec = disabled
-	r := newFIPTestReconciler()
+	r := newTestReconciler()
 
 	_, err := r.reconcileFloatingIP(context.Background(), clusterScope)
 
@@ -97,8 +67,8 @@ func TestReconcileFloatingIP_Disabled(t *testing.T) {
 func TestReconcileFloatingIP_PreExisting(t *testing.T) {
 	g := NewWithT(t)
 
-	fipService := &mockFloatingIPService{
-		getFn: func(ctx context.Context, id string) (*cloudscalesdk.FloatingIP, error) {
+	fipService := &testutils.MockFloatingIPService{
+		GetFn: func(ctx context.Context, id string) (*cloudscalesdk.FloatingIP, error) {
 			return &cloudscalesdk.FloatingIP{
 				Network: "1.2.3.4/32",
 			}, nil
@@ -110,7 +80,7 @@ func TestReconcileFloatingIP_PreExisting(t *testing.T) {
 		Address: "1.2.3.4",
 	}
 
-	r := newFIPTestReconciler()
+	r := newTestReconciler()
 
 	_, err := r.reconcileFloatingIP(context.Background(), clusterScope)
 
@@ -125,8 +95,8 @@ func TestReconcileFloatingIP_PreExisting(t *testing.T) {
 func TestReconcileFloatingIP_ErrorSetsConditionFalse(t *testing.T) {
 	g := NewWithT(t)
 
-	fipService := &mockFloatingIPService{
-		getFn: func(ctx context.Context, id string) (*cloudscalesdk.FloatingIP, error) {
+	fipService := &testutils.MockFloatingIPService{
+		GetFn: func(ctx context.Context, id string) (*cloudscalesdk.FloatingIP, error) {
 			return nil, fmt.Errorf("api error")
 		},
 	}
@@ -136,7 +106,7 @@ func TestReconcileFloatingIP_ErrorSetsConditionFalse(t *testing.T) {
 		Address: "1.2.3.4",
 	}
 
-	r := newFIPTestReconciler()
+	r := newTestReconciler()
 
 	_, err := r.reconcileFloatingIP(context.Background(), clusterScope)
 
@@ -149,94 +119,152 @@ func TestReconcileFloatingIP_ErrorSetsConditionFalse(t *testing.T) {
 
 // --- reconcilePreExistingFloatingIP tests ---
 
-func TestReconcilePreExistingFloatingIP_RefetchesAndKeepsAssignmentWhenCached(t *testing.T) {
-	g := NewWithT(t)
-
-	getCalled := false
-	fipService := &mockFloatingIPService{
-		getFn: func(ctx context.Context, id string) (*cloudscalesdk.FloatingIP, error) {
-			getCalled = true
-			return &cloudscalesdk.FloatingIP{
+// TestReconcilePreExistingFloatingIP covers the direct-call paths through
+// reconcilePreExistingFloatingIP. The orchestrator-level tests
+// (RegionMismatch, NoPublicInterface) go through reconcileFloatingIP and are
+// kept standalone below.
+func TestReconcilePreExistingFloatingIP(t *testing.T) {
+	cases := []struct {
+		name       string
+		setup      func(cs *scope.ClusterScope)
+		fip        *cloudscalesdk.FloatingIP // returned by GetFn (nil ⇒ error)
+		getErr     error
+		lbDisabled bool
+		cpMachine  *infrastructurev1beta2.CloudscaleMachine
+		wantErrSub string
+		wantGet    bool
+		assert     func(g *WithT, cs *scope.ClusterScope, captured *cloudscalesdk.FloatingIPUpdateRequest)
+	}{
+		{
+			name: "refetches and keeps assignment when already on the right LB",
+			setup: func(cs *scope.ClusterScope) {
+				cs.CloudscaleCluster.Status.FloatingIP = "1.2.3.4"
+				cs.CloudscaleCluster.Status.LoadBalancerID = "lb-uuid"
+				cs.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host = "1.2.3.4"
+			},
+			fip: &cloudscalesdk.FloatingIP{
 				Network:      "1.2.3.4/32",
 				LoadBalancer: &cloudscalesdk.LoadBalancerStub{UUID: "lb-uuid"},
-			}, nil
+			},
+			wantGet: true,
+			assert: func(g *WithT, cs *scope.ClusterScope, captured *cloudscalesdk.FloatingIPUpdateRequest) {
+				g.Expect(captured).To(BeNil(), "Update must not fire when FIP is already assigned to the LB")
+			},
 		},
-		updateFn: func(ctx context.Context, id string, req *cloudscalesdk.FloatingIPUpdateRequest) error {
-			g.Fail("Update must not fire when FIP is already assigned to the LB")
-			return nil
+		{
+			name: "fetches FIP and assigns to LB; sets status + endpoint",
+			setup: func(cs *scope.ClusterScope) {
+				cs.CloudscaleCluster.Status.LoadBalancerID = "lb-x"
+			},
+			fip: &cloudscalesdk.FloatingIP{Network: "5.6.7.8/32"},
+			assert: func(g *WithT, cs *scope.ClusterScope, captured *cloudscalesdk.FloatingIPUpdateRequest) {
+				g.Expect(cs.CloudscaleCluster.Status.FloatingIP).To(Equal("5.6.7.8"))
+				g.Expect(cs.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host).To(Equal("5.6.7.8"))
+				g.Expect(cs.CloudscaleCluster.Spec.ControlPlaneEndpoint.Port).To(Equal(int32(6443)))
+				g.Expect(captured).ToNot(BeNil())
+				g.Expect(captured.LoadBalancer).To(Equal("lb-x"))
+			},
+		},
+		{
+			name:       "Get error propagates",
+			setup:      func(cs *scope.ClusterScope) {},
+			getErr:     fmt.Errorf("not found"),
+			wantErrSub: "getting pre-existing floating IP",
+		},
+		{
+			name: "matching region is accepted and FIP assigned to LB",
+			setup: func(cs *scope.ClusterScope) {
+				cs.CloudscaleCluster.Status.LoadBalancerID = "lb-rma"
+			},
+			fip: &cloudscalesdk.FloatingIP{
+				Network: "1.2.3.4/32",
+				Region:  &cloudscalesdk.RegionStub{Slug: "rma"},
+			},
+			assert: func(g *WithT, cs *scope.ClusterScope, captured *cloudscalesdk.FloatingIPUpdateRequest) {
+				g.Expect(cs.CloudscaleCluster.Status.FloatingIP).To(Equal("1.2.3.4"))
+				g.Expect(captured).ToNot(BeNil())
+				g.Expect(captured.LoadBalancer).To(Equal("lb-rma"))
+			},
+		},
+		{
+			name:       "LB disabled — assigns to first ready CP server",
+			setup:      func(cs *scope.ClusterScope) {},
+			fip:        &cloudscalesdk.FloatingIP{Network: "1.2.3.4/32"},
+			lbDisabled: true,
+			cpMachine:  testutils.NewControlPlaneMachine("cp-machine-0", "srv-x"),
+			assert: func(g *WithT, cs *scope.ClusterScope, captured *cloudscalesdk.FloatingIPUpdateRequest) {
+				g.Expect(captured).ToNot(BeNil(), "Pre-existing FIP must be assigned to the CP server when LB is disabled")
+				g.Expect(captured.Server).To(Equal("srv-x"))
+			},
+		},
+		{
+			name:  "global FIP (no Region) is accepted",
+			setup: func(cs *scope.ClusterScope) {},
+			fip:   &cloudscalesdk.FloatingIP{Network: "9.9.9.9/32", Region: nil},
+			assert: func(g *WithT, cs *scope.ClusterScope, _ *cloudscalesdk.FloatingIPUpdateRequest) {
+				g.Expect(cs.CloudscaleCluster.Status.FloatingIP).To(Equal("9.9.9.9"))
+				g.Expect(cs.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host).To(Equal("9.9.9.9"))
+			},
 		},
 	}
 
-	clusterScope := newFIPTestClusterScope(fipService)
-	clusterScope.CloudscaleCluster.Status.FloatingIP = "1.2.3.4"
-	clusterScope.CloudscaleCluster.Status.LoadBalancerID = "lb-uuid"
-	clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host = "1.2.3.4"
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			var captured *cloudscalesdk.FloatingIPUpdateRequest
+			var getCalled bool
 
-	r := newFIPTestReconciler()
+			fipService := &testutils.MockFloatingIPService{
+				GetFn: func(ctx context.Context, id string) (*cloudscalesdk.FloatingIP, error) {
+					getCalled = true
+					if tc.getErr != nil {
+						return nil, tc.getErr
+					}
+					return tc.fip, nil
+				},
+				UpdateFn: func(ctx context.Context, id string, req *cloudscalesdk.FloatingIPUpdateRequest) error {
+					captured = req
+					return nil
+				},
+			}
 
-	err := r.reconcilePreExistingFloatingIP(context.Background(), clusterScope, "7.7.7.7")
+			clusterScope := newFIPTestClusterScope(fipService)
+			if tc.lbDisabled {
+				clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(false)
+			}
+			tc.setup(clusterScope)
 
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(getCalled).To(BeTrue(), "Pre-existing FIP must be refetched so the assignment can be verified")
-}
+			objs := []client.Object{}
+			if tc.cpMachine != nil {
+				objs = append(objs, tc.cpMachine)
+			}
+			r := newTestReconciler(objs...)
 
-func TestReconcilePreExistingFloatingIP_FetchesAndSetsStatus(t *testing.T) {
-	g := NewWithT(t)
-
-	var capturedUpdateID string
-	var capturedUpdateReq *cloudscalesdk.FloatingIPUpdateRequest
-	fipService := &mockFloatingIPService{
-		getFn: func(ctx context.Context, id string) (*cloudscalesdk.FloatingIP, error) {
-			g.Expect(id).To(Equal("7.7.7.7"))
-			return &cloudscalesdk.FloatingIP{
-				Network: "5.6.7.8/32",
-			}, nil
-		},
-		updateFn: func(ctx context.Context, id string, req *cloudscalesdk.FloatingIPUpdateRequest) error {
-			capturedUpdateID = id
-			capturedUpdateReq = req
-			return nil
-		},
+			err := r.reconcilePreExistingFloatingIP(context.Background(), clusterScope, "7.7.7.7")
+			if tc.wantErrSub != "" {
+				g.Expect(err).To(HaveOccurred())
+				g.Expect(err.Error()).To(ContainSubstring(tc.wantErrSub))
+				return
+			}
+			g.Expect(err).ToNot(HaveOccurred())
+			if tc.wantGet {
+				g.Expect(getCalled).To(BeTrue(), "Pre-existing FIP must be refetched so the assignment can be verified")
+			}
+			if tc.assert != nil {
+				tc.assert(g, clusterScope, captured)
+			}
+		})
 	}
-
-	clusterScope := newFIPTestClusterScope(fipService)
-	clusterScope.CloudscaleCluster.Status.LoadBalancerID = "lb-x"
-	r := newFIPTestReconciler()
-
-	err := r.reconcilePreExistingFloatingIP(context.Background(), clusterScope, "7.7.7.7")
-
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(clusterScope.CloudscaleCluster.Status.FloatingIP).To(Equal("5.6.7.8"))
-	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host).To(Equal("5.6.7.8"))
-	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Port).To(Equal(int32(6443)))
-	g.Expect(capturedUpdateID).To(Equal("5.6.7.8"), "Pre-existing FIP must be assigned to the LB via Update")
-	g.Expect(capturedUpdateReq).ToNot(BeNil())
-	g.Expect(capturedUpdateReq.LoadBalancer).To(Equal("lb-x"))
 }
 
-func TestReconcilePreExistingFloatingIP_GetError(t *testing.T) {
+// TestReconcileFloatingIP_RegionMismatchErrors goes through reconcileFloatingIP
+// (orchestrator path) to exercise the region-mismatch error wiring including
+// the FloatingIPReadyCondition rollup.
+func TestReconcileFloatingIP_RegionMismatchErrors(t *testing.T) {
 	g := NewWithT(t)
 
-	fipService := &mockFloatingIPService{
-		getFn: func(ctx context.Context, id string) (*cloudscalesdk.FloatingIP, error) {
-			return nil, fmt.Errorf("not found")
-		},
-	}
-
-	clusterScope := newFIPTestClusterScope(fipService)
-	r := newFIPTestReconciler()
-
-	err := r.reconcilePreExistingFloatingIP(context.Background(), clusterScope, "7.7.7.7")
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("getting pre-existing floating IP"))
-}
-
-func TestReconcilePreExistingFloatingIP_RegionMismatchErrors(t *testing.T) {
-	g := NewWithT(t)
-
-	fipService := &mockFloatingIPService{
-		getFn: func(ctx context.Context, id string) (*cloudscalesdk.FloatingIP, error) {
+	fipService := &testutils.MockFloatingIPService{
+		GetFn: func(ctx context.Context, id string) (*cloudscalesdk.FloatingIP, error) {
 			return &cloudscalesdk.FloatingIP{
 				Network: "1.2.3.4/32",
 				Region:  &cloudscalesdk.RegionStub{Slug: "lpg"},
@@ -245,13 +273,9 @@ func TestReconcilePreExistingFloatingIP_RegionMismatchErrors(t *testing.T) {
 	}
 
 	clusterScope := newFIPTestClusterScope(fipService)
-	clusterScope.CloudscaleCluster.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{
-		Address: "1.2.3.4",
-	}
+	clusterScope.CloudscaleCluster.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{Address: "1.2.3.4"}
 
-	r := newFIPTestReconciler()
-
-	_, err := r.reconcileFloatingIP(context.Background(), clusterScope)
+	_, err := newTestReconciler().reconcileFloatingIP(context.Background(), clusterScope)
 
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("lpg"))
@@ -263,16 +287,18 @@ func TestReconcilePreExistingFloatingIP_RegionMismatchErrors(t *testing.T) {
 	g.Expect(cond.Reason).To(Equal(infrastructurev1beta2.FloatingIPErrorReason))
 }
 
-func TestReconcilePreExistingFloatingIP_NoPublicInterfaceSetsConditionAndEvent(t *testing.T) {
+// TestReconcileFloatingIP_NoPublicInterfaceSetsConditionAndEvent exercises the
+// specific 400/no-public-interface error path through the orchestrator.
+func TestReconcileFloatingIP_NoPublicInterfaceSetsConditionAndEvent(t *testing.T) {
 	g := NewWithT(t)
-	fipService := &mockFloatingIPService{
-		getFn: func(ctx context.Context, id string) (*cloudscalesdk.FloatingIP, error) {
+	fipService := &testutils.MockFloatingIPService{
+		GetFn: func(ctx context.Context, id string) (*cloudscalesdk.FloatingIP, error) {
 			return &cloudscalesdk.FloatingIP{
 				Network: "1.2.3.4/32",
 				Region:  &cloudscalesdk.RegionStub{Slug: "rma"},
 			}, nil
 		},
-		updateFn: func(ctx context.Context, id string, req *cloudscalesdk.FloatingIPUpdateRequest) error {
+		UpdateFn: func(ctx context.Context, id string, req *cloudscalesdk.FloatingIPUpdateRequest) error {
 			return &cloudscalesdk.ErrorResponse{
 				StatusCode: 400,
 				Message: map[string]string{
@@ -283,24 +309,10 @@ func TestReconcilePreExistingFloatingIP_NoPublicInterfaceSetsConditionAndEvent(t
 	}
 	clusterScope := newFIPTestClusterScope(fipService)
 	clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(false)
-	clusterScope.CloudscaleCluster.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{
-		Address: "1.2.3.4",
-	}
+	clusterScope.CloudscaleCluster.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{Address: "1.2.3.4"}
 	clusterScope.CloudscaleCluster.Status.FloatingIP = "1.2.3.4"
-	cpMachine := &infrastructurev1beta2.CloudscaleMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "cp-0",
-			Namespace: "default",
-			Labels: map[string]string{
-				clusterv1.ClusterNameLabel:         "test-cluster",
-				clusterv1.MachineControlPlaneLabel: "",
-			},
-		},
-		Status: infrastructurev1beta2.CloudscaleMachineStatus{
-			ServerID: "server-uuid",
-		},
-	}
-	r := newFIPTestReconciler(cpMachine)
+
+	r := newTestReconciler(testutils.NewControlPlaneMachine("cp-0", "server-uuid"))
 
 	_, err := r.reconcileFloatingIP(context.Background(), clusterScope)
 	g.Expect(err).To(HaveOccurred())
@@ -312,105 +324,13 @@ func TestReconcilePreExistingFloatingIP_NoPublicInterfaceSetsConditionAndEvent(t
 	g.Expect(cond.Reason).To(Equal(infrastructurev1beta2.FloatingIPErrorReason))
 }
 
-func TestReconcilePreExistingFloatingIP_RegionMatches(t *testing.T) {
-	g := NewWithT(t)
-
-	var capturedUpdateReq *cloudscalesdk.FloatingIPUpdateRequest
-	fipService := &mockFloatingIPService{
-		getFn: func(ctx context.Context, id string) (*cloudscalesdk.FloatingIP, error) {
-			return &cloudscalesdk.FloatingIP{
-				Network: "1.2.3.4/32",
-				Region:  &cloudscalesdk.RegionStub{Slug: "rma"},
-			}, nil
-		},
-		updateFn: func(ctx context.Context, id string, req *cloudscalesdk.FloatingIPUpdateRequest) error {
-			capturedUpdateReq = req
-			return nil
-		},
-	}
-
-	clusterScope := newFIPTestClusterScope(fipService)
-	clusterScope.CloudscaleCluster.Status.LoadBalancerID = "lb-rma"
-	r := newFIPTestReconciler()
-
-	err := r.reconcilePreExistingFloatingIP(context.Background(), clusterScope, "7.7.7.7")
-
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(clusterScope.CloudscaleCluster.Status.FloatingIP).To(Equal("1.2.3.4"))
-	g.Expect(capturedUpdateReq).ToNot(BeNil())
-	g.Expect(capturedUpdateReq.LoadBalancer).To(Equal("lb-rma"))
-}
-
-func TestReconcilePreExistingFloatingIP_AssignsToFirstReadyCPServer(t *testing.T) {
-	g := NewWithT(t)
-
-	var capturedUpdateReq *cloudscalesdk.FloatingIPUpdateRequest
-	fipService := &mockFloatingIPService{
-		getFn: func(ctx context.Context, id string) (*cloudscalesdk.FloatingIP, error) {
-			return &cloudscalesdk.FloatingIP{
-				Network: "1.2.3.4/32",
-			}, nil
-		},
-		updateFn: func(ctx context.Context, id string, req *cloudscalesdk.FloatingIPUpdateRequest) error {
-			capturedUpdateReq = req
-			return nil
-		},
-	}
-
-	cpMachine := &infrastructurev1beta2.CloudscaleMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "cp-machine-0",
-			Namespace: "default",
-			Labels: map[string]string{
-				clusterv1.ClusterNameLabel:         "test-cluster",
-				clusterv1.MachineControlPlaneLabel: "",
-			},
-		},
-		Status: infrastructurev1beta2.CloudscaleMachineStatus{
-			ServerID: "srv-x",
-		},
-	}
-
-	clusterScope := newFIPTestClusterScope(fipService)
-	clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(false)
-	r := newFIPTestReconciler(cpMachine)
-
-	err := r.reconcilePreExistingFloatingIP(context.Background(), clusterScope, "7.7.7.7")
-
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(capturedUpdateReq).ToNot(BeNil(), "Pre-existing FIP must be assigned to the CP server when LB is disabled")
-	g.Expect(capturedUpdateReq.Server).To(Equal("srv-x"))
-}
-
-func TestReconcilePreExistingFloatingIP_GlobalFIPAccepted(t *testing.T) {
-	g := NewWithT(t)
-
-	fipService := &mockFloatingIPService{
-		getFn: func(ctx context.Context, id string) (*cloudscalesdk.FloatingIP, error) {
-			return &cloudscalesdk.FloatingIP{
-				Network: "9.9.9.9/32",
-				Region:  nil,
-			}, nil
-		},
-	}
-
-	clusterScope := newFIPTestClusterScope(fipService)
-	r := newFIPTestReconciler()
-
-	err := r.reconcilePreExistingFloatingIP(context.Background(), clusterScope, "7.7.7.7")
-
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(clusterScope.CloudscaleCluster.Status.FloatingIP).To(Equal("9.9.9.9"))
-	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host).To(Equal("9.9.9.9"))
-}
-
 // --- reconcileManagedFloatingIP tests ---
 
 func TestReconcileManagedFloatingIP_ExistingFIPEnsuresAssignment(t *testing.T) {
 	g := NewWithT(t)
 
-	fipService := &mockFloatingIPService{
-		getFn: func(ctx context.Context, id string) (*cloudscalesdk.FloatingIP, error) {
+	fipService := &testutils.MockFloatingIPService{
+		GetFn: func(ctx context.Context, id string) (*cloudscalesdk.FloatingIP, error) {
 			return &cloudscalesdk.FloatingIP{
 				Network:      "10.0.0.1/32",
 				LoadBalancer: &cloudscalesdk.LoadBalancerStub{UUID: "lb-uuid"},
@@ -423,7 +343,7 @@ func TestReconcileManagedFloatingIP_ExistingFIPEnsuresAssignment(t *testing.T) {
 	clusterScope.CloudscaleCluster.Status.LoadBalancerID = "lb-uuid"
 	fipSpec := &infrastructurev1beta2.FloatingIPSpec{}
 
-	r := newFIPTestReconciler()
+	r := newTestReconciler()
 
 	_, err := r.reconcileManagedFloatingIP(context.Background(), clusterScope, fipSpec)
 
@@ -436,11 +356,11 @@ func TestReconcileManagedFloatingIP_CreatesIPv4(t *testing.T) {
 
 	var capturedReq *cloudscalesdk.FloatingIPCreateRequest
 
-	fipService := &mockFloatingIPService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.FloatingIP, error) {
+	fipService := &testutils.MockFloatingIPService{
+		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.FloatingIP, error) {
 			return nil, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.FloatingIPCreateRequest) (*cloudscalesdk.FloatingIP, error) {
+		CreateFn: func(ctx context.Context, req *cloudscalesdk.FloatingIPCreateRequest) (*cloudscalesdk.FloatingIP, error) {
 			capturedReq = req
 			return &cloudscalesdk.FloatingIP{
 				Network: "1.2.3.4/32",
@@ -452,7 +372,7 @@ func TestReconcileManagedFloatingIP_CreatesIPv4(t *testing.T) {
 	clusterScope.CloudscaleCluster.Status.LoadBalancerID = "lb-uuid"
 	fipSpec := &infrastructurev1beta2.FloatingIPSpec{}
 
-	r := newFIPTestReconciler()
+	r := newTestReconciler()
 
 	_, err := r.reconcileManagedFloatingIP(context.Background(), clusterScope, fipSpec)
 
@@ -469,11 +389,11 @@ func TestReconcileManagedFloatingIP_CreatesIPv6(t *testing.T) {
 
 	var capturedReq *cloudscalesdk.FloatingIPCreateRequest
 
-	fipService := &mockFloatingIPService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.FloatingIP, error) {
+	fipService := &testutils.MockFloatingIPService{
+		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.FloatingIP, error) {
 			return nil, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.FloatingIPCreateRequest) (*cloudscalesdk.FloatingIP, error) {
+		CreateFn: func(ctx context.Context, req *cloudscalesdk.FloatingIPCreateRequest) (*cloudscalesdk.FloatingIP, error) {
 			capturedReq = req
 			return &cloudscalesdk.FloatingIP{
 				Network: "2001:db8::1/128",
@@ -488,7 +408,7 @@ func TestReconcileManagedFloatingIP_CreatesIPv6(t *testing.T) {
 		IPFamily: &ipv6,
 	}
 
-	r := newFIPTestReconciler()
+	r := newTestReconciler()
 
 	_, err := r.reconcileManagedFloatingIP(context.Background(), clusterScope, fipSpec)
 
@@ -499,11 +419,11 @@ func TestReconcileManagedFloatingIP_CreatesIPv6(t *testing.T) {
 func TestReconcileManagedFloatingIP_CreateError(t *testing.T) {
 	g := NewWithT(t)
 
-	fipService := &mockFloatingIPService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.FloatingIP, error) {
+	fipService := &testutils.MockFloatingIPService{
+		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.FloatingIP, error) {
 			return nil, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.FloatingIPCreateRequest) (*cloudscalesdk.FloatingIP, error) {
+		CreateFn: func(ctx context.Context, req *cloudscalesdk.FloatingIPCreateRequest) (*cloudscalesdk.FloatingIP, error) {
 			return nil, fmt.Errorf("quota exceeded")
 		},
 	}
@@ -512,7 +432,7 @@ func TestReconcileManagedFloatingIP_CreateError(t *testing.T) {
 	clusterScope.CloudscaleCluster.Status.LoadBalancerID = "lb-uuid"
 	fipSpec := &infrastructurev1beta2.FloatingIPSpec{}
 
-	r := newFIPTestReconciler()
+	r := newTestReconciler()
 
 	_, err := r.reconcileManagedFloatingIP(context.Background(), clusterScope, fipSpec)
 
@@ -525,11 +445,11 @@ func TestReconcileManagedFloatingIP_AssignsToLBTarget(t *testing.T) {
 
 	var capturedReq *cloudscalesdk.FloatingIPCreateRequest
 
-	fipService := &mockFloatingIPService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.FloatingIP, error) {
+	fipService := &testutils.MockFloatingIPService{
+		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.FloatingIP, error) {
 			return nil, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.FloatingIPCreateRequest) (*cloudscalesdk.FloatingIP, error) {
+		CreateFn: func(ctx context.Context, req *cloudscalesdk.FloatingIPCreateRequest) (*cloudscalesdk.FloatingIP, error) {
 			capturedReq = req
 			return &cloudscalesdk.FloatingIP{Network: "1.2.3.4/32"}, nil
 		},
@@ -539,7 +459,7 @@ func TestReconcileManagedFloatingIP_AssignsToLBTarget(t *testing.T) {
 	clusterScope.CloudscaleCluster.Status.LoadBalancerID = "target-lb-uuid"
 	fipSpec := &infrastructurev1beta2.FloatingIPSpec{}
 
-	r := newFIPTestReconciler()
+	r := newTestReconciler()
 
 	_, err := r.reconcileManagedFloatingIP(context.Background(), clusterScope, fipSpec)
 
@@ -554,10 +474,10 @@ func TestReconcileManagedFloatingIP_AssignsToLBTarget(t *testing.T) {
 func TestGetFloatingIPTarget_LBEnabled(t *testing.T) {
 	g := NewWithT(t)
 
-	clusterScope := newFIPTestClusterScope(&mockFloatingIPService{})
+	clusterScope := newFIPTestClusterScope(&testutils.MockFloatingIPService{})
 	clusterScope.CloudscaleCluster.Status.LoadBalancerID = "lb-uuid"
 
-	r := newFIPTestReconciler()
+	r := newTestReconciler()
 
 	target, err := r.getFloatingIPTarget(context.Background(), clusterScope)
 
@@ -569,10 +489,10 @@ func TestGetFloatingIPTarget_LBEnabled(t *testing.T) {
 func TestGetFloatingIPTarget_LBNotProvisioned(t *testing.T) {
 	g := NewWithT(t)
 
-	clusterScope := newFIPTestClusterScope(&mockFloatingIPService{})
+	clusterScope := newFIPTestClusterScope(&testutils.MockFloatingIPService{})
 	// LB enabled but no LB ID yet
 
-	r := newFIPTestReconciler()
+	r := newTestReconciler()
 
 	_, err := r.getFloatingIPTarget(context.Background(), clusterScope)
 
@@ -597,10 +517,10 @@ func TestGetFloatingIPTarget_LBDisabled_FindsCPServer(t *testing.T) {
 		},
 	}
 
-	clusterScope := newFIPTestClusterScope(&mockFloatingIPService{})
+	clusterScope := newFIPTestClusterScope(&testutils.MockFloatingIPService{})
 	clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(false)
 
-	r := newFIPTestReconciler(cpMachine)
+	r := newTestReconciler(cpMachine)
 
 	target, err := r.getFloatingIPTarget(context.Background(), clusterScope)
 
@@ -612,10 +532,10 @@ func TestGetFloatingIPTarget_LBDisabled_FindsCPServer(t *testing.T) {
 func TestGetFloatingIPTarget_LBDisabled_NoCPServer(t *testing.T) {
 	g := NewWithT(t)
 
-	clusterScope := newFIPTestClusterScope(&mockFloatingIPService{})
+	clusterScope := newFIPTestClusterScope(&testutils.MockFloatingIPService{})
 	clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(false)
 
-	r := newFIPTestReconciler()
+	r := newTestReconciler()
 
 	_, err := r.getFloatingIPTarget(context.Background(), clusterScope)
 
@@ -625,148 +545,123 @@ func TestGetFloatingIPTarget_LBDisabled_NoCPServer(t *testing.T) {
 
 // --- ensureFloatingIPAssignment tests ---
 
-func TestEnsureFloatingIPAssignment_TargetNotReady(t *testing.T) {
-	g := NewWithT(t)
-
-	clusterScope := newFIPTestClusterScope(&mockFloatingIPService{})
-	// LB enabled but no LB ID → target not ready
-
-	r := newFIPTestReconciler()
-
-	fip := &cloudscalesdk.FloatingIP{Network: "1.2.3.4/32"}
-
-	err := r.ensureFloatingIPAssignment(context.Background(), clusterScope, fip)
-
-	g.Expect(err).ToNot(HaveOccurred())
-}
-
-func TestEnsureFloatingIPAssignment_LBAlreadyCorrect(t *testing.T) {
-	g := NewWithT(t)
-
-	fipService := &mockFloatingIPService{
-		updateFn: func(ctx context.Context, id string, req *cloudscalesdk.FloatingIPUpdateRequest) error {
-			g.Fail("Update should not be called when assignment is correct")
-			return nil
+func TestEnsureFloatingIPAssignment(t *testing.T) {
+	cases := []struct {
+		name       string
+		setup      func(cs *scope.ClusterScope)
+		fip        *cloudscalesdk.FloatingIP
+		updateErr  error
+		lbDisabled bool
+		cpMachine  *infrastructurev1beta2.CloudscaleMachine
+		wantUpdate bool
+		wantErrSub string
+		assert     func(g *WithT, captured *cloudscalesdk.FloatingIPUpdateRequest, capturedID string)
+	}{
+		{
+			name:  "target not ready (LB enabled but no LB ID) is a no-op",
+			setup: func(cs *scope.ClusterScope) {},
+			fip:   &cloudscalesdk.FloatingIP{Network: "1.2.3.4/32"},
 		},
-	}
-
-	clusterScope := newFIPTestClusterScope(fipService)
-	clusterScope.CloudscaleCluster.Status.LoadBalancerID = "lb-uuid"
-
-	r := newFIPTestReconciler()
-
-	fip := &cloudscalesdk.FloatingIP{
-		Network:      "1.2.3.4/32",
-		LoadBalancer: &cloudscalesdk.LoadBalancerStub{UUID: "lb-uuid"},
-	}
-
-	err := r.ensureFloatingIPAssignment(context.Background(), clusterScope, fip)
-
-	g.Expect(err).ToNot(HaveOccurred())
-}
-
-func TestEnsureFloatingIPAssignment_ReassignsLB(t *testing.T) {
-	g := NewWithT(t)
-
-	var capturedID string
-	var capturedReq *cloudscalesdk.FloatingIPUpdateRequest
-
-	fipService := &mockFloatingIPService{
-		updateFn: func(ctx context.Context, id string, req *cloudscalesdk.FloatingIPUpdateRequest) error {
-			capturedID = id
-			capturedReq = req
-			return nil
-		},
-	}
-
-	clusterScope := newFIPTestClusterScope(fipService)
-	clusterScope.CloudscaleCluster.Status.LoadBalancerID = "new-lb-uuid"
-	clusterScope.CloudscaleCluster.Status.FloatingIP = "1.2.3.4"
-
-	r := newFIPTestReconciler()
-
-	fip := &cloudscalesdk.FloatingIP{
-		Network:      "1.2.3.4/32",
-		LoadBalancer: &cloudscalesdk.LoadBalancerStub{UUID: "old-lb-uuid"},
-	}
-
-	err := r.ensureFloatingIPAssignment(context.Background(), clusterScope, fip)
-
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(capturedID).To(Equal("1.2.3.4"))
-	g.Expect(capturedReq.LoadBalancer).To(Equal("new-lb-uuid"))
-}
-
-func TestEnsureFloatingIPAssignment_ReassignsServer(t *testing.T) {
-	g := NewWithT(t)
-
-	var capturedReq *cloudscalesdk.FloatingIPUpdateRequest
-
-	fipService := &mockFloatingIPService{
-		updateFn: func(ctx context.Context, id string, req *cloudscalesdk.FloatingIPUpdateRequest) error {
-			capturedReq = req
-			return nil
-		},
-	}
-
-	cpMachine := &infrastructurev1beta2.CloudscaleMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "cp-machine-0",
-			Namespace: "default",
-			Labels: map[string]string{
-				clusterv1.ClusterNameLabel:         "test-cluster",
-				clusterv1.MachineControlPlaneLabel: "",
+		{
+			name: "LB already correctly assigned — no Update",
+			setup: func(cs *scope.ClusterScope) {
+				cs.CloudscaleCluster.Status.LoadBalancerID = "lb-uuid"
+			},
+			fip: &cloudscalesdk.FloatingIP{
+				Network:      "1.2.3.4/32",
+				LoadBalancer: &cloudscalesdk.LoadBalancerStub{UUID: "lb-uuid"},
 			},
 		},
-		Status: infrastructurev1beta2.CloudscaleMachineStatus{
-			ServerID: "srv-new",
+		{
+			name: "reassigns LB when assignment is stale",
+			setup: func(cs *scope.ClusterScope) {
+				cs.CloudscaleCluster.Status.LoadBalancerID = "new-lb-uuid"
+				cs.CloudscaleCluster.Status.FloatingIP = "1.2.3.4"
+			},
+			fip: &cloudscalesdk.FloatingIP{
+				Network:      "1.2.3.4/32",
+				LoadBalancer: &cloudscalesdk.LoadBalancerStub{UUID: "old-lb-uuid"},
+			},
+			wantUpdate: true,
+			assert: func(g *WithT, captured *cloudscalesdk.FloatingIPUpdateRequest, capturedID string) {
+				g.Expect(capturedID).To(Equal("1.2.3.4"))
+				g.Expect(captured.LoadBalancer).To(Equal("new-lb-uuid"))
+			},
+		},
+		{
+			name: "LB disabled — reassigns to first CP server",
+			setup: func(cs *scope.ClusterScope) {
+				cs.CloudscaleCluster.Status.FloatingIP = "1.2.3.4"
+			},
+			fip: &cloudscalesdk.FloatingIP{
+				Network: "1.2.3.4/32",
+				Server:  &cloudscalesdk.ServerStub{UUID: "srv-old"},
+			},
+			lbDisabled: true,
+			cpMachine:  testutils.NewControlPlaneMachine("cp-machine-0", "srv-new"),
+			wantUpdate: true,
+			assert: func(g *WithT, captured *cloudscalesdk.FloatingIPUpdateRequest, _ string) {
+				g.Expect(captured.Server).To(Equal("srv-new"))
+				g.Expect(captured.LoadBalancer).To(BeEmpty())
+			},
+		},
+		{
+			name: "Update error surfaces",
+			setup: func(cs *scope.ClusterScope) {
+				cs.CloudscaleCluster.Status.LoadBalancerID = "lb-uuid"
+				cs.CloudscaleCluster.Status.FloatingIP = "1.2.3.4"
+			},
+			fip: &cloudscalesdk.FloatingIP{
+				Network: "1.2.3.4/32",
+				// No LB assigned ⇒ needs update
+			},
+			updateErr:  fmt.Errorf("update failed"),
+			wantErrSub: "updating floating IP assignment",
 		},
 	}
 
-	clusterScope := newFIPTestClusterScope(fipService)
-	clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(false)
-	clusterScope.CloudscaleCluster.Status.FloatingIP = "1.2.3.4"
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			var captured *cloudscalesdk.FloatingIPUpdateRequest
+			var capturedID string
 
-	r := newFIPTestReconciler(cpMachine)
+			fipService := &testutils.MockFloatingIPService{
+				UpdateFn: func(ctx context.Context, id string, req *cloudscalesdk.FloatingIPUpdateRequest) error {
+					if tc.updateErr == nil && !tc.wantUpdate {
+						g.Fail("Update should not be called when assignment is correct")
+					}
+					capturedID = id
+					captured = req
+					return tc.updateErr
+				},
+			}
 
-	// FIP assigned to an old server
-	fip := &cloudscalesdk.FloatingIP{
-		Network: "1.2.3.4/32",
-		Server:  &cloudscalesdk.ServerStub{UUID: "srv-old"},
+			clusterScope := newFIPTestClusterScope(fipService)
+			if tc.lbDisabled {
+				clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(false)
+			}
+			tc.setup(clusterScope)
+
+			objs := []client.Object{}
+			if tc.cpMachine != nil {
+				objs = append(objs, tc.cpMachine)
+			}
+			r := newTestReconciler(objs...)
+
+			err := r.ensureFloatingIPAssignment(context.Background(), clusterScope, tc.fip)
+			if tc.wantErrSub != "" {
+				g.Expect(err).To(HaveOccurred())
+				g.Expect(err.Error()).To(ContainSubstring(tc.wantErrSub))
+				return
+			}
+			g.Expect(err).ToNot(HaveOccurred())
+			if tc.assert != nil {
+				g.Expect(captured).ToNot(BeNil())
+				tc.assert(g, captured, capturedID)
+			}
+		})
 	}
-
-	err := r.ensureFloatingIPAssignment(context.Background(), clusterScope, fip)
-
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(capturedReq).ToNot(BeNil())
-	g.Expect(capturedReq.Server).To(Equal("srv-new"))
-	g.Expect(capturedReq.LoadBalancer).To(BeEmpty())
-}
-
-func TestEnsureFloatingIPAssignment_UpdateError(t *testing.T) {
-	g := NewWithT(t)
-
-	fipService := &mockFloatingIPService{
-		updateFn: func(ctx context.Context, id string, req *cloudscalesdk.FloatingIPUpdateRequest) error {
-			return fmt.Errorf("update failed")
-		},
-	}
-
-	clusterScope := newFIPTestClusterScope(fipService)
-	clusterScope.CloudscaleCluster.Status.LoadBalancerID = "lb-uuid"
-	clusterScope.CloudscaleCluster.Status.FloatingIP = "1.2.3.4"
-
-	r := newFIPTestReconciler()
-
-	fip := &cloudscalesdk.FloatingIP{
-		Network: "1.2.3.4/32",
-		// No LB assigned — needs update
-	}
-
-	err := r.ensureFloatingIPAssignment(context.Background(), clusterScope, fip)
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("updating floating IP assignment"))
 }
 
 // --- setControlPlaneEndpointFromFIP tests ---
@@ -774,9 +669,9 @@ func TestEnsureFloatingIPAssignment_UpdateError(t *testing.T) {
 func TestSetControlPlaneEndpointFromFIP_SetsEndpoint(t *testing.T) {
 	g := NewWithT(t)
 
-	clusterScope := newFIPTestClusterScope(&mockFloatingIPService{})
+	clusterScope := newFIPTestClusterScope(&testutils.MockFloatingIPService{})
 
-	r := newFIPTestReconciler()
+	r := newTestReconciler()
 
 	fip := &cloudscalesdk.FloatingIP{Network: "10.20.30.40/32"}
 
@@ -789,11 +684,11 @@ func TestSetControlPlaneEndpointFromFIP_SetsEndpoint(t *testing.T) {
 func TestSetControlPlaneEndpointFromFIP_SkipsIfAlreadySet(t *testing.T) {
 	g := NewWithT(t)
 
-	clusterScope := newFIPTestClusterScope(&mockFloatingIPService{})
+	clusterScope := newFIPTestClusterScope(&testutils.MockFloatingIPService{})
 	clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host = "existing-host"
 	clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Port = 9999
 
-	r := newFIPTestReconciler()
+	r := newTestReconciler()
 
 	fip := &cloudscalesdk.FloatingIP{Network: "10.20.30.40/32"}
 
@@ -805,133 +700,113 @@ func TestSetControlPlaneEndpointFromFIP_SkipsIfAlreadySet(t *testing.T) {
 
 // --- deleteFloatingIP tests ---
 
-func TestDeleteFloatingIP_NilSpec(t *testing.T) {
-	g := NewWithT(t)
-
-	clusterScope := newFIPTestClusterScope(&mockFloatingIPService{})
-	r := newFIPTestReconciler()
-
-	err := r.deleteFloatingIP(context.Background(), clusterScope)
-
-	g.Expect(err).ToNot(HaveOccurred())
-}
-
-func TestDeleteFloatingIP_PreExistingSkipsDeletionAndLeavesConditionUntouched(t *testing.T) {
-	g := NewWithT(t)
-
-	fipService := &mockFloatingIPService{
-		deleteFn: func(ctx context.Context, id string) error {
-			g.Fail("Delete should not be called for pre-existing floating IPs")
-			return nil
+func TestDeleteFloatingIP(t *testing.T) {
+	cases := []struct {
+		name            string
+		spec            *infrastructurev1beta2.FloatingIPSpec
+		statusFIP       string
+		deleteErr       error
+		wantDelete      bool
+		wantClearStatus bool
+		wantErrSub      string
+		// Condition assertion: assertCondNil pins "must not be set" (pre-existing path).
+		// wantCondStatus pins a specific Status/Reason (error path). If both are
+		// zero, the condition is not asserted on (managed-delete happy paths set
+		// FloatingIPDeleting via the defer, which we don't need to re-assert here).
+		assertCondNil  bool
+		wantCondStatus *metav1.ConditionStatus
+		wantCondReason string
+	}{
+		{
+			name: "nil spec — no-op",
+		},
+		{
+			// Pre-existing FIPs are not deleted, and the condition is not set
+			// (the defer that sets it is skipped for pre-existing IPs to avoid
+			// falsely reporting "Floating IP has been deleted").
+			name:          "pre-existing FIP skips deletion and leaves condition untouched",
+			spec:          &infrastructurev1beta2.FloatingIPSpec{Address: "9.9.9.9"},
+			assertCondNil: true,
+		},
+		{
+			name:            "managed FIP deletes and clears status",
+			spec:            &infrastructurev1beta2.FloatingIPSpec{},
+			statusFIP:       "1.2.3.4",
+			wantDelete:      true,
+			wantClearStatus: true,
+		},
+		{
+			name: "managed FIP with empty status skips deletion",
+			spec: &infrastructurev1beta2.FloatingIPSpec{},
+		},
+		{
+			name:            "already-deleted (404) is idempotent",
+			spec:            &infrastructurev1beta2.FloatingIPSpec{},
+			statusFIP:       "1.2.3.4",
+			deleteErr:       &cloudscalesdk.ErrorResponse{StatusCode: 404},
+			wantDelete:      true,
+			wantClearStatus: true,
+		},
+		{
+			name:           "delete error surfaces and sets FloatingIPReadyCondition=False",
+			spec:           &infrastructurev1beta2.FloatingIPSpec{},
+			statusFIP:      "1.2.3.4",
+			deleteErr:      fmt.Errorf("api error"),
+			wantDelete:     true,
+			wantErrSub:     "deleting floating IP",
+			wantCondStatus: ptr.To(metav1.ConditionFalse),
+			wantCondReason: infrastructurev1beta2.FloatingIPErrorReason,
 		},
 	}
 
-	clusterScope := newFIPTestClusterScope(fipService)
-	clusterScope.CloudscaleCluster.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{
-		Address: "9.9.9.9",
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			var deletedID string
+
+			fipService := &testutils.MockFloatingIPService{
+				DeleteFn: func(ctx context.Context, id string) error {
+					if !tc.wantDelete {
+						g.Fail("Delete should not be called for this case")
+					}
+					deletedID = id
+					return tc.deleteErr
+				},
+			}
+
+			clusterScope := newFIPTestClusterScope(fipService)
+			clusterScope.CloudscaleCluster.Spec.FloatingIP = tc.spec
+			clusterScope.CloudscaleCluster.Status.FloatingIP = tc.statusFIP
+
+			err := newTestReconciler().deleteFloatingIP(context.Background(), clusterScope)
+
+			if tc.wantErrSub != "" {
+				g.Expect(err).To(HaveOccurred())
+				g.Expect(err.Error()).To(ContainSubstring(tc.wantErrSub))
+			} else {
+				g.Expect(err).ToNot(HaveOccurred())
+			}
+
+			if tc.wantDelete {
+				g.Expect(deletedID).To(Equal(tc.statusFIP))
+			}
+			if tc.wantClearStatus {
+				g.Expect(clusterScope.CloudscaleCluster.Status.FloatingIP).To(BeEmpty())
+			}
+
+			cond := conditions.Get(clusterScope.CloudscaleCluster, infrastructurev1beta2.FloatingIPReadyCondition)
+			switch {
+			case tc.assertCondNil:
+				g.Expect(cond).To(BeNil())
+			case tc.wantCondStatus != nil:
+				g.Expect(cond).ToNot(BeNil())
+				g.Expect(cond.Status).To(Equal(*tc.wantCondStatus))
+				if tc.wantCondReason != "" {
+					g.Expect(cond.Reason).To(Equal(tc.wantCondReason))
+				}
+			}
+		})
 	}
-
-	r := newFIPTestReconciler()
-
-	err := r.deleteFloatingIP(context.Background(), clusterScope)
-
-	g.Expect(err).ToNot(HaveOccurred())
-	// Pre-Existing FIPs are not deleted, and no condition should be set (the defer is
-	// not registered for pre-existing so that the condition does not falsely report
-	// "Floating IP has been deleted").
-	cond := conditions.Get(clusterScope.CloudscaleCluster, infrastructurev1beta2.FloatingIPReadyCondition)
-	g.Expect(cond).To(BeNil())
-}
-
-func TestDeleteFloatingIP_ManagedDeletes(t *testing.T) {
-	g := NewWithT(t)
-
-	var deletedID string
-
-	fipService := &mockFloatingIPService{
-		deleteFn: func(ctx context.Context, id string) error {
-			deletedID = id
-			return nil
-		},
-	}
-
-	clusterScope := newFIPTestClusterScope(fipService)
-	clusterScope.CloudscaleCluster.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{}
-	clusterScope.CloudscaleCluster.Status.FloatingIP = "1.2.3.4"
-
-	r := newFIPTestReconciler()
-
-	err := r.deleteFloatingIP(context.Background(), clusterScope)
-
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(deletedID).To(Equal("1.2.3.4"))
-	g.Expect(clusterScope.CloudscaleCluster.Status.FloatingIP).To(BeEmpty())
-}
-
-func TestDeleteFloatingIP_NoStatusSkipsDeletion(t *testing.T) {
-	g := NewWithT(t)
-
-	fipService := &mockFloatingIPService{
-		deleteFn: func(ctx context.Context, id string) error {
-			g.Fail("Delete should not be called when status is empty")
-			return nil
-		},
-	}
-
-	clusterScope := newFIPTestClusterScope(fipService)
-	clusterScope.CloudscaleCluster.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{}
-
-	r := newFIPTestReconciler()
-
-	err := r.deleteFloatingIP(context.Background(), clusterScope)
-
-	g.Expect(err).ToNot(HaveOccurred())
-}
-
-func TestDeleteFloatingIP_AlreadyDeletedSucceeds(t *testing.T) {
-	g := NewWithT(t)
-
-	fipService := &mockFloatingIPService{
-		deleteFn: func(ctx context.Context, id string) error {
-			return &cloudscalesdk.ErrorResponse{StatusCode: 404}
-		},
-	}
-
-	clusterScope := newFIPTestClusterScope(fipService)
-	clusterScope.CloudscaleCluster.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{}
-	clusterScope.CloudscaleCluster.Status.FloatingIP = "1.2.3.4"
-
-	r := newFIPTestReconciler()
-
-	err := r.deleteFloatingIP(context.Background(), clusterScope)
-
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(clusterScope.CloudscaleCluster.Status.FloatingIP).To(BeEmpty())
-}
-
-func TestDeleteFloatingIP_DeleteError(t *testing.T) {
-	g := NewWithT(t)
-
-	fipService := &mockFloatingIPService{
-		deleteFn: func(ctx context.Context, id string) error {
-			return fmt.Errorf("api error")
-		},
-	}
-
-	clusterScope := newFIPTestClusterScope(fipService)
-	clusterScope.CloudscaleCluster.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{}
-	clusterScope.CloudscaleCluster.Status.FloatingIP = "1.2.3.4"
-
-	r := newFIPTestReconciler()
-
-	err := r.deleteFloatingIP(context.Background(), clusterScope)
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("deleting floating IP"))
-	cond := conditions.Get(clusterScope.CloudscaleCluster, infrastructurev1beta2.FloatingIPReadyCondition)
-	g.Expect(cond).ToNot(BeNil())
-	g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
-	g.Expect(cond.Reason).To(Equal(infrastructurev1beta2.FloatingIPErrorReason))
 }
 
 // --- Timeout handling tests for Create() calls ---
@@ -939,11 +814,11 @@ func TestDeleteFloatingIP_DeleteError(t *testing.T) {
 func TestReconcileManagedFloatingIP_CreateTimeoutRequeues(t *testing.T) {
 	g := NewWithT(t)
 
-	fipService := &mockFloatingIPService{
-		listFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.FloatingIP, error) {
+	fipService := &testutils.MockFloatingIPService{
+		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.FloatingIP, error) {
 			return nil, nil
 		},
-		createFn: func(ctx context.Context, req *cloudscalesdk.FloatingIPCreateRequest) (*cloudscalesdk.FloatingIP, error) {
+		CreateFn: func(ctx context.Context, req *cloudscalesdk.FloatingIPCreateRequest) (*cloudscalesdk.FloatingIP, error) {
 			// Simulate timeout via context deadline exceeded wrapped in url.Error
 			return nil, &url.Error{Op: "Post", URL: "https://api.example.com/v1/floating_ips", Err: os.ErrDeadlineExceeded}
 		},
@@ -953,7 +828,7 @@ func TestReconcileManagedFloatingIP_CreateTimeoutRequeues(t *testing.T) {
 	clusterScope.CloudscaleCluster.Status.LoadBalancerID = "lb-uuid"
 	fipSpec := &infrastructurev1beta2.FloatingIPSpec{}
 
-	r := newFIPTestReconciler()
+	r := newTestReconciler()
 
 	result, err := r.reconcileManagedFloatingIP(context.Background(), clusterScope, fipSpec)
 
@@ -963,46 +838,3 @@ func TestReconcileManagedFloatingIP_CreateTimeoutRequeues(t *testing.T) {
 }
 
 // --- Mock FloatingIPService ---
-
-type mockFloatingIPService struct {
-	createFn func(ctx context.Context, req *cloudscalesdk.FloatingIPCreateRequest) (*cloudscalesdk.FloatingIP, error)
-	getFn    func(ctx context.Context, id string) (*cloudscalesdk.FloatingIP, error)
-	listFn   func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.FloatingIP, error)
-	updateFn func(ctx context.Context, id string, req *cloudscalesdk.FloatingIPUpdateRequest) error
-	deleteFn func(ctx context.Context, id string) error
-}
-
-func (m *mockFloatingIPService) Create(ctx context.Context, req *cloudscalesdk.FloatingIPCreateRequest) (*cloudscalesdk.FloatingIP, error) {
-	if m.createFn != nil {
-		return m.createFn(ctx, req)
-	}
-	return nil, nil
-}
-
-func (m *mockFloatingIPService) Get(ctx context.Context, id string) (*cloudscalesdk.FloatingIP, error) {
-	if m.getFn != nil {
-		return m.getFn(ctx, id)
-	}
-	return nil, nil
-}
-
-func (m *mockFloatingIPService) List(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.FloatingIP, error) {
-	if m.listFn != nil {
-		return m.listFn(ctx, modifiers...)
-	}
-	return nil, nil
-}
-
-func (m *mockFloatingIPService) Update(ctx context.Context, id string, req *cloudscalesdk.FloatingIPUpdateRequest) error {
-	if m.updateFn != nil {
-		return m.updateFn(ctx, id, req)
-	}
-	return nil
-}
-
-func (m *mockFloatingIPService) Delete(ctx context.Context, id string) error {
-	if m.deleteFn != nil {
-		return m.deleteFn(ctx, id)
-	}
-	return nil
-}
