@@ -70,7 +70,10 @@ type NodeInfo struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 
-// CloudscaleMachineTemplate is the Schema for the cloudscalemachinetemplates API
+// CloudscaleMachineTemplate is the immutable template a MachineDeployment or
+// KubeadmControlPlane uses to stamp out CloudscaleMachines. Its Status.Capacity
+// reports the CPU/memory of the chosen flavor (plus the root volume size) so
+// the cluster autoscaler can scale a MachineDeployment up from zero replicas.
 type CloudscaleMachineTemplate struct {
 	metav1.TypeMeta `json:",inline"`
 

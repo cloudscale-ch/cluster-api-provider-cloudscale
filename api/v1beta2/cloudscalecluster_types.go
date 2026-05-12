@@ -41,13 +41,17 @@ const (
 
 // CloudscaleClusterSpec defines the desired state of CloudscaleCluster
 type CloudscaleClusterSpec struct {
-	// Region is the cloudscale.ch region (e.g., "rma", "lpg").
+	// Region is the cloudscale.ch region the cluster is provisioned in.
+	// Determines the default zone and the set of available flavors.
+	// Immutable after cluster creation.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Enum=rma;lpg
 	Region string `json:"region"`
 
-	// Zone is the cloudscale.ch zone (e.g., "rma1", "lpg1").
-	// Defaults to region + "1" if not specified.
+	// Zone is the cloudscale.ch zone within Region.
+	// Defaults to Region + "1" (e.g., "rma1", "lpg1"). Set explicitly only when
+	// the region offers multiple zones and you need to pin the cluster to one.
+	// Immutable after cluster creation.
 	// +optional
 	Zone string `json:"zone,omitempty"`
 
@@ -87,13 +91,16 @@ type CloudscaleClusterSpec struct {
 	FloatingIP *FloatingIPSpec `json:"floatingIP,omitempty"`
 }
 
-// CloudscaleCredentialsReference references a Secret containing the API token.
+// CloudscaleCredentialsReference references a Secret holding the cloudscale.ch
+// API token used to provision this cluster's infrastructure. The Secret must
+// contain a key named "token" with the raw token string as its value.
 type CloudscaleCredentialsReference struct {
 	// Name is the name of the Secret.
 	// +kubebuilder:validation:Required
 	Name string `json:"name"`
 
-	// Namespace is the namespace of the Secret. Defaults to the cluster namespace.
+	// Namespace is the namespace of the Secret. Defaults to the
+	// CloudscaleCluster's own namespace if unset.
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
 }
@@ -139,18 +146,24 @@ type LoadBalancerSpec struct {
 	// +optional
 	Enabled *bool `json:"enabled,omitempty"`
 
-	// Algorithm is the load balancing algorithm.
+	// Algorithm is the cloudscale.ch load-balancing algorithm.
+	// - "round_robin" (default): rotate requests across healthy backends.
+	// - "least_connections": send each request to the backend with the fewest active connections.
+	// - "source_ip": hash the client IP so the same client lands on the same backend.
 	// +kubebuilder:validation:Enum=round_robin;least_connections;source_ip
 	// +kubebuilder:default="round_robin"
 	// +optional
 	Algorithm string `json:"algorithm,omitempty"`
 
-	// Flavor is the load balancer flavor (size).
+	// Flavor is the cloudscale.ch load balancer flavor slug. Defaults to
+	// "lb-standard".
 	// +kubebuilder:default="lb-standard"
 	// +optional
 	Flavor string `json:"flavor,omitempty"`
 
-	// APIServerPort is the port for the Kubernetes API server.
+	// APIServerPort is the LB listener port exposed for the Kubernetes API
+	// server. Defaults to 6443. The pool always targets the API server on the
+	// control plane nodes' 6443.
 	// +kubebuilder:default=6443
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=65535
@@ -310,7 +323,9 @@ func (s *CloudscaleClusterStatus) GetNetworkStatus(name string) *NetworkStatus {
 // +kubebuilder:printcolumn:name="Region",type="string",JSONPath=".spec.region",description="cloudscale.ch region"
 // +kubebuilder:printcolumn:name="Endpoint",type="string",JSONPath=".spec.controlPlaneEndpoint.host",description="Control plane endpoint"
 
-// CloudscaleCluster is the Schema for the cloudscaleclusters API
+// CloudscaleCluster is the cloudscale.ch infrastructure for a CAPI Cluster.
+// It owns the networks, control-plane load balancer, optional floating IP, and
+// server groups that back the cluster's machines.
 type CloudscaleCluster struct {
 	metav1.TypeMeta `json:",inline"`
 
