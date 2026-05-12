@@ -36,7 +36,10 @@ spec:
     name: v1beta2
     schema:
       openAPIV3Schema:
-        description: CloudscaleCluster is the Schema for the cloudscaleclusters API
+        description: |-
+          CloudscaleCluster is the cloudscale.ch infrastructure for a CAPI Cluster.
+          It owns the networks, control-plane load balancer, optional floating IP, and
+          server groups that back the cluster's machines.
         properties:
           apiVersion:
             description: |-
@@ -82,7 +85,11 @@ spec:
                 properties:
                   algorithm:
                     default: round_robin
-                    description: Algorithm is the load balancing algorithm.
+                    description: |-
+                      Algorithm is the cloudscale.ch load-balancing algorithm.
+                      - "round_robin" (default): rotate requests across healthy backends.
+                      - "least_connections": send each request to the backend with the fewest active connections.
+                      - "source_ip": hash the client IP so the same client lands on the same backend.
                     enum:
                     - round_robin
                     - least_connections
@@ -90,8 +97,10 @@ spec:
                     type: string
                   apiServerPort:
                     default: 6443
-                    description: APIServerPort is the port for the Kubernetes API
-                      server.
+                    description: |-
+                      APIServerPort is the LB listener port exposed for the Kubernetes API
+                      server. Defaults to 6443. The pool always targets the API server on the
+                      control plane nodes' 6443.
                     format: int32
                     maximum: 65535
                     minimum: 1
@@ -105,7 +114,9 @@ spec:
                     type: boolean
                   flavor:
                     default: lb-standard
-                    description: Flavor is the load balancer flavor (size).
+                    description: |-
+                      Flavor is the cloudscale.ch load balancer flavor slug. Defaults to
+                      "lb-standard".
                     type: string
                   healthMonitor:
                     description: HealthMonitor configures the load balancer health
@@ -155,8 +166,9 @@ spec:
                     description: Name is the name of the Secret.
                     type: string
                   namespace:
-                    description: Namespace is the namespace of the Secret. Defaults
-                      to the cluster namespace.
+                    description: |-
+                      Namespace is the namespace of the Secret. Defaults to the
+                      CloudscaleCluster's own namespace if unset.
                     type: string
                 required:
                 - name
@@ -238,15 +250,20 @@ spec:
                 - name
                 x-kubernetes-list-type: map
               region:
-                description: Region is the cloudscale.ch region (e.g., "rma", "lpg").
+                description: |-
+                  Region is the cloudscale.ch region the cluster is provisioned in.
+                  Determines the default zone and the set of available flavors.
+                  Immutable after cluster creation.
                 enum:
                 - rma
                 - lpg
                 type: string
               zone:
                 description: |-
-                  Zone is the cloudscale.ch zone (e.g., "rma1", "lpg1").
-                  Defaults to region + "1" if not specified.
+                  Zone is the cloudscale.ch zone within Region.
+                  Defaults to Region + "1" (e.g., "rma1", "lpg1"). Set explicitly only when
+                  the region offers multiple zones and you need to pin the cluster to one.
+                  Immutable after cluster creation.
                 type: string
             required:
             - credentialsRef

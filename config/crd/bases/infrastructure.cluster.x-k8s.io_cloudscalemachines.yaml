@@ -36,7 +36,10 @@ spec:
     name: v1beta2
     schema:
       openAPIV3Schema:
-        description: CloudscaleMachine is the Schema for the cloudscalemachines API
+        description: |-
+          CloudscaleMachine represents a single cloudscale.ch server backing a CAPI
+          Machine. Most spec fields are immutable after creation — to change them,
+          roll the owning MachineDeployment or KubeadmControlPlane.
         properties:
           apiVersion:
             description: |-
@@ -59,12 +62,22 @@ spec:
             description: spec defines the desired state of CloudscaleMachine
             properties:
               flavor:
-                description: Flavor is the cloudscale.ch server flavor (e.g., "flex-8-4").
+                description: |-
+                  Flavor is the cloudscale.ch server flavor slug, e.g. "flex-4-2" or
+                  "plus-8-4". List available flavors via the cloudscale API
+                  (`GET /v1/flavors`) or the control panel.
+                  Immutable after machine creation.
                 minLength: 1
                 type: string
               image:
-                description: Image is the OS image slug (e.g., "ubuntu-24.04"), custom
-                  image slug (e.g., "custom:ubuntu-foo"), or custom image UUID.
+                description: |-
+                  Image identifies the OS image used to boot the server. One of:
+                  - a public image slug (e.g. "ubuntu-24.04"),
+                  - a custom image slug (e.g. "custom:ubuntu-2404-kube-v1.36.0"), or
+                  - a custom image UUID.
+                  For Kubernetes nodes you typically want a custom image built with
+                  image-builder (https://image-builder.sigs.k8s.io/) that already contains
+                  kubelet, containerd, and the chosen Kubernetes version.
                 minLength: 1
                 type: string
               interfaces:
@@ -112,7 +125,9 @@ spec:
                   Format: cloudscale://<server-uuid>
                 type: string
               rootVolumeSize:
-                description: RootVolumeSize is the root volume size in GB.
+                description: |-
+                  RootVolumeSize is the root volume size in GB. Minimum 10. If unset, the
+                  cloudscale.ch default for the chosen flavor is used.
                 minimum: 10
                 type: integer
               serverGroup:
@@ -124,8 +139,9 @@ spec:
                   name:
                     description: |-
                       Name is the server group name. Machines with the same server group name
-                      in the same zone will be placed on different physical hosts.
-                      The server group is created automatically if it doesn't exist.
+                      in the same zone are placed on different physical hosts. The group is
+                      created automatically the first time CAPCS sees the name.
+                      Immutable after machine creation.
                     minLength: 1
                     type: string
                 required:
@@ -134,7 +150,10 @@ spec:
               tags:
                 additionalProperties:
                   type: string
-                description: Tags are key-value pairs to apply to the server.
+                description: |-
+                  Tags are user-defined key/value pairs applied to the server as cloudscale
+                  tags. CAPCS additionally sets its own ownership tag with the key
+                  "capcs-cluster-<cluster-name>"; do not set keys with the "capcs-" prefix.
                 type: object
             required:
             - flavor

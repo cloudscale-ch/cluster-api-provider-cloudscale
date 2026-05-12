@@ -34,22 +34,34 @@ type CloudscaleMachineSpec struct {
 	// +optional
 	ProviderID *string `json:"providerID,omitempty"`
 
-	// Flavor is the cloudscale.ch server flavor (e.g., "flex-8-4").
+	// Flavor is the cloudscale.ch server flavor slug, e.g. "flex-4-2" or
+	// "plus-8-4". List available flavors via the cloudscale API
+	// (`GET /v1/flavors`) or the control panel.
+	// Immutable after machine creation.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Flavor string `json:"flavor"`
 
-	// Image is the OS image slug (e.g., "ubuntu-24.04"), custom image slug (e.g., "custom:ubuntu-foo"), or custom image UUID.
+	// Image identifies the OS image used to boot the server. One of:
+	// - a public image slug (e.g. "ubuntu-24.04"),
+	// - a custom image slug (e.g. "custom:ubuntu-2404-kube-v1.36.0"), or
+	// - a custom image UUID.
+	// For Kubernetes nodes you typically want a custom image built with
+	// image-builder (https://image-builder.sigs.k8s.io/) that already contains
+	// kubelet, containerd, and the chosen Kubernetes version.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Image string `json:"image"`
 
-	// RootVolumeSize is the root volume size in GB.
+	// RootVolumeSize is the root volume size in GB. Minimum 10. If unset, the
+	// cloudscale.ch default for the chosen flavor is used.
 	// +kubebuilder:validation:Minimum=10
 	// +optional
 	RootVolumeSize int `json:"rootVolumeSize,omitempty"`
 
-	// Tags are key-value pairs to apply to the server.
+	// Tags are user-defined key/value pairs applied to the server as cloudscale
+	// tags. CAPCS additionally sets its own ownership tag with the key
+	// "capcs-cluster-<cluster-name>"; do not set keys with the "capcs-" prefix.
 	// +optional
 	Tags map[string]string `json:"tags,omitempty"`
 
@@ -95,10 +107,14 @@ type InterfaceSpec struct {
 }
 
 // ServerGroupSpec configures server group placement for anti-affinity.
+// cloudscale.ch limits a single server group to 4 servers; to scale a pool
+// beyond that, split it across multiple MachineDeployments each pointing at a
+// CloudscaleMachineTemplate with a distinct ServerGroupSpec.Name.
 type ServerGroupSpec struct {
 	// Name is the server group name. Machines with the same server group name
-	// in the same zone will be placed on different physical hosts.
-	// The server group is created automatically if it doesn't exist.
+	// in the same zone are placed on different physical hosts. The group is
+	// created automatically the first time CAPCS sees the name.
+	// Immutable after machine creation.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
@@ -153,7 +169,9 @@ type CloudscaleMachineStatus struct {
 // +kubebuilder:printcolumn:name="ProviderID",type="string",JSONPath=".spec.providerID",description="cloudscale.ch server ID"
 // +kubebuilder:printcolumn:name="Machine",type="string",JSONPath=".metadata.ownerReferences[?(@.kind==\"Machine\")].name",description="Machine object"
 
-// CloudscaleMachine is the Schema for the cloudscalemachines API
+// CloudscaleMachine represents a single cloudscale.ch server backing a CAPI
+// Machine. Most spec fields are immutable after creation — to change them,
+// roll the owning MachineDeployment or KubeadmControlPlane.
 type CloudscaleMachine struct {
 	metav1.TypeMeta `json:",inline"`
 
