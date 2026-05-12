@@ -24,6 +24,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/utils/ptr"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/test/framework"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -38,9 +39,13 @@ func validateCloudscaleResources(proxy framework.ClusterProxy, namespace, cluste
 
 	By("Validating CloudscaleCluster resources")
 
-	// Get CloudscaleCluster
+	// Resolve CloudscaleCluster via the Cluster's infrastructureRef — under ClusterClass
+	// topology, the InfraCluster name is generated with a suffix and does not match clusterName.
+	cluster := &clusterv1.Cluster{}
+	Expect(c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: clusterName}, cluster)).To(Succeed(), "Failed to get Cluster")
+
 	cloudscaleCluster := &infrav1beta2.CloudscaleCluster{}
-	key := client.ObjectKey{Namespace: namespace, Name: clusterName}
+	key := client.ObjectKey{Namespace: namespace, Name: cluster.Spec.InfrastructureRef.Name}
 	Expect(c.Get(ctx, key, cloudscaleCluster)).To(Succeed(), "Failed to get CloudscaleCluster")
 
 	// Validate all network resources are created

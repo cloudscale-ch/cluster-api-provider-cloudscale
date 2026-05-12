@@ -1,0 +1,309 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: cloudscaleclustertemplates.infrastructure.cluster.x-k8s.io
+spec:
+  group: infrastructure.cluster.x-k8s.io
+  names:
+    categories:
+    - cluster-api
+    kind: CloudscaleClusterTemplate
+    listKind: CloudscaleClusterTemplateList
+    plural: cloudscaleclustertemplates
+    singular: cloudscaleclustertemplate
+  scope: Namespaced
+  versions:
+  - name: v1beta2
+    schema:
+      openAPIV3Schema:
+        description: CloudscaleClusterTemplate is the Schema for the cloudscaleclustertemplates
+          API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of CloudscaleClusterTemplate
+            properties:
+              template:
+                description: CloudscaleClusterTemplateResource contains spec for CloudscaleClusterSpec.
+                properties:
+                  metadata:
+                    description: |-
+                      ObjectMeta is metadata that all persisted resources must have, which includes all objects
+                      users must create. This is a copy of customizable fields from metav1.ObjectMeta.
+
+                      ObjectMeta is embedded in `Machine.Spec`, `MachineDeployment.Template` and `MachineSet.Template`,
+                      which are not top-level Kubernetes objects. Given that metav1.ObjectMeta has lots of special cases
+                      and read-only fields which end up in the generated CRD validation, having it as a subset simplifies
+                      the API and some issues that can impact user experience.
+
+                      During the [upgrade to controller-tools@v2](https://github.com/kubernetes-sigs/cluster-api/pull/1054)
+                      for v1alpha2, we noticed a failure would occur running Cluster API test suite against the new CRDs,
+                      specifically `spec.metadata.creationTimestamp in body must be of type string: "null"`.
+                      The investigation showed that `controller-tools@v2` behaves differently than its previous version
+                      when handling types from [metav1](k8s.io/apimachinery/pkg/apis/meta/v1) package.
+
+                      In more details, we found that embedded (non-top level) types that embedded `metav1.ObjectMeta`
+                      had validation properties, including for `creationTimestamp` (metav1.Time).
+                      The `metav1.Time` type specifies a custom json marshaller that, when IsZero() is true, returns `null`
+                      which breaks validation because the field isn't marked as nullable.
+
+                      In future versions, controller-tools@v2 might allow overriding the type and validation for embedded
+                      types. When that happens, this hack should be revisited.
+                    minProperties: 1
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          annotations is an unstructured key value map stored with a resource that may be
+                          set by external tools to store and retrieve arbitrary metadata. They are not
+                          queryable and should be preserved when modifying objects.
+                          More info: http://kubernetes.io/docs/user-guide/annotations
+                        type: object
+                      labels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          labels is a map of string keys and values that can be used to organize and categorize
+                          (scope and select) objects. May match selectors of replication controllers
+                          and services.
+                          More info: http://kubernetes.io/docs/user-guide/labels
+                        type: object
+                    type: object
+                  spec:
+                    description: CloudscaleClusterSpec defines the desired state of
+                      CloudscaleCluster
+                    properties:
+                      controlPlaneEndpoint:
+                        description: |-
+                          ControlPlaneEndpoint represents the endpoint to communicate with the control plane.
+                          This is set automatically from the load balancer's VIP address or floating IP.
+                        minProperties: 1
+                        properties:
+                          host:
+                            description: host is the hostname on which the API server
+                              is serving.
+                            maxLength: 512
+                            minLength: 1
+                            type: string
+                          port:
+                            description: port is the port on which the API server
+                              is serving.
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
+                            type: integer
+                        type: object
+                      controlPlaneLoadBalancer:
+                        description: ControlPlaneLoadBalancer configures the load
+                          balancer for the control plane.
+                        properties:
+                          algorithm:
+                            default: round_robin
+                            description: Algorithm is the load balancing algorithm.
+                            enum:
+                            - round_robin
+                            - least_connections
+                            - source_ip
+                            type: string
+                          apiServerPort:
+                            default: 6443
+                            description: APIServerPort is the port for the Kubernetes
+                              API server.
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
+                            type: integer
+                          enabled:
+                            default: true
+                            description: |-
+                              Enabled controls whether a load balancer is created for the control plane.
+                              Set to false for external control planes (e.g., hosted control plane) where the endpoint
+                              is provided externally, or when using a floating IP without a load balancer.
+                            type: boolean
+                          flavor:
+                            default: lb-standard
+                            description: Flavor is the load balancer flavor (size).
+                            type: string
+                          healthMonitor:
+                            description: HealthMonitor configures the load balancer
+                              health monitor.
+                            properties:
+                              delayS:
+                                default: 5
+                                description: DelayS is the interval between health
+                                  checks in seconds.
+                                maximum: 300
+                                minimum: 1
+                                type: integer
+                              downThreshold:
+                                default: 3
+                                description: DownThreshold is the number of failed
+                                  checks to mark unhealthy.
+                                maximum: 10
+                                minimum: 1
+                                type: integer
+                              timeoutS:
+                                default: 3
+                                description: TimeoutS is the health check timeout
+                                  in seconds.
+                                maximum: 300
+                                minimum: 1
+                                type: integer
+                              upThreshold:
+                                default: 2
+                                description: UpThreshold is the number of successful
+                                  checks to mark healthy.
+                                maximum: 10
+                                minimum: 1
+                                type: integer
+                            type: object
+                          network:
+                            description: |-
+                              Network places the LB VIP on a private network (internal LB).
+                              References spec.networks[].name. Omit for a public LB.
+                              When multiple networks are defined this field is required so the LB
+                              pool members can be registered against a specific subnet.
+                            type: string
+                        type: object
+                      credentialsRef:
+                        description: CredentialsRef references the Secret containing
+                          the cloudscale.ch API token.
+                        properties:
+                          name:
+                            description: Name is the name of the Secret.
+                            type: string
+                          namespace:
+                            description: Namespace is the namespace of the Secret.
+                              Defaults to the cluster namespace.
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      floatingIP:
+                        description: |-
+                          FloatingIP configures a floating IP for a stable control plane endpoint.
+                          When the load balancer is enabled (recommended), the floating IP is assigned
+                          to the LB, providing a stable IP that survives LB recreation.
+                          When using a pre-existing floating IP without a load balancer, the user must
+                          configure a dummy interface on the control plane servers (see cloudscale.ch docs)
+                          and ensure the control-plane machine template includes a public interface
+                          ({type: public}), as cloudscale.ch requires a public IPv4 address to assign
+                          a floating IP to a server.
+                          Managed floating IPs require the load balancer to be enabled.
+                          Floating IPs cannot be attached to a load balancer with a private VIP
+                          (i.e. one whose ControlPlaneLoadBalancer.Network is set).
+                        properties:
+                          address:
+                            description: |-
+                              Address references a pre-existing floating IP by its address.
+                              cloudscale.ch identifies floating IPs by their IP address rather than by UUID.
+                              The floating IP is not deleted on cluster teardown.
+                              Mutually exclusive with IPFamily.
+                            type: string
+                          ipFamily:
+                            allOf:
+                            - enum:
+                              - IPv4
+                              - IPv6
+                              - DualStack
+                            - enum:
+                              - IPv4
+                              - IPv6
+                            description: |-
+                              IPFamily creates a new floating IP with this IP version.
+                              A floating IP is a single address, so DualStack is not valid here.
+                              Mutually exclusive with Address.
+                            type: string
+                        type: object
+                      networks:
+                        description: |-
+                          Networks define the private networks for this cluster.
+                          Referenced by name from machine interface specs and LB config.
+                          If empty, defaults to a single managed network named after the cluster.
+                        items:
+                          description: |-
+                            NetworkSpec defines a private network for the cluster.
+                            Exactly one of UUID or CIDR must be specified.
+                          properties:
+                            cidr:
+                              description: |-
+                                CIDR defines the subnet for a controller-managed network.
+                                The network and subnet are created and deleted by CAPCS.
+                                Mutually exclusive with UUID.
+                              type: string
+                            gatewayAddress:
+                              description: |-
+                                GatewayAddress is the gateway IP address for the subnet.
+                                Only applicable when CIDR is set (managed network).
+                                By default, no gateway is configured on the subnet. This ensures
+                                that outbound internet traffic uses the public network interface.
+                                Set this to a specific IP address (e.g., "10.0.0.1") only if you have configured
+                                a NAT gateway or similar infrastructure on the private network.
+                              type: string
+                            name:
+                              description: |-
+                                Name identifies this network within the cluster.
+                                Used to reference this network from machine interface specs and LB config.
+                              maxLength: 63
+                              pattern: ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$
+                              type: string
+                            uuid:
+                              description: |-
+                                UUID references a pre-existing cloudscale.ch network.
+                                The network is not deleted on cluster teardown.
+                                Mutually exclusive with CIDR.
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - name
+                        x-kubernetes-list-type: map
+                      region:
+                        description: Region is the cloudscale.ch region (e.g., "rma",
+                          "lpg").
+                        enum:
+                        - rma
+                        - lpg
+                        type: string
+                      zone:
+                        description: |-
+                          Zone is the cloudscale.ch zone (e.g., "rma1", "lpg1").
+                          Defaults to region + "1" if not specified.
+                        type: string
+                    required:
+                    - credentialsRef
+                    - region
+                    type: object
+                required:
+                - spec
+                type: object
+            required:
+            - template
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true

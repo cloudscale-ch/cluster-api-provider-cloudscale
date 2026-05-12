@@ -50,12 +50,14 @@ providers:
             new: "image: ${IMG}"
         files:
           - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template.yaml"
+          - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-fip.yaml"
           - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-ha.yaml"
-          - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-upgrades.yaml"
           - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-md-remediation.yaml"
           - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-pre-existing-network.yaml"
           - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-public-lb-private-nodes.yaml"
-          - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-fip.yaml"
+          - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-topology.yaml"
+          - sourcePath: "../data/infrastructure-cloudscale/main/clusterclass-quick-start.yaml"
+          - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-upgrades.yaml"
           - sourcePath: "../data/infrastructure-cloudscale/main/metadata.yaml"
             targetName: metadata.yaml
 
@@ -85,6 +87,7 @@ variables:
 
   # Feature flags
   EXP_CLUSTER_RESOURCE_SET: "true"
+  CLUSTER_TOPOLOGY: "true"
 
   # Conformance testing
   KUBETEST_CONFIGURATION: "${KUBETEST_CONFIGURATION}"

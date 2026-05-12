@@ -30,6 +30,26 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /mutate-infrastructure-cluster-x-k8s-io-v1beta2-cloudscaleclustertemplate
+  failurePolicy: Fail
+  name: mcloudscaleclustertemplate-v1beta2.kb.io
+  rules:
+  - apiGroups:
+    - infrastructure.cluster.x-k8s.io
+    apiVersions:
+    - v1beta2
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - cloudscaleclustertemplates
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /mutate-infrastructure-cluster-x-k8s-io-v1beta2-cloudscalemachine
   failurePolicy: Fail
   name: mcloudscalemachine-v1beta2.kb.io
@@ -89,6 +109,26 @@ webhooks:
     - UPDATE
     resources:
     - cloudscaleclusters
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-infrastructure-cluster-x-k8s-io-v1beta2-cloudscaleclustertemplate
+  failurePolicy: Fail
+  name: vcloudscaleclustertemplate-v1beta2.kb.io
+  rules:
+  - apiGroups:
+    - infrastructure.cluster.x-k8s.io
+    apiVersions:
+    - v1beta2
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - cloudscaleclustertemplates
   sideEffects: None
 - admissionReviewVersions:
   - v1

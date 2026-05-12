@@ -66,6 +66,25 @@ var _ = Describe("Workload cluster lifecycle", Label("lifecycle"), func() {
 	})
 })
 
+var _ = Describe("Workload cluster-class topology", Label("topology"), func() {
+	Context("With ClusterClass topology", func() {
+		capi_e2e.QuickStartSpec(ctx, func() capi_e2e.QuickStartSpecInput {
+			return capi_e2e.QuickStartSpecInput{
+				E2EConfig:                e2eConfig,
+				ClusterctlConfigPath:     clusterctlConfigPath,
+				BootstrapClusterProxy:    bootstrapClusterProxy,
+				ArtifactFolder:           artifactFolder,
+				SkipCleanup:              skipCleanup,
+				InfrastructureProvider:   ptr.To("cloudscale-ch-cloudscale"),
+				Flavor:                   ptr.To("topology"),
+				ControlPlaneMachineCount: ptr.To[int64](1),
+				WorkerMachineCount:       ptr.To[int64](1),
+				PostMachinesProvisioned:  validateCloudscaleResources,
+			}
+		})
+	})
+})
+
 // Pre-existing networking tests verify cluster provisioning against a pre-existing network.
 // All contexts are skipped when CLOUDSCALE_NETWORK_UUID is not set. The pre-existing network must
 // provide internet egress (e.g. Support-arranged NAT) for the private-nodes contexts,

@@ -258,6 +258,10 @@ func main() {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "CloudscaleMachineTemplate")
 			os.Exit(1)
 		}
+		if err := webhookv1beta2.SetupCloudscaleClusterTemplateWebhookWithManager(mgr, regionInfo); err != nil {
+			setupLog.Error(err, "Failed to create webhook", "webhook", "CloudscaleClusterTemplate")
+			os.Exit(1)
+		}
 	}
 	// +kubebuilder:scaffold:builder
 
