@@ -3,4 +3,5 @@ resources:
 - infrastructure_v1beta2_cloudscalecluster.yaml
 - infrastructure_v1beta2_cloudscalemachine.yaml
 - infrastructure_v1beta2_cloudscalemachinetemplate.yaml
+- infrastructure_v1beta2_cloudscaleclustertemplate.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

@@ -82,19 +82,28 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	err = SetupCloudscaleClusterWebhookWithManager(mgr, testutils.NewTestRegionInfo())
+	regionInfo := testutils.NewTestRegionInfo()
+	flavorInfo := testutils.NewTestFlavorInfo()
+
+	err = SetupCloudscaleClusterWebhookWithManager(mgr, regionInfo)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to setup cluster webhook: %v\n", err)
 		os.Exit(1)
 	}
 
-	err = SetupCloudscaleMachineWebhookWithManager(mgr, testutils.NewTestFlavorInfo())
+	err = SetupCloudscaleClusterTemplateWebhookWithManager(mgr, regionInfo)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to setup cluster template webhook: %v\n", err)
+		os.Exit(1)
+	}
+
+	err = SetupCloudscaleMachineWebhookWithManager(mgr, flavorInfo)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to setup machine webhook: %v\n", err)
 		os.Exit(1)
 	}
 
-	err = SetupCloudscaleMachineTemplateWebhookWithManager(mgr, testutils.NewTestFlavorInfo())
+	err = SetupCloudscaleMachineTemplateWebhookWithManager(mgr, flavorInfo)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to setup machine template webhook: %v\n", err)
 		os.Exit(1)

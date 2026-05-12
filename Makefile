@@ -126,12 +126,14 @@ generate-e2e-ccm: ## Regenerate cloudscale CCM manifest
 	@CCM_VERSION=$(CCM_VERSION) hack/generate-e2e-ccm.sh
 
 E2E_CLUSTER_TEMPLATES := cluster-template \
+	cluster-template-fip \
 	cluster-template-ha \
-	cluster-template-upgrades \
 	cluster-template-md-remediation \
 	cluster-template-pre-existing-network \
 	cluster-template-public-lb-private-nodes \
-	cluster-template-fip
+	cluster-template-topology \
+	cluster-template-upgrades \
+	clusterclass-quick-start
 
 .PHONY: generate-e2e-templates
 generate-e2e-templates: $(KUSTOMIZE) generate-e2e-cni generate-e2e-ccm ## Generate e2e cluster templates using kustomize overlays
@@ -239,6 +241,19 @@ test-e2e-pre-existing-networking: $(GINKGO) generate-e2e-templates generate-e2e-
 		-e2e.skip-resource-cleanup=$(SKIP_RESOURCE_CLEANUP) \
 		-e2e.use-existing-cluster=$(USE_EXISTING_CLUSTER)
 
+.PHONY: test-e2e-topology
+test-e2e-topology: $(GINKGO) generate-e2e-templates generate-e2e-config docker-build ## Run cluster-class topology e2e tests
+	$(GINKGO) -v --trace --tags=e2e \
+		--nodes=$(GINKGO_NODES) \
+		--label-filter="topology" \
+		--timeout=90m \
+		--output-dir="$(E2E_ARTIFACTS_FOLDER)" --junit-report="junit.e2e_topology.xml" \
+		./test/e2e -- \
+		-e2e.config=$(E2E_CONF_FILE) \
+		-e2e.artifacts-folder=$(E2E_ARTIFACTS_FOLDER) \
+		-e2e.skip-resource-cleanup=$(SKIP_RESOURCE_CLEANUP) \
+		-e2e.use-existing-cluster=$(USE_EXISTING_CLUSTER)
+
 .PHONY: test-e2e-conformance
 test-e2e-conformance: $(GINKGO) generate-e2e-templates generate-e2e-config docker-build ## Run K8s conformance e2e tests
 	$(GINKGO) -v --trace --tags=e2e \
@@ -318,6 +333,7 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 release-manifests: build-installer ## Build all release artifacts into dist/ (infrastructure-components.yaml, metadata.yaml, cluster templates).
 	cp metadata.yaml dist/metadata.yaml
 	cp templates/cluster-template*.yaml dist/
+	cp templates/cluster-class*.yaml dist/
 
 ##@ Deployment
 

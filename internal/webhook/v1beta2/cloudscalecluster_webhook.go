@@ -65,12 +65,15 @@ const defaultSubnetCIDR = "172.18.0.0/24"
 func (d *CloudscaleClusterCustomDefaulter) Default(_ context.Context, cluster *infrastructurev1beta2.CloudscaleCluster) error {
 	cloudscaleclusterlog.Info("Defaulting for CloudscaleCluster", "name", cluster.GetName())
 
-	// Default zone to region's default zone if not set
+	// Zone and the default network name depend on the final object's identity
+	// (region and metadata.Name respectively), so they're only defaulted here,
+	// not in the shared template defaulter. ClusterClass-managed clusters get
+	// their region from a topology patch and their name from the parent
+	// Cluster — defaulting these at template-apply time would bake in values
+	// tied to the template, which then get copied verbatim into every cluster.
 	if cluster.Spec.Zone == "" {
 		cluster.Spec.Zone = d.RegionInfo.GetDefaultZoneForRegion(cluster.Spec.Region)
 	}
-
-	// Default networks: if empty, create one managed network named after the cluster
 	if len(cluster.Spec.Networks) == 0 {
 		cluster.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
 			{
@@ -80,40 +83,44 @@ func (d *CloudscaleClusterCustomDefaulter) Default(_ context.Context, cluster *i
 		}
 	}
 
+	clusterSpecDefault(&cluster.Spec)
+
+	return nil
+}
+
+func clusterSpecDefault(spec *infrastructurev1beta2.CloudscaleClusterSpec) {
 	// Default load balancer settings
-	if cluster.Spec.ControlPlaneLoadBalancer.Enabled == nil {
-		cluster.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(true)
+	if spec.ControlPlaneLoadBalancer.Enabled == nil {
+		spec.ControlPlaneLoadBalancer.Enabled = ptr.To(true)
 	}
-	if cluster.Spec.ControlPlaneLoadBalancer.Algorithm == "" {
-		cluster.Spec.ControlPlaneLoadBalancer.Algorithm = "round_robin"
+	if spec.ControlPlaneLoadBalancer.Algorithm == "" {
+		spec.ControlPlaneLoadBalancer.Algorithm = "round_robin"
 	}
-	if cluster.Spec.ControlPlaneLoadBalancer.Flavor == "" {
-		cluster.Spec.ControlPlaneLoadBalancer.Flavor = "lb-standard"
+	if spec.ControlPlaneLoadBalancer.Flavor == "" {
+		spec.ControlPlaneLoadBalancer.Flavor = "lb-standard"
 	}
-	if cluster.Spec.ControlPlaneLoadBalancer.APIServerPort == 0 {
-		cluster.Spec.ControlPlaneLoadBalancer.APIServerPort = 6443
+	if spec.ControlPlaneLoadBalancer.APIServerPort == 0 {
+		spec.ControlPlaneLoadBalancer.APIServerPort = 6443
 	}
 
-	if cluster.Spec.ControlPlaneLoadBalancer.HealthMonitor.DelayS == 0 {
-		cluster.Spec.ControlPlaneLoadBalancer.HealthMonitor.DelayS = 5
+	if spec.ControlPlaneLoadBalancer.HealthMonitor.DelayS == 0 {
+		spec.ControlPlaneLoadBalancer.HealthMonitor.DelayS = 5
 	}
-	if cluster.Spec.ControlPlaneLoadBalancer.HealthMonitor.TimeoutS == 0 {
-		cluster.Spec.ControlPlaneLoadBalancer.HealthMonitor.TimeoutS = 3
+	if spec.ControlPlaneLoadBalancer.HealthMonitor.TimeoutS == 0 {
+		spec.ControlPlaneLoadBalancer.HealthMonitor.TimeoutS = 3
 	}
-	if cluster.Spec.ControlPlaneLoadBalancer.HealthMonitor.UpThreshold == 0 {
-		cluster.Spec.ControlPlaneLoadBalancer.HealthMonitor.UpThreshold = 2
+	if spec.ControlPlaneLoadBalancer.HealthMonitor.UpThreshold == 0 {
+		spec.ControlPlaneLoadBalancer.HealthMonitor.UpThreshold = 2
 	}
-	if cluster.Spec.ControlPlaneLoadBalancer.HealthMonitor.DownThreshold == 0 {
-		cluster.Spec.ControlPlaneLoadBalancer.HealthMonitor.DownThreshold = 3
+	if spec.ControlPlaneLoadBalancer.HealthMonitor.DownThreshold == 0 {
+		spec.ControlPlaneLoadBalancer.HealthMonitor.DownThreshold = 3
 	}
 
 	// Default floating IP: if set but both fields empty, default to IPv4
-	if cluster.Spec.FloatingIP != nil && cluster.Spec.FloatingIP.IPFamily == nil && cluster.Spec.FloatingIP.Address == "" {
+	if spec.FloatingIP != nil && spec.FloatingIP.IPFamily == nil && spec.FloatingIP.Address == "" {
 		ipv4 := infrastructurev1beta2.IPFamilyIPv4
-		cluster.Spec.FloatingIP.IPFamily = &ipv4
+		spec.FloatingIP.IPFamily = &ipv4
 	}
-
-	return nil
 }
 
 // +kubebuilder:webhook:path=/validate-infrastructure-cluster-x-k8s-io-v1beta2-cloudscalecluster,mutating=false,failurePolicy=fail,sideEffects=None,groups=infrastructure.cluster.x-k8s.io,resources=cloudscaleclusters,verbs=create;update,versions=v1beta2,name=vcloudscalecluster-v1beta2.kb.io,admissionReviewVersions=v1
@@ -131,38 +138,7 @@ type CloudscaleClusterCustomValidator struct {
 func (v *CloudscaleClusterCustomValidator) ValidateCreate(_ context.Context, cluster *infrastructurev1beta2.CloudscaleCluster) (admission.Warnings, error) {
 	cloudscaleclusterlog.Info("Validation for CloudscaleCluster upon creation", "name", cluster.GetName())
 
-	var allErrs field.ErrorList
-
-	// Validate zone belongs to region
-	if cluster.Spec.Zone != "" {
-		if !v.RegionInfo.ZoneBelongsToRegion(cluster.Spec.Zone, cluster.Spec.Region) {
-			allErrs = append(allErrs, field.Invalid(
-				field.NewPath("spec", "zone"),
-				cluster.Spec.Zone,
-				fmt.Sprintf("zone must belong to region %q", cluster.Spec.Region)))
-		}
-	}
-
-	// Validate networks
-	allErrs = append(allErrs, validateNetworks(cluster.Spec.Networks, field.NewPath("spec", "networks"))...)
-
-	// Validate LB network reference
-	if cluster.Spec.ControlPlaneLoadBalancer.Network != "" {
-		allErrs = append(allErrs, validateNetworkReference(
-			cluster.Spec.ControlPlaneLoadBalancer.Network,
-			cluster.Spec.Networks,
-			field.NewPath("spec", "controlPlaneLoadBalancer", "network"),
-		)...)
-	}
-
-	// Validate floating IP
-	if cluster.Spec.FloatingIP != nil {
-		allErrs = append(allErrs, validateFloatingIP(cluster.Spec.FloatingIP, field.NewPath("spec", "floatingIP"))...)
-	}
-
-	allErrs = append(allErrs, validateFloatingIPRequiresLBOrPreExisting(cluster)...)
-	allErrs = append(allErrs, validateFloatingIPRequiresPublicLB(cluster)...)
-	allErrs = append(allErrs, validateLBPoolMemberNetworkResolvable(cluster)...)
+	allErrs := clusterSpecValidateCreate(cluster.Spec, v.RegionInfo, field.NewPath("spec"))
 
 	if len(allErrs) > 0 {
 		return nil, apierrors.NewInvalid(
@@ -173,42 +149,81 @@ func (v *CloudscaleClusterCustomValidator) ValidateCreate(_ context.Context, clu
 	return nil, nil
 }
 
+func clusterSpecValidateCreate(spec infrastructurev1beta2.CloudscaleClusterSpec, regionInfo *cloudscale.RegionInfo, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+
+	// Validate zone belongs to region
+	if spec.Zone != "" {
+		if !regionInfo.ZoneBelongsToRegion(spec.Zone, spec.Region) {
+			allErrs = append(allErrs, field.Invalid(
+				fldPath.Child("zone"),
+				spec.Zone,
+				fmt.Sprintf("zone must belong to region %q", spec.Region)))
+		}
+	}
+
+	// Validate networks
+	allErrs = append(allErrs, validateNetworks(spec.Networks, fldPath.Child("networks"))...)
+
+	// Validate LB network reference
+	if spec.ControlPlaneLoadBalancer.Network != "" {
+		allErrs = append(allErrs, validateNetworkReference(
+			spec.ControlPlaneLoadBalancer.Network,
+			spec.Networks,
+			fldPath.Child("controlPlaneLoadBalancer", "network"),
+		)...)
+	}
+
+	// Validate floating IP
+	if spec.FloatingIP != nil {
+		allErrs = append(allErrs, validateFloatingIP(spec.FloatingIP, fldPath.Child("floatingIP"))...)
+	}
+
+	allErrs = append(allErrs, validateFloatingIPRequiresLBOrPreExisting(spec, fldPath)...)
+	allErrs = append(allErrs, validateFloatingIPRequiresPublicLB(spec, fldPath)...)
+	allErrs = append(allErrs, validateLBPoolMemberNetworkResolvable(spec, fldPath)...)
+	return allErrs
+}
+
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type CloudscaleCluster.
 func (v *CloudscaleClusterCustomValidator) ValidateUpdate(_ context.Context, oldCluster, newCluster *infrastructurev1beta2.CloudscaleCluster) (admission.Warnings, error) {
 	cloudscaleclusterlog.Info("Validation for CloudscaleCluster upon update", "name", newCluster.GetName())
 
 	var allErrs field.ErrorList
 
+	newClusterSpec := newCluster.Spec
+	oldClusterSpec := oldCluster.Spec
+
 	// Region is immutable
-	if newCluster.Spec.Region != oldCluster.Spec.Region {
+	if newClusterSpec.Region != oldClusterSpec.Region {
 		allErrs = append(allErrs, field.Forbidden(
 			field.NewPath("spec", "region"),
 			"field is immutable after cluster creation"))
 	}
 
 	// Zone is immutable
-	if newCluster.Spec.Zone != oldCluster.Spec.Zone {
+	if newClusterSpec.Zone != oldClusterSpec.Zone {
 		allErrs = append(allErrs, field.Forbidden(
 			field.NewPath("spec", "zone"),
 			"field is immutable after cluster creation"))
 	}
 
 	// Network immutability: existing networks cannot be modified or removed
-	allErrs = append(allErrs, validateNetworkImmutability(oldCluster.Spec.Networks, newCluster.Spec.Networks, field.NewPath("spec", "networks"))...)
+	allErrs = append(allErrs, validateNetworkImmutability(oldClusterSpec.Networks, newClusterSpec.Networks, field.NewPath("spec", "networks"))...)
 
 	// Validate new networks (new entries must still pass creation validation)
-	allErrs = append(allErrs, validateNetworks(newCluster.Spec.Networks, field.NewPath("spec", "networks"))...)
+	allErrs = append(allErrs, validateNetworks(newClusterSpec.Networks, field.NewPath("spec", "networks"))...)
 
 	// LoadBalancer Enabled is immutable
-	if ptr.Deref(newCluster.Spec.ControlPlaneLoadBalancer.Enabled, true) != ptr.Deref(oldCluster.Spec.ControlPlaneLoadBalancer.Enabled, true) {
+	if ptr.Deref(newClusterSpec.ControlPlaneLoadBalancer.Enabled, true) != ptr.Deref(oldClusterSpec.ControlPlaneLoadBalancer.Enabled, true) {
 		allErrs = append(allErrs, field.Forbidden(
 			field.NewPath("spec", "controlPlaneLoadBalancer", "enabled"),
 			"field is immutable after cluster creation"))
 	}
 
 	// LB network is immutable once set
-	if oldCluster.Spec.ControlPlaneLoadBalancer.Network != "" &&
-		newCluster.Spec.ControlPlaneLoadBalancer.Network != oldCluster.Spec.ControlPlaneLoadBalancer.Network {
+	if oldClusterSpec.ControlPlaneLoadBalancer.Network != "" &&
+		newClusterSpec.ControlPlaneLoadBalancer.Network != oldClusterSpec.ControlPlaneLoadBalancer.Network {
 		allErrs = append(allErrs, field.Forbidden(
 			field.NewPath("spec", "controlPlaneLoadBalancer", "network"),
 			"field is immutable once set"))
@@ -217,28 +232,28 @@ func (v *CloudscaleClusterCustomValidator) ValidateUpdate(_ context.Context, old
 	// Other LB fields are immutable: they're baked into the LB at creation
 	// and changing them post-create would silently diverge from the live LB.
 	allErrs = append(allErrs, validateLBImmutability(
-		&oldCluster.Spec.ControlPlaneLoadBalancer,
-		&newCluster.Spec.ControlPlaneLoadBalancer,
+		&oldClusterSpec.ControlPlaneLoadBalancer,
+		&newClusterSpec.ControlPlaneLoadBalancer,
 		field.NewPath("spec", "controlPlaneLoadBalancer"),
 	)...)
 
 	// Validate LB network reference (for new or existing)
-	if newCluster.Spec.ControlPlaneLoadBalancer.Network != "" {
+	if newClusterSpec.ControlPlaneLoadBalancer.Network != "" {
 		allErrs = append(allErrs, validateNetworkReference(
-			newCluster.Spec.ControlPlaneLoadBalancer.Network,
-			newCluster.Spec.Networks,
+			newClusterSpec.ControlPlaneLoadBalancer.Network,
+			newClusterSpec.Networks,
 			field.NewPath("spec", "controlPlaneLoadBalancer", "network"),
 		)...)
 	}
 
 	// ControlPlaneEndpoint is immutable once set
-	if oldCluster.Spec.ControlPlaneEndpoint.Host != "" {
-		if newCluster.Spec.ControlPlaneEndpoint.Host != oldCluster.Spec.ControlPlaneEndpoint.Host {
+	if oldClusterSpec.ControlPlaneEndpoint.Host != "" {
+		if newClusterSpec.ControlPlaneEndpoint.Host != oldClusterSpec.ControlPlaneEndpoint.Host {
 			allErrs = append(allErrs, field.Forbidden(
 				field.NewPath("spec", "controlPlaneEndpoint", "host"),
 				"field is immutable once set"))
 		}
-		if newCluster.Spec.ControlPlaneEndpoint.Port != oldCluster.Spec.ControlPlaneEndpoint.Port {
+		if newClusterSpec.ControlPlaneEndpoint.Port != oldClusterSpec.ControlPlaneEndpoint.Port {
 			allErrs = append(allErrs, field.Forbidden(
 				field.NewPath("spec", "controlPlaneEndpoint", "port"),
 				"field is immutable once set"))
@@ -246,16 +261,16 @@ func (v *CloudscaleClusterCustomValidator) ValidateUpdate(_ context.Context, old
 	}
 
 	// FloatingIP is immutable once set
-	allErrs = append(allErrs, validateFloatingIPImmutability(oldCluster.Spec.FloatingIP, newCluster.Spec.FloatingIP, field.NewPath("spec", "floatingIP"))...)
+	allErrs = append(allErrs, validateFloatingIPImmutability(oldClusterSpec.FloatingIP, newClusterSpec.FloatingIP, field.NewPath("spec", "floatingIP"))...)
 
 	// Validate floating IP if set
-	if newCluster.Spec.FloatingIP != nil {
-		allErrs = append(allErrs, validateFloatingIP(newCluster.Spec.FloatingIP, field.NewPath("spec", "floatingIP"))...)
+	if newClusterSpec.FloatingIP != nil {
+		allErrs = append(allErrs, validateFloatingIP(newClusterSpec.FloatingIP, field.NewPath("spec", "floatingIP"))...)
 	}
 
-	allErrs = append(allErrs, validateFloatingIPRequiresLBOrPreExisting(newCluster)...)
-	allErrs = append(allErrs, validateFloatingIPRequiresPublicLB(newCluster)...)
-	allErrs = append(allErrs, validateLBPoolMemberNetworkResolvable(newCluster)...)
+	allErrs = append(allErrs, validateFloatingIPRequiresLBOrPreExisting(newClusterSpec, field.NewPath("spec"))...)
+	allErrs = append(allErrs, validateFloatingIPRequiresPublicLB(newClusterSpec, field.NewPath("spec"))...)
+	allErrs = append(allErrs, validateLBPoolMemberNetworkResolvable(newClusterSpec, field.NewPath("spec"))...)
 
 	if len(allErrs) > 0 {
 		return nil, apierrors.NewInvalid(
@@ -386,14 +401,14 @@ func validateNetworkImmutability(oldNetworks, newNetworks []infrastructurev1beta
 // the dummy interface in KubeadmControlPlane preKubeadmCommands.
 // With a managed FIP, the address isn't known until creation,
 // so the dummy interface can't be pre-configured.
-func validateFloatingIPRequiresLBOrPreExisting(cluster *infrastructurev1beta2.CloudscaleCluster) field.ErrorList {
+func validateFloatingIPRequiresLBOrPreExisting(spec infrastructurev1beta2.CloudscaleClusterSpec, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 
-	if cluster.Spec.FloatingIP != nil &&
-		cluster.Spec.FloatingIP.Address == "" &&
-		!ptr.Deref(cluster.Spec.ControlPlaneLoadBalancer.Enabled, true) {
+	if spec.FloatingIP != nil &&
+		spec.FloatingIP.Address == "" &&
+		!ptr.Deref(spec.ControlPlaneLoadBalancer.Enabled, true) {
 		allErrs = append(allErrs, field.Invalid(
-			field.NewPath("spec", "floatingIP"),
+			fldPath.Child("floatingIP"),
 			"",
 			"managed floating IP requires the load balancer to be enabled; use a pre-existing floating IP if you need a floating IP without a load balancer"))
 	}
@@ -437,14 +452,14 @@ func validateLBImmutability(oldLB, newLB *infrastructurev1beta2.LoadBalancerSpec
 
 // validateFloatingIPRequiresPublicLB rejects a floating IP attached to a load balancer
 // that uses an internal-network VIP. cloudscale.ch floating IPs only attach to public LBs.
-func validateFloatingIPRequiresPublicLB(cluster *infrastructurev1beta2.CloudscaleCluster) field.ErrorList {
+func validateFloatingIPRequiresPublicLB(spec infrastructurev1beta2.CloudscaleClusterSpec, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 
-	if cluster.Spec.FloatingIP != nil &&
-		ptr.Deref(cluster.Spec.ControlPlaneLoadBalancer.Enabled, true) &&
-		cluster.Spec.ControlPlaneLoadBalancer.Network != "" {
+	if spec.FloatingIP != nil &&
+		ptr.Deref(spec.ControlPlaneLoadBalancer.Enabled, true) &&
+		spec.ControlPlaneLoadBalancer.Network != "" {
 		allErrs = append(allErrs, field.Invalid(
-			field.NewPath("spec", "floatingIP"),
+			fldPath.Child("floatingIP"),
 			"",
 			"floating IPs cannot be attached to a load balancer with a private VIP; use a public load balancer or remove the floating IP"))
 	}
@@ -456,21 +471,21 @@ func validateFloatingIPRequiresPublicLB(cluster *infrastructurev1beta2.Cloudscal
 // when there are multiple networks and the LB is public. Without an explicit network the
 // controller would default the LB pool members' subnet to networks[0], which silently
 // breaks clusters whose machines join a different network.
-func validateLBPoolMemberNetworkResolvable(cluster *infrastructurev1beta2.CloudscaleCluster) field.ErrorList {
+func validateLBPoolMemberNetworkResolvable(spec infrastructurev1beta2.CloudscaleClusterSpec, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 
-	if !ptr.Deref(cluster.Spec.ControlPlaneLoadBalancer.Enabled, true) {
+	if !ptr.Deref(spec.ControlPlaneLoadBalancer.Enabled, true) {
 		return nil
 	}
-	if cluster.Spec.ControlPlaneLoadBalancer.Network != "" {
+	if spec.ControlPlaneLoadBalancer.Network != "" {
 		return nil
 	}
-	if len(cluster.Spec.Networks) <= 1 {
+	if len(spec.Networks) <= 1 {
 		return nil
 	}
 
 	allErrs = append(allErrs, field.Required(
-		field.NewPath("spec", "controlPlaneLoadBalancer", "network"),
+		fldPath.Child("controlPlaneLoadBalancer", "network"),
 		"must be set to one of spec.networks[].name when multiple networks are defined; the load balancer pool members need an explicit subnet to attach to"))
 
 	return allErrs
