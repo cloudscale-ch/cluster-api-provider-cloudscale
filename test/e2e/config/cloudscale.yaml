@@ -42,7 +42,7 @@ providers:
     type: InfrastructureProvider
     versions:
       - name: v0.99.99 # dev version, always higher than any release
-        value: ../../../config/default
+        value: ../../../config/e2e
         type: kustomize
         contract: v1beta2
         replacements:

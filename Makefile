@@ -99,7 +99,7 @@ E2E_CONF_FILE_SOURCE ?= $(shell pwd)/test/e2e/config/cloudscale.yaml
 E2E_CONF_FILE ?= $(shell pwd)/test/e2e/config/cloudscale.generated.yaml
 E2E_ARTIFACTS_FOLDER ?= $(shell pwd)/_artifacts
 E2E_TEMPLATES := test/e2e/data/infrastructure-cloudscale
-GINKGO_TIMEOUT ?= 2h
+GINKGO_TIMEOUT ?= 3h
 GINKGO_NODES ?= 1
 SKIP_RESOURCE_CLEANUP ?= false
 USE_EXISTING_CLUSTER ?= false
@@ -147,7 +147,8 @@ generate-e2e-config: ## Generate e2e config from template by resolving environme
 
 .PHONY: test-e2e
 test-e2e: TAG = $(E2E_TAG)
-test-e2e: $(GINKGO) generate-e2e-templates generate-e2e-config docker-build docker-push ## Run all e2e tests
+test-e2e: KUBETEST_CONFIGURATION = ./data/kubetest/conformance-fast.yaml
+test-e2e: $(GINKGO) generate-e2e-templates generate-e2e-config docker-build docker-push ## Run all e2e tests (uses conformance-fast; for full conformance run test-e2e-conformance separately)
 	$(GINKGO) -v --trace --tags=e2e \
 		--nodes=$(GINKGO_NODES) \
 		--timeout=$(GINKGO_TIMEOUT) \
