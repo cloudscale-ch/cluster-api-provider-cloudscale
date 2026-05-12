@@ -153,15 +153,6 @@ func TestClusterDefaulting_APIServerPort(t *testing.T) {
 	g.Expect(obj.Spec.ControlPlaneLoadBalancer.APIServerPort).To(Equal(int32(6443)))
 }
 
-func TestClusterDefaulting_LBIPFamily(t *testing.T) {
-	g := NewWithT(t)
-	obj, _, _, defaulter := newClusterWebhookTestObjects()
-	obj.Spec.ControlPlaneLoadBalancer.IPFamily = ""
-
-	g.Expect(defaulter.Default(ctx, obj)).To(Succeed())
-	g.Expect(obj.Spec.ControlPlaneLoadBalancer.IPFamily).To(Equal(infrastructurev1beta2.IPFamilyDualStack))
-}
-
 func TestClusterDefaulting_HealthMonitorFields(t *testing.T) {
 	g := NewWithT(t)
 	obj, _, _, defaulter := newClusterWebhookTestObjects()
@@ -225,7 +216,6 @@ func TestClusterDefaulting_AllDefaultsApplied(t *testing.T) {
 	g.Expect(obj.Spec.ControlPlaneLoadBalancer.Algorithm).To(Equal("round_robin"))
 	g.Expect(obj.Spec.ControlPlaneLoadBalancer.Flavor).To(Equal("lb-standard"))
 	g.Expect(obj.Spec.ControlPlaneLoadBalancer.APIServerPort).To(Equal(int32(6443)))
-	g.Expect(obj.Spec.ControlPlaneLoadBalancer.IPFamily).To(Equal(infrastructurev1beta2.IPFamilyDualStack))
 	g.Expect(obj.Spec.ControlPlaneLoadBalancer.HealthMonitor.DelayS).To(Equal(5))
 	g.Expect(obj.Spec.ControlPlaneLoadBalancer.HealthMonitor.TimeoutS).To(Equal(3))
 	g.Expect(obj.Spec.ControlPlaneLoadBalancer.HealthMonitor.UpThreshold).To(Equal(2))
@@ -330,7 +320,7 @@ func TestClusterValidateCreate_GatewayWithinCIDR(t *testing.T) {
 	obj.Spec.Region = RegionRma
 	obj.Spec.Zone = ZoneRma1
 	obj.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
-		{Name: "main", CIDR: defaultSubnetCIDR, GatewayAddress: "10.0.0.1"},
+		{Name: "main", CIDR: defaultSubnetCIDR, GatewayAddress: "172.18.0.1"},
 	}
 
 	_, err := validator.ValidateCreate(ctx, obj)
@@ -743,13 +733,6 @@ func TestClusterValidateUpdate_LBFieldsImmutable(t *testing.T) {
 			errPath: "controlPlaneLoadBalancer.apiServerPort",
 		},
 		{
-			name: "IPFamily",
-			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
-				c.Spec.ControlPlaneLoadBalancer.IPFamily = infrastructurev1beta2.IPFamilyIPv6
-			},
-			errPath: "controlPlaneLoadBalancer.ipFamily",
-		},
-		{
 			name: "HealthMonitor.DelayS",
 			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
 				c.Spec.ControlPlaneLoadBalancer.HealthMonitor.DelayS = 10
@@ -783,11 +766,10 @@ func TestClusterValidateUpdate_LBFieldsImmutable(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			g := NewWithT(t)
 			obj, oldObj, validator := setupUpdateTestObjects()
-			// Seed health monitor + IPFamily on old so changes are visible.
+			// Seed health monitor on old so changes are visible.
 			oldObj.Spec.ControlPlaneLoadBalancer.Algorithm = "round_robin"
 			oldObj.Spec.ControlPlaneLoadBalancer.Flavor = "lb-standard"
 			oldObj.Spec.ControlPlaneLoadBalancer.APIServerPort = 6443
-			oldObj.Spec.ControlPlaneLoadBalancer.IPFamily = infrastructurev1beta2.IPFamilyDualStack
 			oldObj.Spec.ControlPlaneLoadBalancer.HealthMonitor = infrastructurev1beta2.HealthMonitorSpec{
 				DelayS: 5, TimeoutS: 3, UpThreshold: 2, DownThreshold: 3,
 			}
@@ -833,7 +815,7 @@ func TestClusterValidateDelete_AlwaysSucceeds(t *testing.T) {
 
 func TestValidateGatewayInCIDR_ValidGateway(t *testing.T) {
 	g := NewWithT(t)
-	errs := validateGatewayInCIDR(defaultSubnetCIDR, "10.0.0.1", field.NewPath("spec", "networks", "gatewayAddress"))
+	errs := validateGatewayInCIDR(defaultSubnetCIDR, "172.18.0.1", field.NewPath("spec", "networks", "gatewayAddress"))
 	g.Expect(errs).To(BeEmpty())
 }
 

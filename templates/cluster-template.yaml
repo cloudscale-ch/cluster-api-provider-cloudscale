@@ -39,7 +39,7 @@ spec:
   region: "${CLOUDSCALE_REGION}"
   networks:
   - name: "${CLUSTER_NAME}"
-    cidr: "10.0.0.0/24"
+    cidr: "172.18.0.0/24"
     gatewayAddress: "" # disable gateway, use public interface for internet access
   credentialsRef:
     name: "${CLUSTER_NAME}-credentials"

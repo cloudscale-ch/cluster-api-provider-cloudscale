@@ -698,6 +698,38 @@ func TestReconcileLoadBalancer_DegradedStatusProceedsWithMemberReconciliation(t 
 	g.Expect(cond.Reason).To(Equal(infrastructurev1beta2.LoadBalancerNotReadyReason))
 }
 
+func TestReconcileLoadBalancer_ErrorStatusMessageNamesDownMembers(t *testing.T) {
+	g := NewWithT(t)
+
+	clusterScope := newTestClusterScopeWithLB(lbTestScopeOptions{
+		loadBalancerService: existingLBMock(LoadBalancerErrorStatus),
+		poolMemberService: &mockLoadBalancerPoolMemberService{
+			listFn: func(ctx context.Context, poolID string, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancerPoolMember, error) {
+				return []cloudscalesdk.LoadBalancerPoolMember{
+					{Name: "cp-0", UUID: "cp-uuid", Address: "10.0.0.110", ProtocolPort: 6443, MonitorStatus: "down"},
+				}, nil
+			},
+		},
+		lbEnabled: true,
+	})
+	clusterScope.CloudscaleCluster.Status.LoadBalancerID = testLBUUID
+	clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID = testPoolUUID
+	clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID = testListenerUUID
+	clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID = testHMUUID
+
+	r := newTestReconcilerWithClient(newFakeClientForLB())
+
+	_, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	cond := conditions.Get(clusterScope.CloudscaleCluster, infrastructurev1beta2.LoadBalancerReadyCondition)
+	g.Expect(cond).ToNot(BeNil())
+	g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+	g.Expect(cond.Reason).To(Equal(infrastructurev1beta2.LoadBalancerNotReadyReason))
+	g.Expect(cond.Message).To(ContainSubstring("error"))
+	g.Expect(cond.Message).To(ContainSubstring("cp-0@10.0.0.110:6443"))
+}
+
 func TestReconcileLoadBalancer_SetsControlPlaneEndpoint(t *testing.T) {
 	g := NewWithT(t)
 

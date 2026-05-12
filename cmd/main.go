@@ -192,8 +192,6 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "cloudscale.infrastructure.cluster.x-k8s.io",
-		// MaxConcurrentReconciles is set per-controller via --cluster-concurrency
-		// and --machine-concurrency flags, not globally.
 		// LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {

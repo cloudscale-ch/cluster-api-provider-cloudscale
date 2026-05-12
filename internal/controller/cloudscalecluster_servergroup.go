@@ -79,8 +79,9 @@ func (r *CloudscaleClusterReconciler) deleteServerGroups(ctx context.Context, cl
 
 		clusterScope.Info("Deleting server group", "serverGroupID", g.UUID, "name", g.Name)
 		deleteCtx, cancelDelete := context.WithTimeout(ctx, cloudscale.DeleteTimeout)
-		defer cancelDelete()
-		if err := clusterScope.CloudscaleClient.ServerGroups.Delete(deleteCtx, g.UUID); err != nil {
+		err := clusterScope.CloudscaleClient.ServerGroups.Delete(deleteCtx, g.UUID)
+		cancelDelete()
+		if err != nil {
 			if !cloudscale.IsNotFound(err) {
 				return fmt.Errorf("deleting server group %s: %w", g.UUID, err)
 			}

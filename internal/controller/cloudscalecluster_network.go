@@ -232,8 +232,8 @@ func (r *CloudscaleClusterReconciler) deleteNetwork(ctx context.Context, cluster
 
 		logger.Info("Deleting network")
 		deleteCtx, cancel := context.WithTimeout(ctx, cloudscale.DeleteTimeout)
-		defer cancel()
 		err := clusterScope.CloudscaleClient.Networks.Delete(deleteCtx, ns.NetworkID)
+		cancel()
 
 		// return sentinel error which will wait a pre-defined amount of time
 		if isLBPoolMembersError(err) {

@@ -87,10 +87,15 @@ clusterctl generate cluster my-cluster \
 
 | Flavor                    | Network                   | CP Endpoint           | Node Connectivity | Extra Env Vars            | Notes                |
 |---------------------------|---------------------------|-----------------------|-------------------|---------------------------|----------------------|
-| *(default)*               | Managed (`10.100.0.0/24`) | Public LB (DualStack) | Public + cluster  | —                         |                      |
+| *(default)*               | Managed (`172.18.0.0/24`) | Public LB (DualStack) | Public + cluster  | —                         |                      |
 | `fip`                     | Pre-Existing              | Floating IP (IPv4)    | Public + cluster  | `CLOUDSCALE_NETWORK_UUID` |                      |
 | `public-lb-private-nodes` | Pre-Existing + NAT        | Public LB             | Private only      | `CLOUDSCALE_NETWORK_UUID` | Requires NAT gateway |
 | `pre-existing-network`    | Pre-Existing              | Public LB (DualStack) | Public + cluster  | `CLOUDSCALE_NETWORK_UUID` |                      |
+
+The default `networks[].cidr` is `172.18.0.0/24` so it does not overlap with the default Cilium
+cluster-pool IPAM range `10.0.0.0/8`. If you override `networks[].cidr` to a range inside
+`10.0.0.0/8`, make sure to configure your CNI's IP range correctly. Overlapping
+ranges may break for example control-plane LB's health checks.
 
 ## Development
 

@@ -163,12 +163,6 @@ type LoadBalancerSpec struct {
 	// +optional
 	Network string `json:"network,omitempty"`
 
-	// IPFamily specifies the IP family for the LB VIP address(es).
-	// +kubebuilder:validation:Enum=IPv4;IPv6;DualStack
-	// +kubebuilder:default=DualStack
-	// +optional
-	IPFamily IPFamily `json:"ipFamily,omitempty"`
-
 	// HealthMonitor configures the load balancer health monitor.
 	// +optional
 	HealthMonitor HealthMonitorSpec `json:"healthMonitor,omitempty"`
