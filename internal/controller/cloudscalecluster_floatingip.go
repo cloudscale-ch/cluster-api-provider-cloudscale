@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"time"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -31,6 +31,7 @@ import (
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/observability"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/scope"
 )
 
@@ -39,6 +40,11 @@ const createFloatingIPTimeoutRequeueAfter = 5 * time.Second
 // reconcileFloatingIP ensures the floating IP exists and is assigned to the correct target.
 // When no floating IP is configured, this sets the condition to true and returns.
 func (r *CloudscaleClusterReconciler) reconcileFloatingIP(ctx context.Context, clusterScope *scope.ClusterScope) (_ ctrl.Result, reterr error) {
+	ctx, logger, done := observability.StartSpanWithLogger(ctx, "controllers.CloudscaleClusterReconciler.reconcileFloatingIP")
+	defer done()
+
+	logger.Info("Reconciling floating IP")
+
 	fipSpec := clusterScope.CloudscaleCluster.Spec.FloatingIP
 	if fipSpec == nil {
 		r.setCondition(clusterScope, infrastructurev1beta2.FloatingIPReadyCondition, metav1.ConditionTrue, infrastructurev1beta2.FloatingIPDisabledReason, "")

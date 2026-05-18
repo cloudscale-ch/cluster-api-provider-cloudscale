@@ -1,7 +1,7 @@
 package controller
 
 import (
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 )

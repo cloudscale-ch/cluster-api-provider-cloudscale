@@ -25,12 +25,13 @@ import (
 	"os"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	"github.com/cloudscale-ch/cloudscale-go-sdk/v9/instrumentation"
+	"go.opentelemetry.io/otel"
+	"golang.org/x/sync/errgroup"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -38,6 +39,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -45,6 +47,7 @@ import (
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/controller"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/observability"
 	webhookv1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/webhook/v1beta2"
 	// +kubebuilder:scaffold:imports
 )
@@ -52,6 +55,7 @@ import (
 var (
 	scheme   = runtime.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
+	version  = "dev"
 )
 
 func init() {
@@ -62,8 +66,14 @@ func init() {
 	// +kubebuilder:scaffold:scheme
 }
 
-// nolint:gocyclo
 func main() {
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	var metricsAddr string
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
@@ -75,6 +85,9 @@ func main() {
 	var machineConcurrency int
 	var watchFilter string
 	var tlsOpts []func(*tls.Config)
+	var enableTracing bool
+	var tracingSampleRate float64
+	var profilerAddress string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -99,6 +112,11 @@ func main() {
 	flag.StringVar(&watchFilter, "watch-filter", "",
 		fmt.Sprintf("Label value that the controller watches to reconcile cluster-api objects. Label key is always %s. "+
 			"If unspecified, the controller watches for all cluster-api objects.", clusterv1.WatchLabel))
+	flag.BoolVar(&enableTracing, "enable-tracing", false, "Enable OpenTelemetry tracing")
+	flag.Float64Var(&tracingSampleRate, "tracing-sample-rate", 0.1,
+		"Trace sampling rate, between 0.0 and 1.0 (1.0 = always sample)")
+	flag.StringVar(&profilerAddress, "profiler-address", "",
+		"Bind address to expose the pprof profiler (e.g. localhost:6060)")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -108,14 +126,10 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
 	if clusterConcurrency < 1 || clusterConcurrency > 4 {
-		setupLog.Error(
-			fmt.Errorf("--cluster-concurrency must be between 1 and 4, got %d", clusterConcurrency), "invalid flag")
-		os.Exit(1)
+		return fmt.Errorf("invalid flag: --cluster-concurrency must be between 1 and 4, got %d", clusterConcurrency)
 	}
 	if machineConcurrency < 1 || machineConcurrency > 10 {
-		setupLog.Error(
-			fmt.Errorf("--machine-concurrency must be between 1 and 10, got %d", machineConcurrency), "invalid flag")
-		os.Exit(1)
+		return fmt.Errorf("invalid flag: --machine-concurrency must be between 1 and 10, got %d", machineConcurrency)
 	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
@@ -192,24 +206,37 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "cloudscale.infrastructure.cluster.x-k8s.io",
+		PprofBindAddress:       profilerAddress,
 		// LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
-		setupLog.Error(err, "Failed to start manager")
-		os.Exit(1)
+		return fmt.Errorf("failed to start manager: %w", err)
 	}
 
 	ctx := ctrl.SetupSignalHandler()
 
-	// Create a shared HTTP transport for all cloudscale API clients.
-	// This enables connection pooling and HTTP/2 multiplexing across reconciles.
-	transport := cloudscale.NewTransport()
+	if enableTracing {
+		shutdown, err := observability.InitTracing(ctx, setupLog, "capcs", version, tracingSampleRate)
+		if err != nil {
+			return fmt.Errorf("failed to initialize tracing: %w", err)
+		}
+		defer shutdown()
+	}
+
+	// Wrap the transport with SDK instrumentation so all cloudscale API calls
+	// emit Prometheus metrics and OpenTelemetry spans.
+	//
+	// The wrapped transport is shared for all cloudscale API clients to enable connection pooling and HTTP/2 multiplexing
+	// across reconciles.
+	instrumentedTransport := instrumentation.InstrumentedTransport(cloudscale.NewTransport(), instrumentation.Options{
+		PrometheusRegistry: ctrlmetrics.Registry,
+		Tracer:             otel.Tracer("cloudscale-go-sdk"),
+	})
 
 	// Fetch region information for controllers and webhooks
-	regionInfo, flavorInfo, err := fetchAPIInfo(transport)
+	regionInfo, flavorInfo, err := fetchAPIInfo(instrumentedTransport, version)
 	if err != nil {
-		setupLog.Error(err, "unable to fetch API information")
-		os.Exit(1)
+		return fmt.Errorf("failed to fetch API info: %w", err)
 	}
 	setupLog.Info("fetched region information", "regions", regionInfo.GetAllRegions())
 	setupLog.Info("fetched flavor information", "flavors", len(flavorInfo.GetAllFlavors()))
@@ -218,72 +245,65 @@ func main() {
 		Client:                  mgr.GetClient(),
 		Scheme:                  mgr.GetScheme(),
 		WatchFilter:             watchFilter,
-		Transport:               transport,
+		Transport:               instrumentedTransport,
+		Version:                 version,
 		MaxConcurrentReconciles: clusterConcurrency,
 	}).SetupWithManager(ctx, mgr); err != nil {
-		setupLog.Error(err, "Failed to create controller", "controller", "CloudscaleCluster")
-		os.Exit(1)
+		return fmt.Errorf("failed to create controller CloudscaleCluster: %w", err)
 	}
 	if err := (&controller.CloudscaleMachineReconciler{
 		Client:                  mgr.GetClient(),
 		Scheme:                  mgr.GetScheme(),
 		WatchFilter:             watchFilter,
-		Transport:               transport,
+		Transport:               instrumentedTransport,
+		Version:                 version,
 		MaxConcurrentReconciles: machineConcurrency,
 	}).SetupWithManager(ctx, mgr); err != nil {
-		setupLog.Error(err, "Failed to create controller", "controller", "CloudscaleMachine")
-		os.Exit(1)
+		return fmt.Errorf("failed to create controller CloudscaleMachine: %w", err)
 	}
 	if err := (&controller.CloudscaleMachineTemplateReconciler{
 		Client:     mgr.GetClient(),
 		Scheme:     mgr.GetScheme(),
 		FlavorInfo: flavorInfo,
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "Failed to create controller", "controller", "CloudscaleMachineTemplate")
-		os.Exit(1)
+		return fmt.Errorf("failed to create controller CloudscaleMachineTemplate: %w", err)
 	}
 
 	webhooksEnabled := os.Getenv("ENABLE_WEBHOOKS") != "false"
 
 	if webhooksEnabled {
 		if err := webhookv1beta2.SetupCloudscaleClusterWebhookWithManager(mgr, regionInfo); err != nil {
-			setupLog.Error(err, "Failed to create webhook", "webhook", "CloudscaleCluster")
-			os.Exit(1)
+			return fmt.Errorf("failed to setup webhook validation webhook CloudscaleCluster: %w", err)
 		}
 		if err := webhookv1beta2.SetupCloudscaleMachineWebhookWithManager(mgr, flavorInfo); err != nil {
-			setupLog.Error(err, "Failed to create webhook", "webhook", "CloudscaleMachine")
-			os.Exit(1)
+			return fmt.Errorf("failed to setup webhook validation webhook CloudscaleMachine: %w", err)
 		}
 		if err := webhookv1beta2.SetupCloudscaleMachineTemplateWebhookWithManager(mgr, flavorInfo); err != nil {
-			setupLog.Error(err, "Failed to create webhook", "webhook", "CloudscaleMachineTemplate")
-			os.Exit(1)
+			return fmt.Errorf("failed to setup webhook validation webhook CloudscaleMachineTemplate: %w", err)
 		}
 		if err := webhookv1beta2.SetupCloudscaleClusterTemplateWebhookWithManager(mgr, regionInfo); err != nil {
-			setupLog.Error(err, "Failed to create webhook", "webhook", "CloudscaleClusterTemplate")
-			os.Exit(1)
+			return fmt.Errorf("failed to setup webhook validation webhook CloudscaleClusterTemplate: %w", err)
 		}
 	}
 	// +kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		setupLog.Error(err, "Failed to set up health check")
-		os.Exit(1)
+		return fmt.Errorf("failed to set up health check: %w", err)
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		setupLog.Error(err, "Failed to set up ready check")
-		os.Exit(1)
+		return fmt.Errorf("failed to set up ready check: %w", err)
 	}
 
-	setupLog.Info("Starting manager")
+	setupLog.Info("Starting manager", "version", version)
 	if err := mgr.Start(ctx); err != nil {
-		setupLog.Error(err, "Failed to run manager")
-		os.Exit(1)
+		return fmt.Errorf("failed to run manager: %w", err)
 	}
+	return nil
 }
 
 // fetchAPIInfo fetches region and flavor information from cloudscale.ch API.
 // Requires CLOUDSCALE_API_TOKEN environment variable.
-func fetchAPIInfo(transport *http.Transport) (*cloudscale.RegionInfo, *cloudscale.FlavorInfo, error) {
+func fetchAPIInfo(transport http.RoundTripper, version string) (*cloudscale.RegionInfo, *cloudscale.FlavorInfo, error) {
 	token := os.Getenv("CLOUDSCALE_API_TOKEN")
 	if token == "" {
 		return nil, nil, fmt.Errorf("CLOUDSCALE_API_TOKEN environment variable is required")
@@ -292,7 +312,7 @@ func fetchAPIInfo(transport *http.Transport) (*cloudscale.RegionInfo, *cloudscal
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	client := cloudscale.NewClient(token, transport)
+	client := cloudscale.NewClient(token, version, transport)
 
 	var regionInfo *cloudscale.RegionInfo
 	var flavorInfo *cloudscale.FlavorInfo

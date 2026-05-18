@@ -23,13 +23,14 @@ import (
 	"strings"
 	"time"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/observability"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/scope"
 )
 
@@ -38,6 +39,11 @@ const createNetworkTimeoutRequeueAfter = 5 * time.Second
 // reconcileNetwork orchestrates network and subnet provisioning for all networks
 // defined in spec.networks. A single NetworkReadyCondition covers all networks.
 func (r *CloudscaleClusterReconciler) reconcileNetwork(ctx context.Context, clusterScope *scope.ClusterScope) (_ ctrl.Result, reterr error) {
+	ctx, logger, done := observability.StartSpanWithLogger(ctx, "controllers.CloudscaleClusterReconciler.reconcileNetwork")
+	defer done()
+
+	logger.Info("Reconciling network")
+
 	defer func() {
 		if reterr != nil {
 			r.setCondition(clusterScope, infrastructurev1beta2.NetworkReadyCondition, metav1.ConditionFalse, infrastructurev1beta2.NetworkErrorReason, reterr.Error())

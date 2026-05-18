@@ -75,6 +75,7 @@ variables and the other template flavors.
 |-------------------------------------|----------------------------------------------------------------------------------------------------------------|
 | New to Cluster API, or new to CAPCS | [Getting Started](docs/getting-started.md)                                                                     |
 | Looking up a CRD field              | `kubectl explain cloudscalecluster.spec` (or the generated CRDs under [`config/crd/bases/`](config/crd/bases)) |
+| Setting up monitoring or tracing    | [Observability](docs/observability.md)                                                                         |
 | Hitting an error                    | [Troubleshooting](docs/troubleshooting.md)                                                                     |
 | Contributing to CAPCS               | [Development](docs/development.md), [CONTRIBUTING.md](CONTRIBUTING.md)                                         |
 | Cutting a release                   | [Releasing](docs/releasing.md), [Testing releases](docs/testing-releases.md)                                   |

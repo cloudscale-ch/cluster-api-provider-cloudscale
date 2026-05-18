@@ -22,7 +22,7 @@ import (
 	"maps"
 	"time"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -31,6 +31,7 @@ import (
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/observability"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/scope"
 )
 
@@ -69,6 +70,11 @@ const (
 )
 
 func (r *CloudscaleMachineReconciler) reconcileServer(ctx context.Context, machineScope *scope.MachineScope) (_ ctrl.Result, reterr error) {
+	ctx, logger, done := observability.StartSpanWithLogger(ctx, "controllers.CloudscaleMachineReconciler.reconcileServer")
+	defer done()
+
+	logger.Info("Reconciling server")
+
 	var server *cloudscalesdk.Server
 	defer func() {
 		if reterr != nil {

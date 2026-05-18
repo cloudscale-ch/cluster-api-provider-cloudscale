@@ -3,6 +3,7 @@ TAG ?= dev
 IMG ?= quay.io/cloudscalech/capcs-staging:$(TAG)
 # YEAR defines the year value used for substituting the YEAR placeholder in the boilerplate header.
 YEAR ?= $(shell date +%Y)
+LDFLAGS ?= -X main.version=$(TAG)
 
 # E2E image configuration
 E2E_TAG ?= e2e-$(shell git rev-parse --short HEAD)
@@ -287,18 +288,18 @@ test-e2e-conformance-fast: $(GINKGO) generate-e2e-templates generate-e2e-config 
 
 .PHONY: build
 build: manifests generate fmt vet ## Build manager binary.
-	go build -o bin/manager cmd/main.go
+	go build -ldflags '$(LDFLAGS)' -o bin/manager cmd/main.go
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./cmd/main.go
+	go run -ldflags '$(LDFLAGS)' ./cmd/main.go
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build --platform linux/amd64 -t ${IMG} .
+	$(CONTAINER_TOOL) build --platform linux/amd64 --build-arg VERSION=$(TAG) -t ${IMG} .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
@@ -321,7 +322,7 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
 	- $(CONTAINER_TOOL) buildx create --name cluster-api-provider-cloudscale-builder
 	$(CONTAINER_TOOL) buildx use cluster-api-provider-cloudscale-builder
-	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
+	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --build-arg VERSION=$(TAG) --tag ${IMG} -f Dockerfile.cross .
 	- $(CONTAINER_TOOL) buildx rm cluster-api-provider-cloudscale-builder
 	rm Dockerfile.cross
 
