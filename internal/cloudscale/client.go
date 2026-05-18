@@ -46,14 +46,14 @@ type Client struct {
 
 const (
 	// ReadTimeout is the context timeout for Get/List API calls.
-	ReadTimeout = 1 * time.Second
+	ReadTimeout = 10 * time.Second
 
 	// WriteTimeout is the context timeout for Create/Update API calls.
 	// Creates can take 60s+ under API load.
 	WriteTimeout = 2 * time.Minute
 
 	// DeleteTimeout is the context timeout for Delete API calls.
-	DeleteTimeout = 2 * time.Second
+	DeleteTimeout = 1 * time.Minute
 )
 
 // NewTransport creates an http.Transport configured for the cloudscale.ch API.
