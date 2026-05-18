@@ -119,9 +119,27 @@ template_dirs:
     - ./test/infrastructure/docker/templates
   cloudscale:
     - path/to/local/clone/cluster-api-provider-cloudscale/templates
+# optional, if wanting to deploy the observability stack
+#deploy_observability:
+#  - grafana
+#  - kube-state-metrics
+#  - loki
+#  - metrics-server
+#  - prometheus
+#  - alloy
+#  - parca
+#  - tempo
 ```
 
 Then `tilt up` from the cluster-api checkout.
+
+The `deploy_observability` block is processed by the cluster-api Tiltfile and
+brings up Prometheus, Grafana, Tempo, and friends in the management cluster;
+see [Cluster API's Tilt documentation](https://cluster-api.sigs.k8s.io/developer/core/tilt)
+for what each component does and how to reach the resulting UIs. CAPCS's
+`ServiceMonitor` is auto-discovered once the prometheus kustomization is
+enabled. For production metric/tracing setup, see
+[Observability](observability.md).
 
 ## Tests
 

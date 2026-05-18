@@ -22,12 +22,13 @@ import (
 	"sync"
 	"time"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/observability"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/scope"
 )
 
@@ -40,6 +41,11 @@ var serverGroupMu sync.Mutex
 // reconcileServerGroup ensures the server group exists if specified.
 // Server groups are zone-scoped and created once per unique name+zone combination.
 func (r *CloudscaleMachineReconciler) reconcileServerGroup(ctx context.Context, machineScope *scope.MachineScope) (_ ctrl.Result, reterr error) {
+	ctx, logger, done := observability.StartSpanWithLogger(ctx, "controllers.CloudscaleMachineReconciler.reconcileServerGroup")
+	defer done()
+
+	logger.Info("Reconciling server group")
+
 	defer func() {
 		if reterr != nil {
 			r.setCondition(machineScope.CloudscaleMachine, infrastructurev1beta2.ServerGroupReadyCondition, metav1.ConditionFalse, infrastructurev1beta2.ServerGroupErrorReason, reterr.Error())

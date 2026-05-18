@@ -23,7 +23,7 @@ import (
 	"slices"
 	"time"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -33,6 +33,7 @@ import (
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/observability"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/scope"
 )
 
@@ -48,6 +49,11 @@ const (
 // It also sets the control plane endpoint from the load balancer's VIP address.
 // When the load balancer is disabled (external control plane), this function returns immediately.
 func (r *CloudscaleClusterReconciler) reconcileLoadBalancer(ctx context.Context, clusterScope *scope.ClusterScope) (result ctrl.Result, reterr error) {
+	ctx, logger, done := observability.StartSpanWithLogger(ctx, "controllers.CloudscaleClusterReconciler.reconcileLoadBalancer")
+	defer done()
+
+	logger.Info("Reconciling load balancer")
+
 	// LB disabled: set condition and return before defer is registered
 	if !ptr.Deref(clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled, true) {
 		clusterScope.Info("Load balancer is disabled, skipping reconciliation (external control plane)")

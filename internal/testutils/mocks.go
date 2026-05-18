@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
 )
 
 // --- Network Service Mock ---

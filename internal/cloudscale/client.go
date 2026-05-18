@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
 	"golang.org/x/oauth2"
 )
 
@@ -87,10 +87,14 @@ func NewTransport() *http.Transport {
 // and reused across clients. Each client gets its own oauth2 token injection
 // but shares the underlying connection pool.
 //
+// version is appended to the SDK's User-Agent header (e.g.
+// "cloudscale/v9.0.0 capcs/<version>") so the API server can identify
+// the controller making the call.
+//
 // No global HTTP timeout is set on the client. Instead, callers must use
 // context.WithTimeout with ReadTimeout, WriteTimeout, or DeleteTimeout
 // for each API call.
-func NewClient(token string, transport *http.Transport) *Client {
+func NewClient(token, version string, transport http.RoundTripper) *Client {
 	tokenSource := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
 
 	httpClient := &http.Client{
@@ -100,6 +104,7 @@ func NewClient(token string, transport *http.Transport) *Client {
 		},
 	}
 	sdkClient := cloudscalesdk.NewClient(httpClient)
+	sdkClient.UserAgent = sdkClient.UserAgent + " capcs/" + version
 
 	return &Client{
 		Networks:                   sdkClient.Networks,

@@ -1,15 +1,72 @@
 ---
+# Custom metrics consumed by the grafana.kubebuilder.io/v1-alpha plugin.
+# Regenerate dashboards with:
+#   kubebuilder edit --plugins=grafana.kubebuilder.io/v1-alpha
+#
+# Schema per entry:
+#   metric: raw Prometheus metric name (required)
+#   type:   counter | gauge | histogram (required)
+#   expr:   PromQL expression (optional; overrides plugin default)
+#   unit:   unit of measurement (optional)
+#
+# NOTE: label matchers use single quotes (e.g. {job='$job'}) because the
+# kubebuilder grafana plugin substitutes `expr` into JSON without escaping
+# inner double quotes, which would break the generated dashboard JSON.
 customMetrics:
-#  - metric: # Raw custom metric (required)
-#    type:   # Metric type: counter/gauge/histogram (required)
-#    expr:   # Prom_ql for the metric (optional)
-#    unit:   # Unit of measurement, examples: s,none,bytes,percent,etc. (optional)
-#
-#
-# Example:
-# ---
-# customMetrics:
-#   - metric: foo_bar
-#     unit: none
-#     type: histogram
-#   	expr: histogram_quantile(0.90, sum by(instance, le) (rate(foo_bar{job=\"$job\", namespace=\"$namespace\"}[5m])))
+  # ---- cloudscale-go-sdk: cloudscale.ch API ----
+
+  - metric: cloudscale_requests_total
+    type: counter
+    unit: reqps
+    expr: "sum by (endpoint, method, status) (rate(cloudscale_requests_total{job='$job', namespace='$namespace'}[5m]))"
+
+  - metric: cloudscale_requests_total
+    type: counter
+    unit: reqps
+    expr: "sum by (endpoint, status) (rate(cloudscale_requests_total{job='$job', namespace='$namespace', status!~'2..|3..'}[5m]))"
+
+  - metric: cloudscale_request_duration_seconds
+    type: histogram
+    unit: s
+    expr: "histogram_quantile(0.95, sum by (endpoint, le) (rate(cloudscale_request_duration_seconds_bucket{job='$job', namespace='$namespace'}[5m])))"
+
+  - metric: cloudscale_in_flight_requests
+    type: gauge
+    unit: none
+    expr: "cloudscale_in_flight_requests{job='$job', namespace='$namespace'}"
+
+  # ---- controller-runtime: reconciler health ----
+
+  - metric: controller_runtime_reconcile_time_seconds
+    type: histogram
+    unit: s
+    expr: "histogram_quantile(0.99, sum by (controller, le) (rate(controller_runtime_reconcile_time_seconds_bucket{job='$job', namespace='$namespace'}[5m])))"
+
+  - metric: controller_runtime_terminal_reconcile_errors_total
+    type: counter
+    unit: none
+    expr: "sum by (controller) (rate(controller_runtime_terminal_reconcile_errors_total{job='$job', namespace='$namespace'}[5m]))"
+
+  - metric: controller_runtime_reconcile_panics_total
+    type: counter
+    unit: none
+    expr: "sum by (controller) (rate(controller_runtime_reconcile_panics_total{job='$job', namespace='$namespace'}[5m]))"
+
+  # ---- controller-runtime: admission webhooks ----
+
+  - metric: controller_runtime_webhook_requests_total
+    type: counter
+    unit: reqps
+    expr: "sum by (webhook, code) (rate(controller_runtime_webhook_requests_total{job='$job', namespace='$namespace'}[5m]))"
+
+  - metric: controller_runtime_webhook_requests_in_flight
+    type: gauge
+    unit: none
+    expr: "controller_runtime_webhook_requests_in_flight{job='$job', namespace='$namespace'}"
+
+  # ---- client-go: management-cluster apiserver traffic ----
+
+  - metric: rest_client_requests_total
+    type: counter
+    unit: reqps
+    expr: "sum by (code, method) (rate(rest_client_requests_total{job='$job', namespace='$namespace'}[5m]))"

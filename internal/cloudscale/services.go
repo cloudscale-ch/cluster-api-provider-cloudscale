@@ -19,7 +19,7 @@ package cloudscale
 import (
 	"context"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
 )
 
 type NetworkService interface {

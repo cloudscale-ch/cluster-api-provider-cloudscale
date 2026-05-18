@@ -112,7 +112,7 @@ For the prose architecture sketch see [`docs/development.md`](docs/development.m
 
 ## Cloudscale SDK usage
 
-- Do not `import "github.com/cloudscale-ch/cloudscale-go-sdk/v8"` outside
+- Do not `import "github.com/cloudscale-ch/cloudscale-go-sdk/v9"` outside
   `internal/cloudscale/`. Controllers and webhooks talk to the SDK through
   the service interfaces on `cloudscale.Client`
   (`internal/cloudscale/client.go:32`).

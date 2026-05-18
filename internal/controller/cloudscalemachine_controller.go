@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -37,11 +38,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/credentials"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/observability"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/scope"
 )
 
@@ -56,7 +57,8 @@ type CloudscaleMachineReconciler struct {
 	Scheme                  *runtime.Scheme
 	recorder                events.EventRecorder
 	WatchFilter             string
-	Transport               *http.Transport
+	Transport               http.RoundTripper
+	Version                 string
 	MaxConcurrentReconciles int
 }
 
@@ -71,7 +73,12 @@ func (r *CloudscaleMachineReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
 
-	logger := logf.FromContext(ctx)
+	ctx, logger, done := observability.StartSpanWithLogger(ctx,
+		"controllers.CloudscaleMachineReconciler.Reconcile",
+		attribute.String("namespace", req.Namespace),
+		attribute.String("name", req.Name),
+	)
+	defer done()
 
 	cloudscaleMachine := &infrastructurev1beta2.CloudscaleMachine{}
 	if err := r.Get(ctx, req.NamespacedName, cloudscaleMachine); err != nil {
@@ -134,7 +141,7 @@ func (r *CloudscaleMachineReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, fmt.Errorf("failed to get cloudscale.ch credentials: %w", err)
 	}
 
-	cloudscaleClient := cloudscale.NewClient(token, r.Transport)
+	cloudscaleClient := cloudscale.NewClient(token, r.Version, r.Transport)
 
 	machineScope, err := scope.NewMachineScope(scope.MachineScopeParams{
 		Client:            r.Client,
@@ -172,7 +179,10 @@ func (r *CloudscaleMachineReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 // reconcileNormal handles normal reconciliation of CloudscaleMachine.
 func (r *CloudscaleMachineReconciler) reconcileNormal(ctx context.Context, machineScope *scope.MachineScope) (ctrl.Result, error) {
-	machineScope.Info("Reconciling CloudscaleMachine")
+	ctx, logger, done := observability.StartSpanWithLogger(ctx, "controllers.CloudscaleMachineReconciler.reconcileNormal")
+	defer done()
+
+	logger.Info("Reconciling CloudscaleMachine")
 
 	defer r.setReadyCondition(machineScope.CloudscaleMachine)
 
@@ -242,7 +252,10 @@ func (r *CloudscaleMachineReconciler) setReadyCondition(machine *infrastructurev
 //
 //nolint:unparam // Returns ctrl.Result for consistency with reconcile pattern
 func (r *CloudscaleMachineReconciler) reconcileDelete(ctx context.Context, machineScope *scope.MachineScope) (ctrl.Result, error) {
-	machineScope.Info("Reconciling CloudscaleMachine deletion")
+	ctx, logger, done := observability.StartSpanWithLogger(ctx, "controllers.CloudscaleMachineReconciler.reconcileDelete")
+	defer done()
+
+	logger.Info("Reconciling CloudscaleMachine deletion")
 
 	// Set Deleting condition
 	r.setCondition(machineScope.CloudscaleMachine, infrastructurev1beta2.DeletingCondition, metav1.ConditionTrue, infrastructurev1beta2.DeletingReason, "Deleting server")
