@@ -124,14 +124,30 @@ a slug that exists there.
 
 Other validations that commonly trip people up:
 
-| Rejection                                                               | What it means                                                                                                                                          |
-|-------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `exactly one of uuid or cidr must be specified` on `spec.networks[*]`   | Each network entry references either a pre-existing network (uuid) or a managed one (cidr)                                                             |
-| `gateway must be within CIDR <cidr>`                                    | `networks[*].gatewayAddress` is outside the network's own CIDR                                                                                         |
-| `floating IPs cannot be attached to a load balancer with a private VIP` | Combine a public LB with a floating IP, or drop one of them                                                                                            |
-| `exactly one of ipFamily or ip must be specified` on `floatingIP`       | Set `ipFamily` to let CAPCS allocate, or `ip` to reuse a pre-existing floating IP                                                                      |
-| `field is immutable after cluster creation`                             | Most cloudscale-side topology fields (region, zone, networks, floating IP, etc.) cannot be changed once the cluster exists                             |
-| `field is immutable` on `CloudscaleMachine.spec`                        | Most machine spec fields (flavor, image, server group, …) cannot be changed once the machine exists — recreate via `MachineDeployment` rollout instead |
+| Rejection                                                               | What it means                                                                                                                                            |
+|-------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `exactly one of uuid or cidr must be specified` on `spec.networks[*]`   | Each network entry references either a pre-existing network (uuid) or a managed one (cidr)                                                               |
+| `gateway must be within CIDR <cidr>`                                    | `networks[*].gatewayAddress` is outside the network's own CIDR                                                                                           |
+| `floating IPs cannot be attached to a load balancer with a private VIP` | Combine a public LB with a floating IP, or drop one of them                                                                                              |
+| `exactly one of ipFamily or ip must be specified` on `floatingIP`       | Set `ipFamily` to let CAPCS allocate, or `ip` to reuse a pre-existing floating IP                                                                        |
+| `field is immutable after cluster creation`                             | Most cloudscale-side topology fields (region, zone, networks, floating IP, etc.) cannot be changed once the cluster exists                               |
+| `field is immutable` on `CloudscaleMachine.spec`                        | Most machine spec fields (flavor, image, server group, …) cannot be changed once the machine exists — recreate via `MachineDeployment` rollout instead   |
+| `CloudscaleClusterTemplate.Spec is immutable`                           | Override `quick-start` ClusterClass variables on the `Cluster` (`spec.topology.variables`) instead of mutating the `CloudscaleClusterTemplate` directly. |
 
 When in doubt, run `kubectl explain cloudscalecluster.spec.<field>` — the
 generated CRDs carry the rules the webhook enforces.
+
+## `topology` flavor: cluster is admitted but never reconciles
+
+**Symptom:** `kubectl apply` of a `topology`-flavor manifest succeeds, but
+`clusterctl describe cluster <name>` shows no progress and no `CloudscaleCluster`
+object exists in the namespace.
+
+**Cause:** the `CLUSTER_TOPOLOGY` feature gate on cluster-api core is disabled,
+so the topology controller never materializes infrastructure from the
+`quick-start` ClusterClass.
+
+**Fix:** re-run `clusterctl init` with `CLUSTER_TOPOLOGY=true` exported. See the
+upstream
+[ClusterClass docs](https://cluster-api.sigs.k8s.io/tasks/experimental-features/cluster-class/)
+for what the gate enables.

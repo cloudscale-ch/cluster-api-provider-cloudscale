@@ -100,7 +100,8 @@ E2E tests run on schedule against the dev build:
 | Biweekly (1st & 15th, 3 AM UTC) | Full K8s conformance                                     | `e2e-biweekly.yml` |
 
 For release candidates, trigger a manual e2e run via the `test-e2e.yml` workflow dispatch in GitHub Actions. Select the
-test suite(s) to run and the branch/tag to test against.
+test suite(s) to run and the branch/tag to test against. The same workflow is also how maintainers run a broader suite
+against a PR branch — see [Running E2E on a PR](development.md#running-e2e-on-a-pr) for the mechanics.
 
 See `test/e2e/` for test infrastructure details and `Makefile` for individual e2e targets (`test-e2e-lifecycle`,
 `test-e2e-ha`, etc.).

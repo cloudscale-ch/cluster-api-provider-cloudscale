@@ -19,8 +19,14 @@ spec:
   - name: v1beta2
     schema:
       openAPIV3Schema:
-        description: CloudscaleClusterTemplate is the Schema for the cloudscaleclustertemplates
-          API
+        description: |-
+          CloudscaleClusterTemplate is a template embedded in a ClusterClass that the
+          CAPI topology controller uses to materialize a CloudscaleCluster for every
+          Cluster whose spec.topology.classRef resolves to a ClusterClass referencing
+          this object. Unlike CloudscaleCluster, this CRD has no controller and no
+          status — it is consumed only at Cluster creation time by CAPI core.
+          Its spec is immutable after creation (enforced by the validating webhook);
+          per-cluster overrides go through ClusterClass variables, not template edits.
         properties:
           apiVersion:
             description: |-
@@ -43,31 +49,16 @@ spec:
             description: spec defines the desired state of CloudscaleClusterTemplate
             properties:
               template:
-                description: CloudscaleClusterTemplateResource contains spec for CloudscaleClusterSpec.
+                description: |-
+                  Template is the embedded resource the CAPI topology controller stamps out
+                  into a CloudscaleCluster for each Cluster whose ClusterClass references
+                  this CloudscaleClusterTemplate.
                 properties:
                   metadata:
                     description: |-
-                      ObjectMeta is metadata that all persisted resources must have, which includes all objects
-                      users must create. This is a copy of customizable fields from metav1.ObjectMeta.
-
-                      ObjectMeta is embedded in `Machine.Spec`, `MachineDeployment.Template` and `MachineSet.Template`,
-                      which are not top-level Kubernetes objects. Given that metav1.ObjectMeta has lots of special cases
-                      and read-only fields which end up in the generated CRD validation, having it as a subset simplifies
-                      the API and some issues that can impact user experience.
-
-                      During the [upgrade to controller-tools@v2](https://github.com/kubernetes-sigs/cluster-api/pull/1054)
-                      for v1alpha2, we noticed a failure would occur running Cluster API test suite against the new CRDs,
-                      specifically `spec.metadata.creationTimestamp in body must be of type string: "null"`.
-                      The investigation showed that `controller-tools@v2` behaves differently than its previous version
-                      when handling types from [metav1](k8s.io/apimachinery/pkg/apis/meta/v1) package.
-
-                      In more details, we found that embedded (non-top level) types that embedded `metav1.ObjectMeta`
-                      had validation properties, including for `creationTimestamp` (metav1.Time).
-                      The `metav1.Time` type specifies a custom json marshaller that, when IsZero() is true, returns `null`
-                      which breaks validation because the field isn't marked as nullable.
-
-                      In future versions, controller-tools@v2 might allow overriding the type and validation for embedded
-                      types. When that happens, this hack should be revisited.
+                      ObjectMeta supplies labels and annotations that propagate to the
+                      generated CloudscaleCluster. The name/namespace fields are ignored:
+                      the topology controller derives those from the owning Cluster.
                     minProperties: 1
                     properties:
                       annotations:
@@ -90,8 +81,12 @@ spec:
                         type: object
                     type: object
                   spec:
-                    description: CloudscaleClusterSpec defines the desired state of
-                      CloudscaleCluster
+                    description: |-
+                      Spec embeds CloudscaleClusterSpec verbatim and shares the same defaulting
+                      and validation logic via the cluster webhook helpers
+                      (clusterSpecDefault / clusterSpecValidateCreate).
+                      Immutable after creation; override per-cluster fields via
+                      spec.topology.variables on the Cluster instead of mutating this spec.
                     properties:
                       controlPlaneEndpoint:
                         description: |-
@@ -119,7 +114,11 @@ spec:
                         properties:
                           algorithm:
                             default: round_robin
-                            description: Algorithm is the load balancing algorithm.
+                            description: |-
+                              Algorithm is the cloudscale.ch load-balancing algorithm.
+                              - "round_robin" (default): rotate requests across healthy backends.
+                              - "least_connections": send each request to the backend with the fewest active connections.
+                              - "source_ip": hash the client IP so the same client lands on the same backend.
                             enum:
                             - round_robin
                             - least_connections
@@ -127,8 +126,10 @@ spec:
                             type: string
                           apiServerPort:
                             default: 6443
-                            description: APIServerPort is the port for the Kubernetes
-                              API server.
+                            description: |-
+                              APIServerPort is the LB listener port exposed for the Kubernetes API
+                              server. Defaults to 6443. The pool always targets the API server on the
+                              control plane nodes' 6443.
                             format: int32
                             maximum: 65535
                             minimum: 1
@@ -142,7 +143,9 @@ spec:
                             type: boolean
                           flavor:
                             default: lb-standard
-                            description: Flavor is the load balancer flavor (size).
+                            description: |-
+                              Flavor is the cloudscale.ch load balancer flavor slug. Defaults to
+                              "lb-standard".
                             type: string
                           healthMonitor:
                             description: HealthMonitor configures the load balancer
@@ -193,8 +196,9 @@ spec:
                             description: Name is the name of the Secret.
                             type: string
                           namespace:
-                            description: Namespace is the namespace of the Secret.
-                              Defaults to the cluster namespace.
+                            description: |-
+                              Namespace is the namespace of the Secret. Defaults to the
+                              CloudscaleCluster's own namespace if unset.
                             type: string
                         required:
                         - name
@@ -276,16 +280,20 @@ spec:
                         - name
                         x-kubernetes-list-type: map
                       region:
-                        description: Region is the cloudscale.ch region (e.g., "rma",
-                          "lpg").
+                        description: |-
+                          Region is the cloudscale.ch region the cluster is provisioned in.
+                          Determines the default zone and the set of available flavors.
+                          Immutable after cluster creation.
                         enum:
                         - rma
                         - lpg
                         type: string
                       zone:
                         description: |-
-                          Zone is the cloudscale.ch zone (e.g., "rma1", "lpg1").
-                          Defaults to region + "1" if not specified.
+                          Zone is the cloudscale.ch zone within Region.
+                          Defaults to Region + "1" (e.g., "rma1", "lpg1"). Set explicitly only when
+                          the region offers multiple zones and you need to pin the cluster to one.
+                          Immutable after cluster creation.
                         type: string
                     required:
                     - credentialsRef

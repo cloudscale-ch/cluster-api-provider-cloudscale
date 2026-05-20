@@ -5,11 +5,12 @@ For contributors working on CAPCS itself. End-user docs are in
 
 ## Architecture sketch
 
-CAPCS is a kubebuilder-scaffolded infrastructure provider. Three CRDs, three
-reconcilers, a webhook per CRD, and a thin wrapper around the cloudscale-go-sdk.
+CAPCS is a kubebuilder-scaffolded infrastructure provider. Four CRDs (three
+reconciled, one template-only), three reconcilers, a webhook per CRD, and a
+thin wrapper around the cloudscale-go-sdk.
 
 ```
-api/v1beta2/                CRD types (CloudscaleCluster, CloudscaleMachine, CloudscaleMachineTemplate)
+api/v1beta2/                CRD types (CloudscaleCluster, CloudscaleClusterTemplate, CloudscaleMachine, CloudscaleMachineTemplate)
 internal/controller/        Reconcilers, one file per cloudscale resource (network, LB, FIP, server group, server)
 internal/webhook/v1beta2/   Defaulting + validating webhooks (one per CRD)
 internal/cloudscale/        SDK wrapper: shared HTTP transport, flavor/region helpers, per-cluster services
@@ -17,6 +18,10 @@ internal/credentials/       Resolves the per-cluster API token from `credentials
 internal/scope/             Per-cluster / per-machine reconciliation scope objects
 cmd/main.go                 Manager setup, controller wiring, leader election, webhook registration
 ```
+
+`CloudscaleClusterTemplate` has a webhook but no reconciler — CAPI core's
+topology controller consumes it to materialize a `CloudscaleCluster` for each
+`Cluster` whose ClusterClass references the template.
 
 A few conventions to know before touching code:
 
@@ -52,7 +57,8 @@ make lint               # golangci-lint
 make build              # build the manager binary
 
 make test-e2e-lifecycle # smallest E2E suite — single CP + 1 worker
-make test-e2e           # full conformance-fast E2E suite (slow, real cloudscale)
+make test-e2e-topology  # topology-flavor E2E (ClusterClass quick-start)
+make test-e2e           # full conformance-fast E2E suite (slow)
 ```
 
 E2E suites and their cadence are documented in
@@ -73,6 +79,11 @@ clusterctl generate cluster my-cluster \
 
 This is a contributor flow only — end users consume published flavors via
 `--flavor` (see [Getting Started](getting-started.md#3-pick-a-cluster-template-flavor)).
+
+For the `topology` flavor, `clusterctl generate --from` only consumes a single
+cluster-template file, so the `quick-start` ClusterClass in
+`templates/cluster-class.yaml` must also be applied separately (or bundled with
+a kustomize overlay).
 
 ## Tilt
 
@@ -125,7 +136,49 @@ Then `tilt up` from the cluster-api checkout.
 PRs do not run E2E automatically. Run the relevant suite locally before
 submitting (`make test-e2e-lifecycle` at minimum); reviewers can run additional
 suites or trigger the `test-e2e.yml` workflow manually after reviewing the
-diff is safe.
+diff is safe — see [Running E2E on a PR](#running-e2e-on-a-pr).
+
+## Running E2E on a PR
+
+**When to use it.** A PR touches reconcilers, webhooks, or files under
+`templates/` and the reviewer wants to ensure e2e runs through with these changes.
+
+**Prerequisites.** Maintainer role on
+`cloudscale-ch/cluster-api-provider-cloudscale`. The `e2e-tests`
+concurrency group means at most one e2e run is in flight at a time.
+
+**Triggering from the GitHub UI.** Actions → "E2E Tests (Manual)" → "Run
+workflow". In the "Use workflow from" dropdown pick the PR branch (`gh pr view
+<num>` shows the head branch), choose the make target, and click "Run workflow".
+PRs from forks are not directly selectable — push the head to a branch on the
+upstream repo first:
+
+```bash
+gh pr checkout <num>
+git push upstream HEAD:pr/<num>
+```
+
+then dispatch against `pr/<num>`.
+
+**Triggering with `gh`.** Use `gh workflow run`:
+
+```bash
+gh workflow run test-e2e.yml \
+  --ref <pr-branch> \
+  -f test_target=test-e2e-lifecycle
+```
+
+`--ref` accepts branch or tag names but not `pull/<num>/head`; for fork PRs use
+the push-to-upstream workaround above. Watch the run:
+
+```bash
+gh run list --workflow=test-e2e.yml --limit 5
+gh run watch <run-id>
+```
+
+**Cleaning up if the run is killed.** cloudscale-side cleanup runs inside the
+e2e suite itself; if the workflow is cancelled mid-run, dangling cloudscale
+resources may need manual cleanup via the cloudscale control panel.
 
 ## Releases
 

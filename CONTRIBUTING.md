@@ -17,7 +17,9 @@ than to discover later.
 2. Make your change. Tests live next to the code; new behavior needs a test.
 3. Run `make test` and `make lint` locally.
 4. For changes that touch reconcilers or templates, run at least
-   `make test-e2e-lifecycle` against a cloudscale.ch project.
+   `make test-e2e-lifecycle` against a cloudscale project. Reviewers may
+   trigger a broader suite via the manual workflow — see
+   [Running E2E on a PR](docs/development.md#running-e2e-on-a-pr).
 5. Open a PR against `main`. Keep the title short and the description
    focused on the *why*.
 

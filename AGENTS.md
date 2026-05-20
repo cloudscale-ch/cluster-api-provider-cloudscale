@@ -47,6 +47,7 @@ in `internal/cloudscale/`.
 | CRD                         | Types                                            | Controller                                                                                                                   | Webhook                                                                                     |
 |-----------------------------|--------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------|
 | `CloudscaleCluster`         | `api/v1beta2/cloudscalecluster_types.go`         | `internal/controller/cloudscalecluster_controller.go` + `cloudscalecluster_{network,loadbalancer,floatingip,servergroup}.go` | `internal/webhook/v1beta2/cloudscalecluster_webhook.go`                                     |
+| `CloudscaleClusterTemplate` | `api/v1beta2/cloudscaleclustertemplate_types.go` | *(none — handled by the CAPI topology controller)*                                                                           | `internal/webhook/v1beta2/cloudscaleclustertemplate_webhook.go`                             |
 | `CloudscaleMachine`         | `api/v1beta2/cloudscalemachine_types.go`         | `internal/controller/cloudscalemachine_controller.go` + `cloudscalemachine_server.go`                                        | `internal/webhook/v1beta2/cloudscalemachine_webhook.go` + `cloudscalemachine_validation.go` |
 | `CloudscaleMachineTemplate` | `api/v1beta2/cloudscalemachinetemplate_types.go` | `internal/controller/cloudscalemachinetemplate_controller.go`                                                                | `internal/webhook/v1beta2/cloudscalemachinetemplate_webhook.go`                             |
 
@@ -100,6 +101,14 @@ For the prose architecture sketch see [`docs/development.md`](docs/development.m
   config, LB `Enabled` flag, FIP managed/pre-existing switch. When you add
   a new spec field, decide whether it is immutable up front and add the
   check here, not in the controller.
+- `CloudscaleClusterTemplate` reuses `clusterSpecDefault` and
+  `clusterSpecValidateCreate` from `cloudscalecluster_webhook.go` (see
+  `cloudscaleclustertemplate_webhook.go:59, 79`). A new default or validator
+  on `CloudscaleClusterSpec` automatically applies to both CRDs — do not fork
+  the logic.
+- The e2e overlay `test/infrastructure/cloudscale/clusterclass-quick-start/cluster-class.yaml`
+  intentionally duplicates `templates/cluster-class.yaml`. Keep them in sync,
+  but do not attempt to merge or deduplicate them — both copies are required.
 
 ## Cloudscale SDK usage
 
