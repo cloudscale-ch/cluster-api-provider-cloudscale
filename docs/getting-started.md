@@ -27,6 +27,10 @@ covers what is cloudscale-specific.
 
 ## 1. Install the provider on the management cluster
 
+If you plan to use the `topology` flavor, export `CLUSTER_TOPOLOGY=true` before
+`clusterctl init` so cluster-api core enables the
+[ClusterClass feature gate](https://cluster-api.sigs.k8s.io/tasks/experimental-features/cluster-class/).
+
 ```bash
 export CLOUDSCALE_API_TOKEN=<your-api-token>
 clusterctl init --infrastructure cloudscale-ch-cloudscale
@@ -61,11 +65,38 @@ Set them once in your shell, or keep them in `clusterctl`'s config file at
 | `fip`                     | Pre-existing             | Floating IP, IPv4      | Public + cluster  | `CLOUDSCALE_NETWORK_UUID`                            |
 | `pre-existing-network`    | Pre-existing             | Public LB, DualStack   | Public + cluster  | `CLOUDSCALE_NETWORK_UUID`                            |
 | `public-lb-private-nodes` | Pre-existing + NAT       | Public LB              | Private only      | `CLOUDSCALE_NETWORK_UUID`, with a NAT gateway set up |
+| `topology`                | Managed, `172.18.0.0/24` | Public LB, DualStack   | Public + cluster  | `CLUSTER_TOPOLOGY=true` feature gate                 |
 
 The default's `172.18.0.0/24` network CIDR is chosen so it does not overlap with
 the default Cilium cluster-pool range (`10.0.0.0/8`). If you change
 `networks[].cidr` to a value inside your CNI's pod or service range, the control
 plane load balancer's health checks will break — adjust the CNI accordingly.
+
+### Using the topology flavor
+
+The `topology` flavor generates a `Cluster` that references the `quick-start`
+[ClusterClass](https://cluster-api.sigs.k8s.io/tasks/experimental-features/cluster-class/)
+shipped in `templates/cluster-class.yaml`. Requires `CLUSTER_TOPOLOGY=true` at
+`clusterctl init` time (see step 1).
+
+The ClusterClass is a separate object — apply it once per namespace before
+generating any topology cluster:
+
+```bash
+clusterctl generate yaml \
+  --from https://raw.githubusercontent.com/cloudscale-ch/cluster-api-provider-cloudscale/main/templates/cluster-class.yaml \
+  | kubectl apply -f -
+```
+
+Then generate the `Cluster` with `--flavor topology` (step 4). The same step-2
+environment variables drive the manifest; per-cluster overrides go under
+`spec.topology.variables`. See `templates/cluster-class.yaml` for the full
+variable list and defaults.
+
+Caveat: the `quick-start` ClusterClass intentionally exposes a narrower surface
+than the traditional templates — no floating IP, no pre-existing network, no
+private load balancer, and pod/service CIDRs are pinned to `192.168.0.0/16` /
+`10.96.0.0/12`. Adjust the template for your use-case.
 
 ## 4. Generate and apply the cluster
 

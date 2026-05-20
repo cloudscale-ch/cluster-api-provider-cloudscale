@@ -21,22 +21,41 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
-// CloudscaleClusterTemplateSpec defines the desired state of CloudscaleClusterTemplate
+// CloudscaleClusterTemplateSpec defines the desired state of CloudscaleClusterTemplate.
 type CloudscaleClusterTemplateSpec struct {
+	// Template is the embedded resource the CAPI topology controller stamps out
+	// into a CloudscaleCluster for each Cluster whose ClusterClass references
+	// this CloudscaleClusterTemplate.
 	Template CloudscaleClusterTemplateResource `json:"template"`
 }
 
-// CloudscaleClusterTemplateResource contains spec for CloudscaleClusterSpec.
+// CloudscaleClusterTemplateResource describes the CloudscaleCluster that the
+// topology controller materializes from this template.
 type CloudscaleClusterTemplateResource struct {
+	// ObjectMeta supplies labels and annotations that propagate to the
+	// generated CloudscaleCluster. The name/namespace fields are ignored:
+	// the topology controller derives those from the owning Cluster.
 	// +optional
-	ObjectMeta clusterv1.ObjectMeta  `json:"metadata,omitempty"`
-	Spec       CloudscaleClusterSpec `json:"spec"`
+	ObjectMeta clusterv1.ObjectMeta `json:"metadata,omitempty"`
+
+	// Spec embeds CloudscaleClusterSpec verbatim and shares the same defaulting
+	// and validation logic via the cluster webhook helpers
+	// (clusterSpecDefault / clusterSpecValidateCreate).
+	// Immutable after creation; override per-cluster fields via
+	// spec.topology.variables on the Cluster instead of mutating this spec.
+	Spec CloudscaleClusterSpec `json:"spec"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=cloudscaleclustertemplates,scope=Namespaced,categories=cluster-api
 
-// CloudscaleClusterTemplate is the Schema for the cloudscaleclustertemplates API
+// CloudscaleClusterTemplate is a template embedded in a ClusterClass that the
+// CAPI topology controller uses to materialize a CloudscaleCluster for every
+// Cluster whose spec.topology.classRef resolves to a ClusterClass referencing
+// this object. Unlike CloudscaleCluster, this CRD has no controller and no
+// status — it is consumed only at Cluster creation time by CAPI core.
+// Its spec is immutable after creation (enforced by the validating webhook);
+// per-cluster overrides go through ClusterClass variables, not template edits.
 type CloudscaleClusterTemplate struct {
 	metav1.TypeMeta `json:",inline"`
 

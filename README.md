@@ -15,15 +15,17 @@ project only documents what is cloudscale-specific.
 
 ## Features
 
-- Three CRDs: `CloudscaleCluster`, `CloudscaleMachine`, `CloudscaleMachineTemplate`
+- Four CRDs: `CloudscaleCluster`, `CloudscaleClusterTemplate`, `CloudscaleMachine`,
+  `CloudscaleMachineTemplate`
 - Managed or pre-existing networks; public or private load balancer VIPs;
   floating IPs (IPv4/IPv6); anti-affinity server groups
-- Supported regions: `lpg`, `rma`
 - HA control plane; `MachineDeployment` autoscaling including
   [scale-from-zero](https://cluster-api.sigs.k8s.io/tasks/automated-machine-management/autoscaling)
   via capacity reported on `CloudscaleMachineTemplate`
-- Four cluster templates: `default`, `fip`, `pre-existing-network`,
-  `public-lb-private-nodes`
+- Five cluster templates: `default`, `fip`, `pre-existing-network`,
+  `public-lb-private-nodes`, `topology`. The `topology` flavor uses the
+  `quick-start` [ClusterClass](https://cluster-api.sigs.k8s.io/tasks/experimental-features/cluster-class/)
+  shipped in `templates/cluster-class.yaml`.
 
 ## Prerequisites
 
