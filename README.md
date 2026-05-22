@@ -126,7 +126,7 @@ filtering and are split into suites of increasing cost, scheduled accordingly:
 |-------------------------|---------------------------|------------------------------------------------------------------------------------------|-----------|----------|------------------------------------|
 | Lifecycle               | `lifecycle`               | 1 CP + 1 worker: create, validate cloudscale resources, delete                           | ~5 min    | Nightly  | `test-e2e-lifecycle`               |
 | HA lifecycle            | `ha`                      | 3 CP + 2 workers with anti-affinity server groups                                        | ~8 min    | Weekly   | `test-e2e-ha`                      |
-| Cluster upgrade         | `upgrade`                 | Rolling K8s version upgrade (v1.34 → v1.35)                                              | ~25 min   | Weekly   | `test-e2e-upgrade`                 |
+| Cluster upgrade         | `upgrade`                 | Rolling K8s version upgrade (v1.35 → v1.36)                                              | ~25 min   | Weekly   | `test-e2e-upgrade`                 |
 | Self-hosted             | `self-hosted`             | clusterctl move (pivot) to workload cluster. Requires container image in public registry | ~13 min   | Weekly   | `test-e2e-self-hosted`             |
 | MD remediation          | `md-remediation`          | MachineHealthCheck auto-replacement of unhealthy workers                                 | ~6 min    | Weekly   | `test-e2e-md-remediation`          |
 | Pre-Existing networking | `pre-existing-networking` | Pre-Existing network: public-LB + private-nodes and floating-IP variants                 | ~30 min   | Weekly   | `test-e2e-pre-existing-networking` |

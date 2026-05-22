@@ -44,7 +44,7 @@ const (
 // additional testutils.ClusterScopeOption values to override the slice of
 // behaviour they care about.
 func newLBClusterScope(opts ...testutils.ClusterScopeOption) *scope.ClusterScope {
-	defaults := []testutils.ClusterScopeOption{
+	defaults := []testutils.ClusterScopeOption{ //nolint:prealloc
 		testutils.WithLBEnabled(true),
 		testutils.WithLBService(&testutils.MockLoadBalancerService{
 			GetFn: func(ctx context.Context, _ string) (*cloudscalesdk.LoadBalancer, error) {
