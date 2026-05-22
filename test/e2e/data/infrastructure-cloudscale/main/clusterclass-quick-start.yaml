@@ -188,7 +188,7 @@ spec:
     required: true
     schema:
       openAPIV3Schema:
-        default: custom:ubuntu-2404-kube-v1.35.2
+        default: custom:ubuntu-2404-kube-v1.36.0
         type: string
   - name: cloudscaleControlPlaneMachineRootVolumeSize
     required: true
@@ -206,7 +206,7 @@ spec:
     required: true
     schema:
       openAPIV3Schema:
-        default: custom:ubuntu-2404-kube-v1.35.2
+        default: custom:ubuntu-2404-kube-v1.36.0
         type: string
   - name: cloudscaleWorkerMachineRootVolumeSize
     required: true
@@ -307,5 +307,5 @@ spec:
   template:
     spec:
       flavor: flex-4-2
-      image: custom:ubuntu-2404-kube-v1.35.2
+      image: custom:ubuntu-2404-kube-v1.36.0
       rootVolumeSize: 20
