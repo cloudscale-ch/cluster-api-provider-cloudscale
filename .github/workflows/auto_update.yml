@@ -70,4 +70,13 @@ jobs:
           --restore-path config/rbac \
           --restore-path .custom-gcl.yml \
           --restore-path test/utils \
+          --restore-path bin \
+          --restore-path hack/boilerplate.go.txt \
+          --restore-path hack/log/redact.sh \
+          --restore-path LICENSE \
+          --restore-path metadata.yaml \
+          --restore-path templates/ \
+          --restore-path test/e2e/data \
+          --restore-path tilt-provider.yaml \
+          --restore-path config/rbac \
           --open-gh-issue

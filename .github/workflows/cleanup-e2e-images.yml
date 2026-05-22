@@ -1,7 +1,6 @@
 name: Cleanup E2E Images
 
-permissions:
-  contents: read
+permissions: {}
 
 on:
   schedule:
@@ -10,6 +9,8 @@ on:
 
 jobs:
   cleanup:
+    permissions:
+      contents: read
     name: Delete old e2e image tags
     runs-on: ubuntu-latest
     environment: e2e
