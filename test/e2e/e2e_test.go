@@ -20,7 +20,6 @@ package e2e
 
 import (
 	. "github.com/onsi/ginkgo/v2"
-	"k8s.io/utils/ptr"
 	capi_e2e "sigs.k8s.io/cluster-api/test/e2e"
 )
 
@@ -39,10 +38,10 @@ var _ = Describe("Workload cluster lifecycle", Label("lifecycle"), func() {
 				BootstrapClusterProxy:    bootstrapClusterProxy,
 				ArtifactFolder:           artifactFolder,
 				SkipCleanup:              skipCleanup,
-				InfrastructureProvider:   ptr.To("cloudscale-ch-cloudscale"),
-				Flavor:                   ptr.To(""),
-				ControlPlaneMachineCount: ptr.To[int64](1),
-				WorkerMachineCount:       ptr.To[int64](1),
+				InfrastructureProvider:   new("cloudscale-ch-cloudscale"),
+				Flavor:                   new(""),
+				ControlPlaneMachineCount: new(int64(1)),
+				WorkerMachineCount:       new(int64(1)),
 				PostMachinesProvisioned:  validateCloudscaleResources,
 			}
 		})
@@ -56,10 +55,10 @@ var _ = Describe("Workload cluster lifecycle", Label("lifecycle"), func() {
 				BootstrapClusterProxy:    bootstrapClusterProxy,
 				ArtifactFolder:           artifactFolder,
 				SkipCleanup:              skipCleanup,
-				InfrastructureProvider:   ptr.To("cloudscale-ch-cloudscale"),
-				Flavor:                   ptr.To("ha"),
-				ControlPlaneMachineCount: ptr.To[int64](3),
-				WorkerMachineCount:       ptr.To[int64](2),
+				InfrastructureProvider:   new("cloudscale-ch-cloudscale"),
+				Flavor:                   new("ha"),
+				ControlPlaneMachineCount: new(int64(3)),
+				WorkerMachineCount:       new(int64(2)),
 				PostMachinesProvisioned:  validateCloudscaleResources,
 			}
 		})
@@ -75,10 +74,10 @@ var _ = Describe("Workload cluster-class topology", Label("topology"), func() {
 				BootstrapClusterProxy:    bootstrapClusterProxy,
 				ArtifactFolder:           artifactFolder,
 				SkipCleanup:              skipCleanup,
-				InfrastructureProvider:   ptr.To("cloudscale-ch-cloudscale"),
-				Flavor:                   ptr.To("topology"),
-				ControlPlaneMachineCount: ptr.To[int64](1),
-				WorkerMachineCount:       ptr.To[int64](1),
+				InfrastructureProvider:   new("cloudscale-ch-cloudscale"),
+				Flavor:                   new("topology"),
+				ControlPlaneMachineCount: new(int64(1)),
+				WorkerMachineCount:       new(int64(1)),
 				PostMachinesProvisioned:  validateCloudscaleResources,
 			}
 		})
@@ -105,10 +104,10 @@ var _ = Describe("Pre-existing networking", Label("pre-existing-networking"), fu
 				BootstrapClusterProxy:    bootstrapClusterProxy,
 				ArtifactFolder:           artifactFolder,
 				SkipCleanup:              skipCleanup,
-				InfrastructureProvider:   ptr.To("cloudscale-ch-cloudscale"),
-				Flavor:                   ptr.To("pre-existing-network"),
-				ControlPlaneMachineCount: ptr.To[int64](1),
-				WorkerMachineCount:       ptr.To[int64](1),
+				InfrastructureProvider:   new("cloudscale-ch-cloudscale"),
+				Flavor:                   new("pre-existing-network"),
+				ControlPlaneMachineCount: new(int64(1)),
+				WorkerMachineCount:       new(int64(1)),
 				PostMachinesProvisioned:  validateCloudscaleResources,
 			}
 		})
@@ -123,10 +122,10 @@ var _ = Describe("Pre-existing networking", Label("pre-existing-networking"), fu
 				BootstrapClusterProxy:    bootstrapClusterProxy,
 				ArtifactFolder:           artifactFolder,
 				SkipCleanup:              skipCleanup,
-				InfrastructureProvider:   ptr.To("cloudscale-ch-cloudscale"),
-				Flavor:                   ptr.To("public-lb-private-nodes"),
-				ControlPlaneMachineCount: ptr.To[int64](1),
-				WorkerMachineCount:       ptr.To[int64](1),
+				InfrastructureProvider:   new("cloudscale-ch-cloudscale"),
+				Flavor:                   new("public-lb-private-nodes"),
+				ControlPlaneMachineCount: new(int64(1)),
+				WorkerMachineCount:       new(int64(1)),
 				PostMachinesProvisioned:  validateCloudscaleResources,
 			}
 		})
@@ -141,10 +140,10 @@ var _ = Describe("Pre-existing networking", Label("pre-existing-networking"), fu
 				BootstrapClusterProxy:    bootstrapClusterProxy,
 				ArtifactFolder:           artifactFolder,
 				SkipCleanup:              skipCleanup,
-				InfrastructureProvider:   ptr.To("cloudscale-ch-cloudscale"),
-				Flavor:                   ptr.To("fip"),
-				ControlPlaneMachineCount: ptr.To[int64](1),
-				WorkerMachineCount:       ptr.To[int64](1),
+				InfrastructureProvider:   new("cloudscale-ch-cloudscale"),
+				Flavor:                   new("fip"),
+				ControlPlaneMachineCount: new(int64(1)),
+				WorkerMachineCount:       new(int64(1)),
 				PostMachinesProvisioned:  validateCloudscaleResources,
 			}
 		})
@@ -164,9 +163,9 @@ var _ = Describe("Cluster upgrade", Label("upgrade"), func() {
 			ArtifactFolder:           artifactFolder,
 			SkipCleanup:              skipCleanup,
 			SkipConformanceTests:     true,
-			InfrastructureProvider:   ptr.To("cloudscale-ch-cloudscale"),
-			ControlPlaneMachineCount: ptr.To[int64](1),
-			WorkerMachineCount:       ptr.To[int64](1),
+			InfrastructureProvider:   new("cloudscale-ch-cloudscale"),
+			ControlPlaneMachineCount: new(int64(1)),
+			WorkerMachineCount:       new(int64(1)),
 		}
 	})
 })
@@ -183,10 +182,10 @@ var _ = Describe("Self-hosted cluster", Label("self-hosted"), func() {
 			BootstrapClusterProxy:    bootstrapClusterProxy,
 			ArtifactFolder:           artifactFolder,
 			SkipCleanup:              skipCleanup,
-			InfrastructureProvider:   ptr.To("cloudscale-ch-cloudscale"),
+			InfrastructureProvider:   new("cloudscale-ch-cloudscale"),
 			SkipUpgrade:              true,
-			ControlPlaneMachineCount: ptr.To[int64](1),
-			WorkerMachineCount:       ptr.To[int64](1),
+			ControlPlaneMachineCount: new(int64(1)),
+			WorkerMachineCount:       new(int64(1)),
 		}
 	})
 })
@@ -207,7 +206,7 @@ var _ = Describe("MD remediation", Label("md-remediation"), func() {
 			BootstrapClusterProxy:  bootstrapClusterProxy,
 			ArtifactFolder:         artifactFolder,
 			SkipCleanup:            skipCleanup,
-			InfrastructureProvider: ptr.To("cloudscale-ch-cloudscale"),
+			InfrastructureProvider: new("cloudscale-ch-cloudscale"),
 		}
 	})
 })
@@ -223,7 +222,7 @@ var _ = Describe("Kubernetes conformance", Label("conformance"), func() {
 			BootstrapClusterProxy:  bootstrapClusterProxy,
 			ArtifactFolder:         artifactFolder,
 			SkipCleanup:            skipCleanup,
-			InfrastructureProvider: ptr.To("cloudscale-ch-cloudscale"),
+			InfrastructureProvider: new("cloudscale-ch-cloudscale"),
 		}
 	})
 })

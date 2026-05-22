@@ -26,7 +26,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/events"
-	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
@@ -202,7 +201,7 @@ func (r *CloudscaleMachineReconciler) reconcileNormal(ctx context.Context, machi
 		if machineScope.CloudscaleMachine.Status.Initialization == nil {
 			machineScope.CloudscaleMachine.Status.Initialization = &infrastructurev1beta2.MachineInitializationStatus{}
 		}
-		machineScope.CloudscaleMachine.Status.Initialization.Provisioned = ptr.To(true)
+		machineScope.CloudscaleMachine.Status.Initialization.Provisioned = new(true)
 	}
 
 	return result, nil

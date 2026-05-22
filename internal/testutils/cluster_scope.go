@@ -2,7 +2,6 @@ package testutils
 
 import (
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
 	"github.com/go-logr/logr"
@@ -38,7 +37,7 @@ func NewClusterScopeOpts(opts ...ClusterScopeOption) *scope.ClusterScope {
 					{Name: "test", CIDR: "10.0.0.0/24"},
 				},
 				ControlPlaneLoadBalancer: infrastructurev1beta2.LoadBalancerSpec{
-					Enabled:       ptr.To(false),
+					Enabled:       new(false),
 					APIServerPort: 6443,
 					HealthMonitor: infrastructurev1beta2.HealthMonitorSpec{
 						DelayS:        5,
@@ -105,7 +104,7 @@ func WithFloatingIPService(svc cloudscale.FloatingIPService) ClusterScopeOption 
 // WithLBEnabled sets whether the load balancer is enabled in the spec.
 func WithLBEnabled(enabled bool) ClusterScopeOption {
 	return func(cs *scope.ClusterScope) {
-		cs.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(enabled)
+		cs.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled = new(enabled)
 	}
 }
 
@@ -224,7 +223,7 @@ func NewMachineScope(serverService cloudscale.ServerService, opts ...MachineScop
 			},
 			Spec: clusterv1.MachineSpec{
 				Bootstrap: clusterv1.Bootstrap{
-					DataSecretName: ptr.To("bootstrap-secret"),
+					DataSecretName: new("bootstrap-secret"),
 				},
 			},
 		},

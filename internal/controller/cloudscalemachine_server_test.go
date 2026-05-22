@@ -24,7 +24,6 @@ import (
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/events"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -355,7 +354,7 @@ func TestReconcileServer_ProvisionedNotModified(t *testing.T) {
 	machineScope := testutils.NewMachineScope(serverService)
 	machineScope.CloudscaleMachine.Status.ServerID = testExistingServerUUID
 	machineScope.CloudscaleMachine.Status.Initialization = &infrastructurev1beta2.MachineInitializationStatus{
-		Provisioned: ptr.To(true),
+		Provisioned: new(true),
 	}
 
 	r := &CloudscaleMachineReconciler{
@@ -589,11 +588,10 @@ func TestBuildInterfaceRequests_InvalidInterfaceErrors(t *testing.T) {
 func TestBuildInterfaceRequests_ReturnsIPFamilyFromPublicInterface(t *testing.T) {
 	g := NewWithT(t)
 
-	dualStack := infrastructurev1beta2.IPFamilyDualStack
 	machineScope := testutils.NewMachineScope(&testutils.MockServerService{})
 	machineScope.CloudscaleMachine.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
 		{Network: "test"},
-		{Type: "public", IPFamily: &dualStack},
+		{Type: "public", IPFamily: new(infrastructurev1beta2.IPFamilyDualStack)},
 	}
 
 	r := &CloudscaleMachineReconciler{}
@@ -625,16 +623,14 @@ func TestBuildInterfaceRequests_NilIPFamilyWhenNoPublicInterface(t *testing.T) {
 
 func TestIPFamilyToUseIPV6_DualStack(t *testing.T) {
 	g := NewWithT(t)
-	dualStack := infrastructurev1beta2.IPFamilyDualStack
-	result := ipFamilyToUseIPV6(&dualStack)
+	result := ipFamilyToUseIPV6(new(infrastructurev1beta2.IPFamilyDualStack))
 	g.Expect(result).ToNot(BeNil())
 	g.Expect(*result).To(BeTrue())
 }
 
 func TestIPFamilyToUseIPV6_IPv4(t *testing.T) {
 	g := NewWithT(t)
-	ipv4 := infrastructurev1beta2.IPFamilyIPv4
-	result := ipFamilyToUseIPV6(&ipv4)
+	result := ipFamilyToUseIPV6(new(infrastructurev1beta2.IPFamilyIPv4))
 	g.Expect(result).ToNot(BeNil())
 	g.Expect(*result).To(BeFalse())
 }
@@ -666,11 +662,10 @@ func TestReconcileServer_SetsUseIPV6DualStack(t *testing.T) {
 		},
 	}
 
-	dualStack := infrastructurev1beta2.IPFamilyDualStack
 	machineScope := testutils.NewMachineScope(serverService)
 	machineScope.CloudscaleMachine.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
 		{Network: "test"},
-		{Type: "public", IPFamily: &dualStack},
+		{Type: "public", IPFamily: new(infrastructurev1beta2.IPFamilyDualStack)},
 	}
 
 	r := &CloudscaleMachineReconciler{
@@ -704,11 +699,10 @@ func TestReconcileServer_SetsUseIPV6IPv4Only(t *testing.T) {
 		},
 	}
 
-	ipv4 := infrastructurev1beta2.IPFamilyIPv4
 	machineScope := testutils.NewMachineScope(serverService)
 	machineScope.CloudscaleMachine.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
 		{Network: "test"},
-		{Type: "public", IPFamily: &ipv4},
+		{Type: "public", IPFamily: new(infrastructurev1beta2.IPFamilyIPv4)},
 	}
 
 	r := &CloudscaleMachineReconciler{

@@ -23,7 +23,6 @@ import (
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -125,7 +124,7 @@ func TestIsInfrastructureProvisioned(t *testing.T) {
 					Spec: infrastructurev1beta2.CloudscaleClusterSpec{
 						ControlPlaneEndpoint: clusterv1.APIEndpoint{Host: tc.endpointHost, Port: tc.endpointPort},
 						ControlPlaneLoadBalancer: infrastructurev1beta2.LoadBalancerSpec{
-							Enabled: ptr.To(tc.lbEnabled),
+							Enabled: new(tc.lbEnabled),
 						},
 					},
 					Status: infrastructurev1beta2.CloudscaleClusterStatus{
