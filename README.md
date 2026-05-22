@@ -2,6 +2,9 @@
 
 [![Tests](https://github.com/cloudscale-ch/cluster-api-provider-cloudscale/actions/workflows/test.yml/badge.svg)](https://github.com/cloudscale-ch/cluster-api-provider-cloudscale/actions/workflows/test.yml)
 [![Release](https://img.shields.io/github/v/release/cloudscale-ch/cluster-api-provider-cloudscale)](https://github.com/cloudscale-ch/cluster-api-provider-cloudscale/releases/latest)
+[![Go Reference](https://pkg.go.dev/badge/github.com/cloudscale-ch/cluster-api-provider-cloudscale.svg)](https://pkg.go.dev/github.com/cloudscale-ch/cluster-api-provider-cloudscale)
+[![Goreportcard](https://goreportcard.com/badge/github.com/cloudscale-ch/cluster-api-provider-cloudscale)](https://goreportcard.com/report/github.com/cloudscale-ch/cluster-api-provider-cloudscale)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/cloudscale-ch/cluster-api-provider-cloudscale)
 
 Kubernetes [Cluster API](https://cluster-api.sigs.k8s.io/) infrastructure provider
 for [cloudscale.ch](https://www.cloudscale.ch). CAPCS provisions the cloudscale-specific
@@ -15,17 +18,23 @@ project only documents what is cloudscale-specific.
 
 ## Features
 
-- Four CRDs: `CloudscaleCluster`, `CloudscaleClusterTemplate`, `CloudscaleMachine`,
-  `CloudscaleMachineTemplate`
 - Managed or pre-existing networks; public or private load balancer VIPs;
   floating IPs (IPv4/IPv6); anti-affinity server groups
 - HA control plane; `MachineDeployment` autoscaling including
   [scale-from-zero](https://cluster-api.sigs.k8s.io/tasks/automated-machine-management/autoscaling)
   via capacity reported on `CloudscaleMachineTemplate`
-- Five cluster templates: `default`, `fip`, `pre-existing-network`,
-  `public-lb-private-nodes`, `topology`. The `topology` flavor uses the
-  `quick-start` [ClusterClass](https://cluster-api.sigs.k8s.io/tasks/experimental-features/cluster-class/)
-  shipped in `templates/cluster-class.yaml`.
+- [ClusterClass](https://cluster-api.sigs.k8s.io/tasks/experimental-features/cluster-class/) support
+
+## Compatibility
+
+### Cluster-API Versions
+
+Currently, CAPCS requires CAPI version >= v1.13.0 and is compatible only with the v1beta2 CRD versions of CAPI.
+
+### Kubernetes Versions
+
+The cloudscale provider is able to install and manage
+the [versions of Kubernetes supported by the Cluster API (CAPI) project](https://cluster-api.sigs.k8s.io/reference/versions.html#supported-versions-matrix-by-provider-or-component).
 
 ## Prerequisites
 
@@ -37,13 +46,22 @@ project only documents what is cloudscale-specific.
 
 ## Quickstart
 
+This quickstart assumes you already know how Cluster-API works and have the prerequisites ready to use.
+For a more detailed introduction, please read [our getting started guide](docs/getting-started.md).
+
 ```bash
 export CLOUDSCALE_API_TOKEN=<your-api-token>
+
+# initialize the Cluster-API management controllers
 clusterctl init --infrastructure cloudscale-ch-cloudscale
+
+# Generate and apply the cluster definition
 clusterctl generate cluster my-cluster \
   --infrastructure cloudscale-ch-cloudscale --kubernetes-version v1.36.0 \
   --control-plane-machine-count 1 --worker-machine-count 2 \
   | kubectl apply -f -
+
+# Describe the status of the cluster
 clusterctl describe cluster my-cluster
 ```
 

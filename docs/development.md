@@ -5,12 +5,10 @@ For contributors working on CAPCS itself. End-user docs are in
 
 ## Architecture sketch
 
-CAPCS is a kubebuilder-scaffolded infrastructure provider. Four CRDs (three
-reconciled, one template-only), three reconcilers, a webhook per CRD, and a
-thin wrapper around the cloudscale-go-sdk.
+CAPCS is a kubebuilder-scaffolded infrastructure provider.
 
 ```
-api/v1beta2/                CRD types (CloudscaleCluster, CloudscaleClusterTemplate, CloudscaleMachine, CloudscaleMachineTemplate)
+api/v1beta2/                CRD types
 internal/controller/        Reconcilers, one file per cloudscale resource (network, LB, FIP, server group, server)
 internal/webhook/v1beta2/   Defaulting + validating webhooks (one per CRD)
 internal/cloudscale/        SDK wrapper: shared HTTP transport, flavor/region helpers, per-cluster services
