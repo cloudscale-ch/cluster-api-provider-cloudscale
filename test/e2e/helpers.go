@@ -72,7 +72,7 @@ func validateCloudscaleResources(proxy framework.ClusterProxy, namespace, cluste
 	Expect(ptr.Deref(cloudscaleCluster.Status.Initialization.Provisioned, false)).To(BeTrue(), "CloudscaleCluster should be provisioned")
 
 	// Validate control plane endpoint
-	Expect(cloudscaleCluster.Spec.ControlPlaneEndpoint).NotTo(BeNil(), "ControlPlaneEndpoint should be set")
+	Expect(cloudscaleCluster.Spec.ControlPlaneEndpoint).NotTo(BeZero(), "ControlPlaneEndpoint should be set")
 	Expect(cloudscaleCluster.Spec.ControlPlaneEndpoint.Host).NotTo(BeEmpty(), "ControlPlaneEndpoint.Host should be set")
 	Expect(cloudscaleCluster.Spec.ControlPlaneEndpoint.Port).To(Equal(int32(6443)), "ControlPlaneEndpoint.Port should be 6443")
 

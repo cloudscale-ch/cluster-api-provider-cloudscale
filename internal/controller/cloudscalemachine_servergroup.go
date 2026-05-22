@@ -55,8 +55,8 @@ func (r *CloudscaleMachineReconciler) reconcileServerGroup(ctx context.Context, 
 	// If we already have a server group ID, verify it still exists
 	if machineScope.CloudscaleMachine.Status.ServerGroupID != "" {
 		getCtx, cancel := context.WithTimeout(ctx, cloudscale.ReadTimeout)
-		defer cancel()
 		_, err := machineScope.CloudscaleClient.ServerGroups.Get(getCtx, machineScope.CloudscaleMachine.Status.ServerGroupID)
+		cancel()
 		if err == nil {
 			return ctrl.Result{}, nil
 		}
@@ -77,8 +77,8 @@ func (r *CloudscaleMachineReconciler) reconcileServerGroup(ctx context.Context, 
 	// Search for existing server group by name and zone using cluster-level tags
 	// so that all machines in the cluster can find the same server group.
 	listCtx, cancelList := context.WithTimeout(ctx, cloudscale.ReadTimeout)
-	defer cancelList()
 	groups, err := machineScope.CloudscaleClient.ServerGroups.List(listCtx, cloudscalesdk.WithTagFilter(clusterOwnershipTags(machineScope.CloudscaleCluster)))
+	cancelList()
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("listing server groups: %w", err)
 	}
@@ -101,8 +101,8 @@ func (r *CloudscaleMachineReconciler) reconcileServerGroup(ctx context.Context, 
 	}
 
 	createCtx, cancelCreate := context.WithTimeout(ctx, cloudscale.WriteTimeout)
-	defer cancelCreate()
 	group, err := machineScope.CloudscaleClient.ServerGroups.Create(createCtx, req)
+	cancelCreate()
 	if err != nil {
 		if cloudscale.IsTimeoutError(err) {
 			requeueAfter := 5 * time.Second

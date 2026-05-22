@@ -47,7 +47,7 @@ while IFS= read -r name; do
   fi
 
   # Convert to a format that date can parse (handle both RFC3339 and 'YYYY-MM-DD HH:MM:SS...' formats)
-  normalized=$(echo "${created}" | sed 's/ /T/' | sed 's/ UTC$//')
+  normalized=$(echo "${created}" | sed 's/ /T/; s/ UTC$//')
   created_ts=$(date -u -jf "%Y-%m-%dT%H:%M:%S" "${normalized%.*}" +%s 2>/dev/null \
     || date -u -d "${normalized}" +%s 2>/dev/null \
     || date -u -d "${created}" +%s 2>/dev/null \
