@@ -1,7 +1,6 @@
 name: Tests
 
-permissions:
-  contents: read
+permissions: {}
 
 on:
   push:
@@ -10,6 +9,8 @@ on:
 
 jobs:
   test:
+    permissions:
+      contents: read
     name: Run on Ubuntu
     runs-on: ubuntu-latest
     steps:

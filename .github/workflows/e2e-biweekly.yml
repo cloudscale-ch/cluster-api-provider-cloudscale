@@ -1,7 +1,6 @@
 name: E2E Tests (Biweekly Conformance)
 
-permissions:
-  contents: read
+permissions: {}
 
 on:
   schedule:
@@ -14,6 +13,8 @@ concurrency:
 
 jobs:
   e2e-conformance:
+    permissions:
+      contents: read
     name: Full K8s Conformance
     runs-on: ubuntu-latest
     environment: e2e

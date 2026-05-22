@@ -1,7 +1,6 @@
 name: E2E Tests (Nightly)
 
-permissions:
-  contents: read
+permissions: {}
 
 on:
   schedule:
@@ -14,6 +13,8 @@ concurrency:
 
 jobs:
   e2e-lifecycle:
+    permissions:
+      contents: read
     name: Nightly Lifecycle Tests
     runs-on: ubuntu-latest
     environment: e2e
