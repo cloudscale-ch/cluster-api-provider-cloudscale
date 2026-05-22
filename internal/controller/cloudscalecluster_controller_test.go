@@ -73,15 +73,17 @@ func TestCloudscaleClusterReconciler_Reconcile_EntryPoint(t *testing.T) {
 // reconcileNormal to decide when to flip Status.Initialization.Provisioned.
 func TestIsInfrastructureProvisioned(t *testing.T) {
 	cases := []struct {
-		name            string
-		lbEnabled       bool
-		networks        []infrastructurev1beta2.NetworkStatus
-		endpointHost    string
-		endpointPort    int32
-		lbID            string
-		lbPoolID        string
-		lbListenerID    string
-		wantProvisioned bool
+		name             string
+		lbEnabled        bool
+		networks         []infrastructurev1beta2.NetworkStatus
+		endpointHost     string
+		endpointPort     int32
+		lbID             string
+		lbPoolID         string
+		lbListenerID     string
+		floatingIP       *infrastructurev1beta2.FloatingIPSpec
+		statusFloatingIP string
+		wantProvisioned  bool
 	}{
 		{
 			name:            "LB enabled and all resources present",
@@ -114,6 +116,26 @@ func TestIsInfrastructureProvisioned(t *testing.T) {
 			lbEnabled: false,
 			networks:  []infrastructurev1beta2.NetworkStatus{{Name: "test", NetworkID: "network-123", SubnetID: "subnet-123", Managed: true}},
 		},
+		{
+			name:             "Floating IP requested but status floating IP empty",
+			lbEnabled:        false,
+			networks:         []infrastructurev1beta2.NetworkStatus{{Name: "test", NetworkID: "network-123", SubnetID: "subnet-123", Managed: true}},
+			endpointHost:     "1.2.3.4",
+			endpointPort:     6443,
+			floatingIP:       &infrastructurev1beta2.FloatingIPSpec{Address: "203.0.113.10"},
+			statusFloatingIP: "",
+			wantProvisioned:  false,
+		},
+		{
+			name:             "Floating IP requested and status floating IP set",
+			lbEnabled:        false,
+			networks:         []infrastructurev1beta2.NetworkStatus{{Name: "test", NetworkID: "network-123", SubnetID: "subnet-123", Managed: true}},
+			endpointHost:     "1.2.3.4",
+			endpointPort:     6443,
+			floatingIP:       &infrastructurev1beta2.FloatingIPSpec{Address: "185.0.0.0"},
+			statusFloatingIP: "185.0.0.0",
+			wantProvisioned:  true,
+		},
 	}
 
 	for _, tc := range cases {
@@ -126,12 +148,14 @@ func TestIsInfrastructureProvisioned(t *testing.T) {
 						ControlPlaneLoadBalancer: infrastructurev1beta2.LoadBalancerSpec{
 							Enabled: new(tc.lbEnabled),
 						},
+						FloatingIP: tc.floatingIP,
 					},
 					Status: infrastructurev1beta2.CloudscaleClusterStatus{
 						Networks:               tc.networks,
 						LoadBalancerID:         tc.lbID,
 						LoadBalancerPoolID:     tc.lbPoolID,
 						LoadBalancerListenerID: tc.lbListenerID,
+						FloatingIP:             tc.statusFloatingIP,
 					},
 				},
 			}
