@@ -145,6 +145,5 @@ func (s *MachineScope) GetProviderID() string {
 
 // SetProviderID sets the provider ID for the server.
 func (s *MachineScope) SetProviderID(serverID string) {
-	providerID := fmt.Sprintf("cloudscale://%s", serverID)
-	s.CloudscaleMachine.Spec.ProviderID = &providerID
+	s.CloudscaleMachine.Spec.ProviderID = new(fmt.Sprintf("cloudscale://%s", serverID))
 }

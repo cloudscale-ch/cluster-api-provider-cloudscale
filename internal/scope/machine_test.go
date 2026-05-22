@@ -24,7 +24,6 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -151,7 +150,7 @@ func TestMachineScope_GetBootstrapData(t *testing.T) {
 	}{
 		{
 			name:       "happy path",
-			secretName: ptr.To("bootstrap-secret"),
+			secretName: new("bootstrap-secret"),
 			secret: &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{Name: "bootstrap-secret", Namespace: "test-namespace"},
 				Data:       map[string][]byte{"value": []byte("#cloud-config\nruncmd:\n  - echo hello")},
@@ -165,12 +164,12 @@ func TestMachineScope_GetBootstrapData(t *testing.T) {
 		},
 		{
 			name:       "secret not found",
-			secretName: ptr.To("nonexistent-secret"),
+			secretName: new("nonexistent-secret"),
 			wantErrSub: "getting bootstrap data secret",
 		},
 		{
 			name:       "missing value key",
-			secretName: ptr.To("bootstrap-secret"),
+			secretName: new("bootstrap-secret"),
 			secret: &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{Name: "bootstrap-secret", Namespace: "test-namespace"},
 				Data:       map[string][]byte{"other-key": []byte("some data")},
@@ -224,7 +223,7 @@ func TestMachineScope_ProviderID(t *testing.T) {
 	}{
 		{
 			name:           "already set is read back verbatim",
-			seeded:         ptr.To("cloudscale://server-uuid"),
+			seeded:         new("cloudscale://server-uuid"),
 			wantInitialGet: "cloudscale://server-uuid",
 		},
 		{

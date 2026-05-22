@@ -21,7 +21,6 @@ import (
 
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
@@ -110,16 +109,16 @@ func TestClusterDefaulting(t *testing.T) {
 			name:   "LB.Enabled defaults to true",
 			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) { c.Spec.ControlPlaneLoadBalancer.Enabled = nil },
 			assert: func(g *WithT, c *infrastructurev1beta2.CloudscaleCluster) {
-				g.Expect(c.Spec.ControlPlaneLoadBalancer.Enabled).To(Equal(ptr.To(true)))
+				g.Expect(c.Spec.ControlPlaneLoadBalancer.Enabled).To(Equal(new(true)))
 			},
 		},
 		{
 			name: "LB.Enabled=false preserved",
 			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
-				c.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(false)
+				c.Spec.ControlPlaneLoadBalancer.Enabled = new(false)
 			},
 			assert: func(g *WithT, c *infrastructurev1beta2.CloudscaleCluster) {
-				g.Expect(c.Spec.ControlPlaneLoadBalancer.Enabled).To(Equal(ptr.To(false)))
+				g.Expect(c.Spec.ControlPlaneLoadBalancer.Enabled).To(Equal(new(false)))
 			},
 		},
 		{
@@ -175,7 +174,7 @@ func TestClusterDefaulting(t *testing.T) {
 				c.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{}
 			},
 			assert: func(g *WithT, c *infrastructurev1beta2.CloudscaleCluster) {
-				g.Expect(c.Spec.FloatingIP.IPFamily).To(Equal(ptr.To(infrastructurev1beta2.IPFamilyIPv4)))
+				g.Expect(c.Spec.FloatingIP.IPFamily).To(Equal(new(infrastructurev1beta2.IPFamilyIPv4)))
 			},
 		},
 		{
@@ -215,7 +214,7 @@ func TestClusterDefaulting_AllDefaultsApplied(t *testing.T) {
 	g.Expect(obj.Spec.Networks).To(HaveLen(1))
 	g.Expect(obj.Spec.Networks[0].Name).To(Equal("test-cluster"))
 	g.Expect(obj.Spec.Networks[0].CIDR).To(Equal(defaultSubnetCIDR))
-	g.Expect(obj.Spec.ControlPlaneLoadBalancer.Enabled).To(Equal(ptr.To(true)))
+	g.Expect(obj.Spec.ControlPlaneLoadBalancer.Enabled).To(Equal(new(true)))
 	g.Expect(obj.Spec.ControlPlaneLoadBalancer.Algorithm).To(Equal("round_robin"))
 	g.Expect(obj.Spec.ControlPlaneLoadBalancer.Flavor).To(Equal("lb-standard"))
 	g.Expect(obj.Spec.ControlPlaneLoadBalancer.APIServerPort).To(Equal(int32(6443)))
@@ -390,7 +389,7 @@ func TestClusterValidateCreate(t *testing.T) {
 				c.Spec.Region = RegionRma
 				c.Spec.Zone = ZoneRma1
 				c.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{
-					IPFamily: ptr.To(infrastructurev1beta2.IPFamilyIPv4),
+					IPFamily: new(infrastructurev1beta2.IPFamilyIPv4),
 				}
 			},
 		},
@@ -402,7 +401,7 @@ func TestClusterValidateCreate(t *testing.T) {
 				c.Spec.Networks = []infrastructurev1beta2.NetworkSpec{{Name: "main", CIDR: defaultSubnetCIDR}}
 				c.Spec.ControlPlaneLoadBalancer.Network = "main"
 				c.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{
-					IPFamily: ptr.To(infrastructurev1beta2.IPFamilyIPv4),
+					IPFamily: new(infrastructurev1beta2.IPFamilyIPv4),
 				}
 			},
 			wantErr:        true,
@@ -414,7 +413,7 @@ func TestClusterValidateCreate(t *testing.T) {
 				c.Spec.Region = RegionRma
 				c.Spec.Zone = ZoneRma1
 				c.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{
-					IPFamily: ptr.To(infrastructurev1beta2.IPFamilyIPv4),
+					IPFamily: new(infrastructurev1beta2.IPFamilyIPv4),
 					Address:  "1.2.3.4",
 				}
 			},
@@ -446,9 +445,9 @@ func TestClusterValidateCreate(t *testing.T) {
 			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
 				c.Spec.Region = RegionRma
 				c.Spec.Zone = ZoneRma1
-				c.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(false)
+				c.Spec.ControlPlaneLoadBalancer.Enabled = new(false)
 				c.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{
-					IPFamily: ptr.To(infrastructurev1beta2.IPFamilyIPv4),
+					IPFamily: new(infrastructurev1beta2.IPFamilyIPv4),
 				}
 			},
 			wantErr:        true,
@@ -459,7 +458,7 @@ func TestClusterValidateCreate(t *testing.T) {
 			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
 				c.Spec.Region = RegionRma
 				c.Spec.Zone = ZoneRma1
-				c.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(false)
+				c.Spec.ControlPlaneLoadBalancer.Enabled = new(false)
 				c.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{Address: "1.2.3.4"}
 			},
 		},
@@ -501,12 +500,12 @@ func setupUpdateTestObjects() (
 	oldObj.Spec.Region = RegionRma
 	oldObj.Spec.Zone = ZoneRma1
 	oldObj.Spec.Networks = networks
-	oldObj.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(true)
+	oldObj.Spec.ControlPlaneLoadBalancer.Enabled = new(true)
 
 	obj.Spec.Region = RegionRma
 	obj.Spec.Zone = ZoneRma1
 	obj.Spec.Networks = []infrastructurev1beta2.NetworkSpec{{Name: "main", CIDR: defaultSubnetCIDR}}
-	obj.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(true)
+	obj.Spec.ControlPlaneLoadBalancer.Enabled = new(true)
 	return
 }
 
@@ -566,7 +565,7 @@ func TestClusterValidateUpdate(t *testing.T) {
 		{
 			name: "LB.Enabled change rejected",
 			mutate: func(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
-				obj.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(false)
+				obj.Spec.ControlPlaneLoadBalancer.Enabled = new(false)
 			},
 			wantErr:        true,
 			wantSubstrings: []string{"spec.controlPlaneLoadBalancer.enabled"},
@@ -609,7 +608,7 @@ func TestClusterValidateUpdate(t *testing.T) {
 			name: "FloatingIP added rejected",
 			mutate: func(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
 				obj.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{
-					IPFamily: ptr.To(infrastructurev1beta2.IPFamilyIPv4),
+					IPFamily: new(infrastructurev1beta2.IPFamilyIPv4),
 				}
 			},
 			wantErr:        true,
@@ -619,7 +618,7 @@ func TestClusterValidateUpdate(t *testing.T) {
 			name: "FloatingIP removed rejected",
 			mutate: func(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
 				oldObj.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{
-					IPFamily: ptr.To(infrastructurev1beta2.IPFamilyIPv4),
+					IPFamily: new(infrastructurev1beta2.IPFamilyIPv4),
 				}
 				obj.Spec.FloatingIP = nil
 			},

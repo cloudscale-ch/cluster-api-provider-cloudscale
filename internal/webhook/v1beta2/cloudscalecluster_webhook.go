@@ -91,7 +91,7 @@ func (d *CloudscaleClusterCustomDefaulter) Default(_ context.Context, cluster *i
 func clusterSpecDefault(spec *infrastructurev1beta2.CloudscaleClusterSpec) {
 	// Default load balancer settings
 	if spec.ControlPlaneLoadBalancer.Enabled == nil {
-		spec.ControlPlaneLoadBalancer.Enabled = ptr.To(true)
+		spec.ControlPlaneLoadBalancer.Enabled = new(true)
 	}
 	if spec.ControlPlaneLoadBalancer.Algorithm == "" {
 		spec.ControlPlaneLoadBalancer.Algorithm = "round_robin"
@@ -118,8 +118,7 @@ func clusterSpecDefault(spec *infrastructurev1beta2.CloudscaleClusterSpec) {
 
 	// Default floating IP: if set but both fields empty, default to IPv4
 	if spec.FloatingIP != nil && spec.FloatingIP.IPFamily == nil && spec.FloatingIP.Address == "" {
-		ipv4 := infrastructurev1beta2.IPFamilyIPv4
-		spec.FloatingIP.IPFamily = &ipv4
+		spec.FloatingIP.IPFamily = new(infrastructurev1beta2.IPFamilyIPv4)
 	}
 }
 
@@ -472,7 +471,7 @@ func validateFloatingIPRequiresPublicLB(spec infrastructurev1beta2.CloudscaleClu
 // controller would default the LB pool members' subnet to networks[0], which silently
 // breaks clusters whose machines join a different network.
 func validateLBPoolMemberNetworkResolvable(spec infrastructurev1beta2.CloudscaleClusterSpec, fldPath *field.Path) field.ErrorList {
-	var allErrs field.ErrorList
+	var allErrs = make(field.ErrorList, 0, 1)
 
 	if !ptr.Deref(spec.ControlPlaneLoadBalancer.Enabled, true) {
 		return nil

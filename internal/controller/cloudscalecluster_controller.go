@@ -177,7 +177,7 @@ func (r *CloudscaleClusterReconciler) reconcileNormal(ctx context.Context, clust
 		clusterScope.CloudscaleCluster.Status.Initialization = &infrastructurev1beta2.ClusterInitializationStatus{}
 	}
 	provisioned := r.isInfrastructureProvisioned(clusterScope)
-	clusterScope.CloudscaleCluster.Status.Initialization.Provisioned = ptr.To(provisioned)
+	clusterScope.CloudscaleCluster.Status.Initialization.Provisioned = new(provisioned)
 
 	return ctrl.Result{}, nil
 }

@@ -120,7 +120,7 @@ func (r *CloudscaleClusterReconciler) reconcileManagedFloatingIP(ctx context.Con
 			Region: clusterScope.CloudscaleCluster.Spec.Region,
 		},
 		TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-			Tags: ptr.To(tags),
+			Tags: new(tags),
 		},
 	}
 

@@ -146,8 +146,7 @@ func IsTimeoutError(err error) bool {
 		return false
 	}
 
-	var urlErr *url.Error
-	if errors.As(err, &urlErr) {
+	if urlErr, ok := errors.AsType[*url.Error](err); ok {
 		return urlErr.Timeout()
 	}
 	if errors.Is(err, os.ErrDeadlineExceeded) {

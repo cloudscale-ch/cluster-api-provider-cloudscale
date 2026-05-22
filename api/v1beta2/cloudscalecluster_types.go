@@ -29,7 +29,8 @@ const (
 )
 
 // IPFamily represents an IP family configuration.
-// +kubebuilder:validation:Enum=IPv4;IPv6;DualStack
+// Valid values depend on the field — each consumer declares its own
+// +kubebuilder:validation:Enum subset.
 type IPFamily string
 
 const (

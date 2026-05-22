@@ -20,7 +20,6 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-	"k8s.io/utils/ptr"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/testutils"
@@ -174,8 +173,8 @@ func TestMachineValidateUpdate_ProviderIDChange(t *testing.T) {
 	g := NewWithT(t)
 	obj, oldObj := newMachineWebhookTestObjects()
 	validator := CloudscaleMachineCustomValidator{FlavorInfo: testutils.NewTestFlavorInfo()}
-	oldObj.Spec.ProviderID = ptr.To("cloudscale://aaa")
-	obj.Spec.ProviderID = ptr.To("cloudscale://bbb")
+	oldObj.Spec.ProviderID = new("cloudscale://aaa")
+	obj.Spec.ProviderID = new("cloudscale://bbb")
 
 	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
 	g.Expect(err).To(HaveOccurred())
@@ -187,7 +186,7 @@ func TestMachineValidateUpdate_ProviderIDSetWhenNil(t *testing.T) {
 	obj, oldObj := newMachineWebhookTestObjects()
 	validator := CloudscaleMachineCustomValidator{FlavorInfo: testutils.NewTestFlavorInfo()}
 	oldObj.Spec.ProviderID = nil
-	obj.Spec.ProviderID = ptr.To("cloudscale://aaa")
+	obj.Spec.ProviderID = new("cloudscale://aaa")
 
 	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
 	g.Expect(err).NotTo(HaveOccurred())
@@ -298,9 +297,8 @@ func TestValidateInterfaces_NeitherTypeNorNetwork(t *testing.T) {
 func TestValidateInterfaces_IPFamilyOnNonPublic(t *testing.T) {
 	g := NewWithT(t)
 	obj, _ := newMachineWebhookTestObjects()
-	dualStack := infrastructurev1beta2.IPFamilyDualStack
 	obj.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
-		{Network: "my-network", IPFamily: &dualStack},
+		{Network: "my-network", IPFamily: new(infrastructurev1beta2.IPFamilyDualStack)},
 	}
 	validator := CloudscaleMachineCustomValidator{FlavorInfo: testutils.NewTestFlavorInfo()}
 
@@ -326,10 +324,9 @@ func TestValidateInterfaces_MultiplePublic(t *testing.T) {
 func TestValidateInterfaces_MixedValid(t *testing.T) {
 	g := NewWithT(t)
 	obj, _ := newMachineWebhookTestObjects()
-	dualStack := infrastructurev1beta2.IPFamilyDualStack
 	obj.Spec.Interfaces = []infrastructurev1beta2.InterfaceSpec{
 		{Network: "my-network"},
-		{Type: "public", IPFamily: &dualStack},
+		{Type: "public", IPFamily: new(infrastructurev1beta2.IPFamilyDualStack)},
 	}
 	validator := CloudscaleMachineCustomValidator{FlavorInfo: testutils.NewTestFlavorInfo()}
 
@@ -383,9 +380,8 @@ func TestDefaultInterfaceIPFamily_PublicNilDefaultsToDualStack(t *testing.T) {
 
 func TestDefaultInterfaceIPFamily_PublicExplicitNotOverridden(t *testing.T) {
 	g := NewWithT(t)
-	ipv4 := infrastructurev1beta2.IPFamilyIPv4
 	interfaces := []infrastructurev1beta2.InterfaceSpec{
-		{Type: "public", IPFamily: &ipv4},
+		{Type: "public", IPFamily: new(infrastructurev1beta2.IPFamilyIPv4)},
 	}
 
 	defaultInterfaceIPFamily(interfaces)

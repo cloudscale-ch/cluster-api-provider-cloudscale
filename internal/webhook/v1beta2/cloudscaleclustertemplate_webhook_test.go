@@ -20,7 +20,6 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-	"k8s.io/utils/ptr"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/testutils"
@@ -107,16 +106,16 @@ func TestClusterTemplateDefaulting_LBEnabledToTrue(t *testing.T) {
 	obj.Spec.Template.Spec.ControlPlaneLoadBalancer.Enabled = nil
 
 	g.Expect(defaulter.Default(ctx, obj)).To(Succeed())
-	g.Expect(obj.Spec.Template.Spec.ControlPlaneLoadBalancer.Enabled).To(Equal(ptr.To(true)))
+	g.Expect(obj.Spec.Template.Spec.ControlPlaneLoadBalancer.Enabled).To(Equal(new(true)))
 }
 
 func TestClusterTemplateDefaulting_LBEnabledFalseNotOverridden(t *testing.T) {
 	g := NewWithT(t)
 	obj, _, _, defaulter := newClusterTemplateWebhookTestObjects()
-	obj.Spec.Template.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(false)
+	obj.Spec.Template.Spec.ControlPlaneLoadBalancer.Enabled = new(false)
 
 	g.Expect(defaulter.Default(ctx, obj)).To(Succeed())
-	g.Expect(obj.Spec.Template.Spec.ControlPlaneLoadBalancer.Enabled).To(Equal(ptr.To(false)))
+	g.Expect(obj.Spec.Template.Spec.ControlPlaneLoadBalancer.Enabled).To(Equal(new(false)))
 }
 
 func TestClusterTemplateDefaulting_LBAlgorithm(t *testing.T) {
@@ -178,7 +177,7 @@ func TestClusterTemplateDefaulting_FloatingIPDefaultsToIPv4(t *testing.T) {
 	obj.Spec.Template.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{}
 
 	g.Expect(defaulter.Default(ctx, obj)).To(Succeed())
-	g.Expect(obj.Spec.Template.Spec.FloatingIP.IPFamily).To(Equal(ptr.To(infrastructurev1beta2.IPFamilyIPv4)))
+	g.Expect(obj.Spec.Template.Spec.FloatingIP.IPFamily).To(Equal(new(infrastructurev1beta2.IPFamilyIPv4)))
 }
 
 func TestClusterTemplateDefaulting_FloatingIPExplicitNotOverridden(t *testing.T) {
@@ -203,7 +202,7 @@ func TestClusterTemplateDefaulting_AllDefaultsApplied(t *testing.T) {
 
 	g.Expect(obj.Spec.Template.Spec.Zone).To(BeEmpty())
 	g.Expect(obj.Spec.Template.Spec.Networks).To(BeEmpty())
-	g.Expect(obj.Spec.Template.Spec.ControlPlaneLoadBalancer.Enabled).To(Equal(ptr.To(true)))
+	g.Expect(obj.Spec.Template.Spec.ControlPlaneLoadBalancer.Enabled).To(Equal(new(true)))
 	g.Expect(obj.Spec.Template.Spec.ControlPlaneLoadBalancer.Algorithm).To(Equal("round_robin"))
 	g.Expect(obj.Spec.Template.Spec.ControlPlaneLoadBalancer.Flavor).To(Equal("lb-standard"))
 	g.Expect(obj.Spec.Template.Spec.ControlPlaneLoadBalancer.APIServerPort).To(Equal(int32(6443)))
@@ -413,7 +412,7 @@ func TestClusterTemplateValidateCreate_FloatingIPValid(t *testing.T) {
 	obj.Spec.Template.Spec.Region = RegionRma
 	obj.Spec.Template.Spec.Zone = ZoneRma1
 	obj.Spec.Template.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{
-		IPFamily: ptr.To(infrastructurev1beta2.IPFamilyIPv4),
+		IPFamily: new(infrastructurev1beta2.IPFamilyIPv4),
 	}
 
 	_, err := validator.ValidateCreate(ctx, obj)
@@ -430,7 +429,7 @@ func TestClusterTemplateValidateCreate_FloatingIPWithPrivateLBRejected(t *testin
 	}
 	obj.Spec.Template.Spec.ControlPlaneLoadBalancer.Network = "main"
 	obj.Spec.Template.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{
-		IPFamily: ptr.To(infrastructurev1beta2.IPFamilyIPv4),
+		IPFamily: new(infrastructurev1beta2.IPFamilyIPv4),
 	}
 
 	_, err := validator.ValidateCreate(ctx, obj)
@@ -445,7 +444,7 @@ func TestClusterTemplateValidateCreate_FloatingIPBothFieldsInvalid(t *testing.T)
 	obj.Spec.Template.Spec.Region = RegionRma
 	obj.Spec.Template.Spec.Zone = ZoneRma1
 	obj.Spec.Template.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{
-		IPFamily: ptr.To(infrastructurev1beta2.IPFamilyIPv4),
+		IPFamily: new(infrastructurev1beta2.IPFamilyIPv4),
 		Address:  "1.2.3.4",
 	}
 
@@ -487,9 +486,9 @@ func TestClusterTemplateValidateCreate_ManagedFloatingIPWithoutLBRejected(t *tes
 	obj, _, validator, _ := newClusterTemplateWebhookTestObjects()
 	obj.Spec.Template.Spec.Region = RegionRma
 	obj.Spec.Template.Spec.Zone = ZoneRma1
-	obj.Spec.Template.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(false)
+	obj.Spec.Template.Spec.ControlPlaneLoadBalancer.Enabled = new(false)
 	obj.Spec.Template.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{
-		IPFamily: ptr.To(infrastructurev1beta2.IPFamilyIPv4),
+		IPFamily: new(infrastructurev1beta2.IPFamilyIPv4),
 	}
 
 	_, err := validator.ValidateCreate(ctx, obj)
@@ -502,7 +501,7 @@ func TestClusterTemplateValidateCreate_PreExistingFloatingIPWithoutLBAllowed(t *
 	obj, _, validator, _ := newClusterTemplateWebhookTestObjects()
 	obj.Spec.Template.Spec.Region = RegionRma
 	obj.Spec.Template.Spec.Zone = ZoneRma1
-	obj.Spec.Template.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(false)
+	obj.Spec.Template.Spec.ControlPlaneLoadBalancer.Enabled = new(false)
 	obj.Spec.Template.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{
 		Address: "1.2.3.4",
 	}

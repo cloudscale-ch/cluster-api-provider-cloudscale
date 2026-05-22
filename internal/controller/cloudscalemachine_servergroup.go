@@ -24,7 +24,6 @@ import (
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
@@ -97,7 +96,7 @@ func (r *CloudscaleMachineReconciler) reconcileServerGroup(ctx context.Context, 
 		Type:                 "anti-affinity",
 		ZonalResourceRequest: cloudscalesdk.ZonalResourceRequest{Zone: zone},
 		TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-			Tags: ptr.To(clusterOwnershipTags(machineScope.CloudscaleCluster)),
+			Tags: new(clusterOwnershipTags(machineScope.CloudscaleCluster)),
 		},
 	}
 

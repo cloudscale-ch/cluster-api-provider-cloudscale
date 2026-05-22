@@ -26,7 +26,6 @@ import (
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -230,7 +229,7 @@ func TestReconcilePreExistingFloatingIP(t *testing.T) {
 
 			clusterScope := newFIPTestClusterScope(fipService)
 			if tc.lbDisabled {
-				clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(false)
+				clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled = new(false)
 			}
 			tc.setup(clusterScope)
 
@@ -308,7 +307,7 @@ func TestReconcileFloatingIP_NoPublicInterfaceSetsConditionAndEvent(t *testing.T
 		},
 	}
 	clusterScope := newFIPTestClusterScope(fipService)
-	clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(false)
+	clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled = new(false)
 	clusterScope.CloudscaleCluster.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{Address: "1.2.3.4"}
 	clusterScope.CloudscaleCluster.Status.FloatingIP = "1.2.3.4"
 
@@ -403,9 +402,8 @@ func TestReconcileManagedFloatingIP_CreatesIPv6(t *testing.T) {
 
 	clusterScope := newFIPTestClusterScope(fipService)
 	clusterScope.CloudscaleCluster.Status.LoadBalancerID = "lb-uuid"
-	ipv6 := infrastructurev1beta2.IPFamilyIPv6
 	fipSpec := &infrastructurev1beta2.FloatingIPSpec{
-		IPFamily: &ipv6,
+		IPFamily: new(infrastructurev1beta2.IPFamilyIPv6),
 	}
 
 	r := newTestReconciler()
@@ -518,7 +516,7 @@ func TestGetFloatingIPTarget_LBDisabled_FindsCPServer(t *testing.T) {
 	}
 
 	clusterScope := newFIPTestClusterScope(&testutils.MockFloatingIPService{})
-	clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(false)
+	clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled = new(false)
 
 	r := newTestReconciler(cpMachine)
 
@@ -533,7 +531,7 @@ func TestGetFloatingIPTarget_LBDisabled_NoCPServer(t *testing.T) {
 	g := NewWithT(t)
 
 	clusterScope := newFIPTestClusterScope(&testutils.MockFloatingIPService{})
-	clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(false)
+	clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled = new(false)
 
 	r := newTestReconciler()
 
@@ -639,7 +637,7 @@ func TestEnsureFloatingIPAssignment(t *testing.T) {
 
 			clusterScope := newFIPTestClusterScope(fipService)
 			if tc.lbDisabled {
-				clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled = ptr.To(false)
+				clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled = new(false)
 			}
 			tc.setup(clusterScope)
 
@@ -754,7 +752,7 @@ func TestDeleteFloatingIP(t *testing.T) {
 			deleteErr:      fmt.Errorf("api error"),
 			wantDelete:     true,
 			wantErrSub:     "deleting floating IP",
-			wantCondStatus: ptr.To(metav1.ConditionFalse),
+			wantCondStatus: new(metav1.ConditionFalse),
 			wantCondReason: infrastructurev1beta2.FloatingIPErrorReason,
 		},
 	}

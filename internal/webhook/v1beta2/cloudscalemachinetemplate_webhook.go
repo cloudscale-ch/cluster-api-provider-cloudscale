@@ -93,7 +93,7 @@ func (v *CloudscaleMachineTemplateCustomValidator) ValidateUpdate(_ context.Cont
 
 	// MachineTemplate spec is fully immutable (CAPI convention).
 	if !reflect.DeepEqual(newObj.Spec.Template.Spec, oldObj.Spec.Template.Spec) {
-		var allErrs field.ErrorList
+		var allErrs = make(field.ErrorList, 0, 1)
 		allErrs = append(allErrs, field.Forbidden(
 			field.NewPath("spec", "template", "spec"),
 			"field is immutable"))

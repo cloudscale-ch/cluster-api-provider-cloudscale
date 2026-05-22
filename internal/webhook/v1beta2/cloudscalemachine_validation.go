@@ -30,8 +30,7 @@ import (
 func defaultInterfaceIPFamily(interfaces []infrastructurev1beta2.InterfaceSpec) {
 	for i := range interfaces {
 		if interfaces[i].Type == "public" && interfaces[i].IPFamily == nil {
-			dualStack := infrastructurev1beta2.IPFamilyDualStack
-			interfaces[i].IPFamily = &dualStack
+			interfaces[i].IPFamily = new(infrastructurev1beta2.IPFamilyDualStack)
 		}
 	}
 }

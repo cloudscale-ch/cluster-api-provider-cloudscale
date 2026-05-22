@@ -26,7 +26,6 @@ import (
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v8"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
@@ -133,12 +132,12 @@ func (r *CloudscaleClusterReconciler) reconcileManagedNetwork(ctx context.Contex
 		defer cancel()
 		network, err := clusterScope.CloudscaleClient.Networks.Create(createCtx, &cloudscalesdk.NetworkCreateRequest{
 			Name:                 netSpec.Name,
-			AutoCreateIPV4Subnet: ptr.To(false),
+			AutoCreateIPV4Subnet: new(false),
 			ZonalResourceRequest: cloudscalesdk.ZonalResourceRequest{
 				Zone: clusterScope.CloudscaleCluster.Spec.Zone,
 			},
 			TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-				Tags: ptr.To(tags),
+				Tags: new(tags),
 			},
 		})
 		if err != nil {
@@ -181,7 +180,7 @@ func (r *CloudscaleClusterReconciler) reconcileManagedNetwork(ctx context.Contex
 			CIDR:           netSpec.CIDR,
 			GatewayAddress: netSpec.GatewayAddress,
 			TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-				Tags: ptr.To(tags),
+				Tags: new(tags),
 			},
 		})
 		if err != nil {

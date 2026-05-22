@@ -346,9 +346,9 @@ func ipFamilyToUseIPV6(ipFamily *infrastructurev1beta2.IPFamily) *bool {
 	}
 	switch *ipFamily {
 	case infrastructurev1beta2.IPFamilyDualStack:
-		return ptr.To(true)
+		return new(true)
 	case infrastructurev1beta2.IPFamilyIPv4:
-		return ptr.To(false)
+		return new(false)
 	default:
 		return nil
 	}

@@ -197,7 +197,7 @@ func (r *CloudscaleClusterReconciler) reconcileLB(ctx context.Context, clusterSc
 			Zone: zone,
 		},
 		TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-			Tags: ptr.To(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
+			Tags: new(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
 		},
 	}
 
@@ -259,7 +259,7 @@ func (r *CloudscaleClusterReconciler) reconcileLBPool(ctx context.Context, clust
 		Algorithm:    algorithm,
 		Protocol:     "tcp",
 		TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-			Tags: ptr.To(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
+			Tags: new(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
 		},
 	}
 
@@ -307,7 +307,7 @@ func (r *CloudscaleClusterReconciler) reconcileLBListener(ctx context.Context, c
 		Protocol:     "tcp",
 		ProtocolPort: apiServerPort,
 		TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-			Tags: ptr.To(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
+			Tags: new(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
 		},
 	}
 
@@ -360,7 +360,7 @@ func (r *CloudscaleClusterReconciler) reconcileLBHealthMonitor(ctx context.Conte
 		UpThreshold:   healthMonitorSpec.UpThreshold,
 		DownThreshold: healthMonitorSpec.DownThreshold,
 		TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-			Tags: ptr.To(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
+			Tags: new(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
 		},
 	}
 
@@ -482,7 +482,7 @@ func (r *CloudscaleClusterReconciler) getDesiredLoadBalancerMembers(ctx context.
 			Subnet:       memberSubnetID,
 			ProtocolPort: int(clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.APIServerPort),
 			TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-				Tags: ptr.To(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
+				Tags: new(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
 			},
 		}
 		hasAddr := false
