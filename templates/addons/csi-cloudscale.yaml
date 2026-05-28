@@ -1,0 +1,395 @@
+# cloudscale.ch CSI driver, vendored from
+# https://github.com/cloudscale-ch/csi-cloudscale/blob/v4.0.0/deploy/kubernetes/releases/csi-cloudscale-v4.0.0.yaml
+#
+# Differences from upstream:
+#   - the `cloudscale` Secret in kube-system is not included here; it is
+#     already provisioned by templates/addons/ccm.yaml (reused as-is).
+#   - VolumeSnapshotClass, the snapshotter sidecar, and the snapshotter
+#     ClusterRole/Binding are stripped
+#   - The two LUKS-encrypted StorageClasses (cloudscale-volume-ssd-luks,
+#     cloudscale-volume-bulk-luks) are stripped
+#
+# Activate on a cluster by labelling it `csi: cloudscale`.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "csi-cloudscale"
+  namespace: "${NAMESPACE}"
+data:
+  csi-cloudscale.yaml: |
+    ---
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: csi-cloudscale-controller-sa
+      namespace: kube-system
+    ---
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: csi-cloudscale-node-sa
+      namespace: kube-system
+    ---
+    apiVersion: storage.k8s.io/v1
+    kind: StorageClass
+    metadata:
+      name: cloudscale-volume-ssd
+      annotations:
+        storageclass.kubernetes.io/is-default-class: "true"
+    provisioner: csi.cloudscale.ch
+    allowVolumeExpansion: true
+    reclaimPolicy: Delete
+    volumeBindingMode: Immediate
+    parameters:
+      csi.cloudscale.ch/volume-type: ssd
+    ---
+    apiVersion: storage.k8s.io/v1
+    kind: StorageClass
+    metadata:
+      name: cloudscale-volume-bulk
+    provisioner: csi.cloudscale.ch
+    allowVolumeExpansion: true
+    reclaimPolicy: Delete
+    volumeBindingMode: Immediate
+    parameters:
+      csi.cloudscale.ch/volume-type: bulk
+    ---
+    kind: ClusterRole
+    apiVersion: rbac.authorization.k8s.io/v1
+    metadata:
+      name: csi-cloudscale-provisioner-role
+    rules:
+      - apiGroups: [""]
+        resources: ["persistentvolumes"]
+        verbs: ["get", "list", "watch", "create", "patch", "delete"]
+      - apiGroups: [""]
+        resources: ["persistentvolumeclaims"]
+        verbs: ["get", "list", "watch", "update"]
+      - apiGroups: ["storage.k8s.io"]
+        resources: ["storageclasses"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: [""]
+        resources: ["events"]
+        verbs: ["list", "watch", "create", "update", "patch"]
+      - apiGroups: ["coordination.k8s.io"]
+        resources: ["leases"]
+        verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+      - apiGroups: ["storage.k8s.io"]
+        resources: ["csinodes"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: [""]
+        resources: ["nodes"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["storage.k8s.io"]
+        resources: ["volumeattachments"]
+        verbs: ["get", "list", "watch"]
+    ---
+    kind: ClusterRole
+    apiVersion: rbac.authorization.k8s.io/v1
+    metadata:
+      name: csi-cloudscale-attacher-role
+    rules:
+      - apiGroups: [""]
+        resources: ["persistentvolumes"]
+        verbs: ["get", "list", "watch", "update", "patch"]
+      - apiGroups: ["storage.k8s.io"]
+        resources: ["csinodes"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["storage.k8s.io"]
+        resources: ["volumeattachments"]
+        verbs: ["get", "list", "watch", "update", "patch"]
+      - apiGroups: ["storage.k8s.io"]
+        resources: ["volumeattachments/status"]
+        verbs: ["patch"]
+    ---
+    kind: ClusterRole
+    apiVersion: rbac.authorization.k8s.io/v1
+    metadata:
+      name: csi-cloudscale-resizer-role
+    rules:
+      - apiGroups: [""]
+        resources: ["persistentvolumes"]
+        verbs: ["get", "list", "watch", "update", "patch"]
+      - apiGroups: [""]
+        resources: ["persistentvolumeclaims"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: [""]
+        resources: ["pods"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: [""]
+        resources: ["persistentvolumeclaims/status"]
+        verbs: ["update", "patch"]
+      - apiGroups: [""]
+        resources: ["events"]
+        verbs: ["list", "watch", "create", "update", "patch"]
+      - apiGroups: ["storage.k8s.io"]
+        resources: ["volumeattributesclasses"]
+        verbs: ["get", "list", "watch"]
+    ---
+    kind: ClusterRole
+    apiVersion: rbac.authorization.k8s.io/v1
+    metadata:
+      name: csi-cloudscale-node-driver-registrar-role
+    rules:
+      - apiGroups: [""]
+        resources: ["events"]
+        verbs: ["get", "list", "watch", "create", "update", "patch"]
+    ---
+    kind: ClusterRoleBinding
+    apiVersion: rbac.authorization.k8s.io/v1
+    metadata:
+      name: csi-cloudscale-provisioner-binding
+    subjects:
+      - kind: ServiceAccount
+        name: csi-cloudscale-controller-sa
+        namespace: kube-system
+    roleRef:
+      kind: ClusterRole
+      name: csi-cloudscale-provisioner-role
+      apiGroup: rbac.authorization.k8s.io
+    ---
+    kind: ClusterRoleBinding
+    apiVersion: rbac.authorization.k8s.io/v1
+    metadata:
+      name: csi-cloudscale-resizer-binding
+    subjects:
+      - kind: ServiceAccount
+        name: csi-cloudscale-controller-sa
+        namespace: kube-system
+    roleRef:
+      kind: ClusterRole
+      name: csi-cloudscale-resizer-role
+      apiGroup: rbac.authorization.k8s.io
+    ---
+    kind: ClusterRoleBinding
+    apiVersion: rbac.authorization.k8s.io/v1
+    metadata:
+      name: csi-cloudscale-attacher-binding
+    subjects:
+      - kind: ServiceAccount
+        name: csi-cloudscale-controller-sa
+        namespace: kube-system
+    roleRef:
+      kind: ClusterRole
+      name: csi-cloudscale-attacher-role
+      apiGroup: rbac.authorization.k8s.io
+    ---
+    kind: ClusterRoleBinding
+    apiVersion: rbac.authorization.k8s.io/v1
+    metadata:
+      name: csi-cloudscale-node-driver-registrar-binding
+    subjects:
+      - kind: ServiceAccount
+        name: csi-cloudscale-node-sa
+        namespace: kube-system
+    roleRef:
+      kind: ClusterRole
+      name: csi-cloudscale-node-driver-registrar-role
+      apiGroup: rbac.authorization.k8s.io
+    ---
+    kind: DaemonSet
+    apiVersion: apps/v1
+    metadata:
+      name: csi-cloudscale-node
+      namespace: kube-system
+    spec:
+      selector:
+        matchLabels:
+          app: csi-cloudscale-node
+      template:
+        metadata:
+          labels:
+            app: csi-cloudscale-node
+            role: csi-cloudscale
+        spec:
+          priorityClassName: system-node-critical
+          serviceAccountName: csi-cloudscale-node-sa
+          hostNetwork: true
+          tolerations:
+            - operator: Exists
+          containers:
+            - name: csi-node-driver-registrar
+              image: "registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.15.0"
+              imagePullPolicy: IfNotPresent
+              args:
+                - "--v=5"
+                - "--csi-address=$(ADDRESS)"
+                - "--kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)"
+              lifecycle:
+                preStop:
+                  exec:
+                    command: ["/bin/sh", "-c", "rm -rf /registration/csi.cloudscale.ch /registration/csi.cloudscale.ch-reg.sock"]
+              env:
+                - name: ADDRESS
+                  value: /csi/csi.sock
+                - name: DRIVER_REG_SOCK_PATH
+                  value: /var/lib/kubelet/plugins/csi.cloudscale.ch/csi.sock
+                - name: KUBE_NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
+              volumeMounts:
+                - name: plugin-dir
+                  mountPath: /csi/
+                - name: registration-dir
+                  mountPath: /registration/
+            - name: csi-cloudscale-plugin
+              image: "quay.io/cloudscalech/cloudscale-csi-plugin:v4.0.0"
+              imagePullPolicy: IfNotPresent
+              args:
+                - "--endpoint=$(CSI_ENDPOINT)"
+                - "--url=$(CLOUDSCALE_API_URL)"
+                - "--log-level=info"
+              env:
+                - name: CSI_ENDPOINT
+                  value: unix:///csi/csi.sock
+                - name: CLOUDSCALE_API_URL
+                  value: https://api.cloudscale.ch/
+                - name: CLOUDSCALE_MAX_CSI_VOLUMES_PER_NODE
+                  value: "125"
+                - name: CLOUDSCALE_ACCESS_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: cloudscale
+                      key: access-token
+              securityContext:
+                privileged: true
+                capabilities:
+                  add: ["SYS_ADMIN"]
+                allowPrivilegeEscalation: true
+              volumeMounts:
+                - name: plugin-dir
+                  mountPath: /csi
+                - name: pods-mount-dir
+                  mountPath: /var/lib/kubelet
+                  mountPropagation: "Bidirectional"
+                - name: device-dir
+                  mountPath: /dev
+                - name: tmpfs
+                  mountPath: /tmp
+          volumes:
+            - name: registration-dir
+              hostPath:
+                path: /var/lib/kubelet/plugins_registry/
+                type: DirectoryOrCreate
+            - name: plugin-dir
+              hostPath:
+                path: /var/lib/kubelet/plugins/csi.cloudscale.ch
+                type: DirectoryOrCreate
+            - name: pods-mount-dir
+              hostPath:
+                path: /var/lib/kubelet
+                type: Directory
+            - name: device-dir
+              hostPath:
+                path: /dev
+            - name: tmpfs
+              emptyDir:
+                medium: Memory
+    ---
+    kind: StatefulSet
+    apiVersion: apps/v1
+    metadata:
+      name: csi-cloudscale-controller
+      namespace: kube-system
+    spec:
+      serviceName: "csi-cloudscale"
+      selector:
+        matchLabels:
+          app: csi-cloudscale-controller
+      replicas: 1
+      template:
+        metadata:
+          labels:
+            app: csi-cloudscale-controller
+            role: csi-cloudscale
+        spec:
+          hostNetwork: true
+          priorityClassName: system-cluster-critical
+          serviceAccount: csi-cloudscale-controller-sa
+          containers:
+            - name: csi-provisioner
+              image: "registry.k8s.io/sig-storage/csi-provisioner:v5.3.0"
+              imagePullPolicy: IfNotPresent
+              args:
+                - "--csi-address=$(ADDRESS)"
+                - "--default-fstype=ext4"
+                - "--v=5"
+                - "--feature-gates=Topology=false"
+              env:
+                - name: ADDRESS
+                  value: /var/lib/csi/sockets/pluginproxy/csi.sock
+              volumeMounts:
+                - name: socket-dir
+                  mountPath: /var/lib/csi/sockets/pluginproxy/
+            - name: csi-attacher
+              image: "registry.k8s.io/sig-storage/csi-attacher:v4.10.0"
+              imagePullPolicy: IfNotPresent
+              args:
+                - "--csi-address=$(ADDRESS)"
+                - "--v=5"
+              env:
+                - name: ADDRESS
+                  value: /var/lib/csi/sockets/pluginproxy/csi.sock
+              volumeMounts:
+                - name: socket-dir
+                  mountPath: /var/lib/csi/sockets/pluginproxy/
+            - name: csi-resizer
+              image: "registry.k8s.io/sig-storage/csi-resizer:v2.0.0"
+              args:
+                - "--csi-address=$(ADDRESS)"
+                - "--timeout=30s"
+                - "--v=5"
+                - "--handle-volume-inuse-error=false"
+              env:
+                - name: ADDRESS
+                  value: /var/lib/csi/sockets/pluginproxy/csi.sock
+              imagePullPolicy: IfNotPresent
+              volumeMounts:
+                - name: socket-dir
+                  mountPath: /var/lib/csi/sockets/pluginproxy/
+            - name: csi-cloudscale-plugin
+              image: "quay.io/cloudscalech/cloudscale-csi-plugin:v4.0.0"
+              args:
+                - "--endpoint=$(CSI_ENDPOINT)"
+                - "--url=$(CLOUDSCALE_API_URL)"
+                - "--log-level=info"
+              env:
+                - name: CSI_ENDPOINT
+                  value: unix:///var/lib/csi/sockets/pluginproxy/csi.sock
+                - name: CLOUDSCALE_API_URL
+                  value: https://api.cloudscale.ch/
+                - name: CLOUDSCALE_ACCESS_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: cloudscale
+                      key: access-token
+              imagePullPolicy: IfNotPresent
+              volumeMounts:
+                - name: socket-dir
+                  mountPath: /var/lib/csi/sockets/pluginproxy/
+          volumes:
+            - name: socket-dir
+              emptyDir: {}
+    ---
+    apiVersion: storage.k8s.io/v1
+    kind: CSIDriver
+    metadata:
+      name: csi.cloudscale.ch
+    spec:
+      attachRequired: true
+      podInfoOnMount: true
+---
+apiVersion: addons.cluster.x-k8s.io/v1beta2
+kind: ClusterResourceSet
+metadata:
+  name: "csi-cloudscale"
+  namespace: "${NAMESPACE}"
+spec:
+  strategy: ApplyOnce
+  clusterSelector:
+    matchLabels:
+      csi: cloudscale
+  resources:
+    - name: "csi-cloudscale"
+      kind: ConfigMap
