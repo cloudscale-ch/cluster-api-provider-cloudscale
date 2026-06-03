@@ -69,6 +69,10 @@ spec:
           - --leader-elect
           - --health-probe-bind-address=:8081
         env:
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
           - name: CLOUDSCALE_API_TOKEN
             valueFrom:
               secretKeyRef:

@@ -26,9 +26,12 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// StartSpanWithLogger starts a new OTel span and returns a context, logger, and
-// done function. The returned logger is a composite that writes to both the
-// standard logger and the span as events.
+// StartSpanWithLogger starts a new OTel span and returns a context, logger,
+// and done function. When tracing is enabled, the returned logger emits
+// trace_id and span_id on every log line for log/trace correlation, and
+// logger.Error() additionally records the error on the span. When tracing is
+// disabled, the noop SpanContext is invalid and the logger is returned
+// unchanged.
 func StartSpanWithLogger(
 	ctx context.Context,
 	spanName string,
@@ -37,9 +40,18 @@ func StartSpanWithLogger(
 	tracer := otel.Tracer("capcs")
 	ctx, span := tracer.Start(ctx, spanName, trace.WithAttributes(attrs...))
 
-	baseLogger := logf.FromContext(ctx)
-	sink := NewCompositeLogger(baseLogger.GetSink(), NewSpanLogSink(span))
-	logger := logr.New(sink).WithName(spanName)
+	// Strip any parent traceContextSink so nested spans don't accumulate
+	// duplicate trace_id/span_id values or RecordError onto every ancestor
+	// span.
+	baseSink := logf.FromContext(ctx).GetSink()
+	if w, ok := baseSink.(*traceContextSink); ok {
+		baseSink = w.base
+	}
+
+	logger := logr.New(baseSink)
+	if span.SpanContext().IsValid() {
+		logger = logr.New(newTraceContextSink(baseSink, span))
+	}
 	ctx = logr.NewContext(ctx, logger)
 
 	return ctx, logger, func() { span.End() }

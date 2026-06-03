@@ -81,6 +81,35 @@ env:
     value: http://tempo.observability.svc:4317
 ```
 
+### Log/trace correlation
+
+When tracing is enabled, every log line emitted from a reconcile carries
+`trace_id` and `span_id` keys. When tracing is disabled, the keys are
+omitted and logs are unchanged.
+
+Errors logged via `logger.Error(...)` are also recorded on the active span
+(`RecordError` + status `Error`), so failed reconciles show up as failed
+spans in the trace UI without callers having to do anything special.
+
+### Resource attributes
+
+The exporter sets `service.name` (default `capcs`) and `service.version`
+(the binary version), and reads:
+
+- `OTEL_SERVICE_NAME` — overrides `service.name`. To override via
+  `OTEL_RESOURCE_ATTRIBUTES=service.name=…` instead, also set
+  `OTEL_SERVICE_NAME` to a non-empty value so the `capcs` default is
+  skipped.
+- `OTEL_RESOURCE_ATTRIBUTES` — standard OTel env var for adding resource
+  attributes (e.g. `deployment.environment=prod,service.namespace=capi`).
+- `POD_NAME` — populates `service.instance.id` so individual replicas are
+  distinguishable in HA / leader-elected setups. The shipped
+  `config/manager/manager.yaml` injects this via the Kubernetes downward
+  API.
+
+Process info (`process.pid`, `process.executable.name`,
+`process.command_args`, `process.runtime.*`) is added automatically.
+
 ## Profiler (opt-in)
 
 pprof is **off by default**. Set `--profiler-address` to bind it:
