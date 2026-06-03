@@ -19,6 +19,7 @@ package observability
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -39,11 +40,22 @@ func InitTracing(ctx context.Context, log logr.Logger, serviceName, version stri
 		return nil, fmt.Errorf("tracing-sample-rate must be between 0.0 and 1.0, got %f", sampleRate)
 	}
 
+	attrs := []attribute.KeyValue{
+		semconv.ServiceVersionKey.String(version),
+	}
+	// only set ServiceName if not already set by OTEL_SERVICE_NAME env var.
+	if os.Getenv("OTEL_SERVICE_NAME") == "" {
+		attrs = append(attrs, semconv.ServiceNameKey.String(serviceName))
+	}
+	// POD_NAME is auto-injected usually.
+	if podName := os.Getenv("POD_NAME"); podName != "" {
+		attrs = append(attrs, semconv.ServiceInstanceIDKey.String(podName))
+	}
+
 	res, err := resource.New(ctx,
-		resource.WithAttributes(
-			semconv.ServiceNameKey.String(serviceName),
-			attribute.String("version", version),
-		),
+		resource.WithFromEnv(),
+		resource.WithProcess(),
+		resource.WithAttributes(attrs...),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create opentelemetry resource: %w", err)
