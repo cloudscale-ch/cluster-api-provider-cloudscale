@@ -1,13 +1,25 @@
 # cloudscale.ch CSI driver, vendored from
-# https://github.com/cloudscale-ch/csi-cloudscale/blob/v4.0.0/deploy/kubernetes/releases/csi-cloudscale-v4.0.0.yaml
+# https://github.com/cloudscale-ch/csi-cloudscale/blob/v4.0.1/deploy/kubernetes/releases/csi-cloudscale-v4.0.1.yaml
 #
 # Differences from upstream:
 #   - the `cloudscale` Secret in kube-system is not included here; it is
 #     already provisioned by templates/addons/ccm.yaml (reused as-is).
-#   - VolumeSnapshotClass, the snapshotter sidecar, and the snapshotter
-#     ClusterRole/Binding are stripped
-#   - The two LUKS-encrypted StorageClasses (cloudscale-volume-ssd-luks,
-#     cloudscale-volume-bulk-luks) are stripped
+#   - the node DaemonSet adds `tolerations: [{operator: Exists}]` so it
+#     schedules on every node, including freshly-added ones still tainted
+#     with `node.cloudprovider.kubernetes.io/uninitialized` before the CCM
+#     clears the taint.
+#   - the LUKS StorageClasses reference `${pvc.namespace}` / `${pvc.name}`
+#     placeholders which the CSI provisioner substitutes at PVC time; the
+#     literals are escaped here with `$$` so envsubst on this template
+#     emits them unchanged into the ConfigMap data.
+#
+# Volume snapshot support: this manifest ships the snapshotter sidecar,
+# RBAC, and the `cloudscale-snapshots` VolumeSnapshotClass, but the
+# snapshot.storage.k8s.io CRDs and the snapshot-controller live in
+# templates/addons/volume-snapshots.yaml (activate with the
+# `volume-snapshots: enabled` label). Without that addon the snapshotter
+# sidecar logs CRD-missing errors but provisioning, attach, and resize
+# stay functional.
 #
 # Activate on a cluster by labelling it `csi: cloudscale`.
 apiVersion: v1
@@ -18,18 +30,21 @@ metadata:
 data:
   csi-cloudscale.yaml: |
     ---
+    # Source: csi-cloudscale/templates/serviceaccount.yaml
     apiVersion: v1
     kind: ServiceAccount
     metadata:
       name: csi-cloudscale-controller-sa
       namespace: kube-system
     ---
+    # Source: csi-cloudscale/templates/serviceaccount.yaml
     apiVersion: v1
     kind: ServiceAccount
     metadata:
       name: csi-cloudscale-node-sa
       namespace: kube-system
     ---
+    # Source: csi-cloudscale/templates/storageclass.yaml
     apiVersion: storage.k8s.io/v1
     kind: StorageClass
     metadata:
@@ -43,6 +58,24 @@ data:
     parameters:
       csi.cloudscale.ch/volume-type: ssd
     ---
+    # Source: csi-cloudscale/templates/storageclass.yaml
+    apiVersion: storage.k8s.io/v1
+    kind: StorageClass
+    metadata:
+      name: cloudscale-volume-ssd-luks
+    provisioner: csi.cloudscale.ch
+    allowVolumeExpansion: true
+    reclaimPolicy: Delete
+    volumeBindingMode: Immediate
+    parameters:
+      csi.cloudscale.ch/volume-type: ssd
+      csi.cloudscale.ch/luks-encrypted: "true"
+      csi.cloudscale.ch/luks-cipher: "aes-xts-plain64"
+      csi.cloudscale.ch/luks-key-size: "512"
+      csi.storage.k8s.io/node-stage-secret-namespace: $${pvc.namespace}
+      csi.storage.k8s.io/node-stage-secret-name: $${pvc.name}-luks-key
+    ---
+    # Source: csi-cloudscale/templates/storageclass.yaml
     apiVersion: storage.k8s.io/v1
     kind: StorageClass
     metadata:
@@ -54,6 +87,24 @@ data:
     parameters:
       csi.cloudscale.ch/volume-type: bulk
     ---
+    # Source: csi-cloudscale/templates/storageclass.yaml
+    apiVersion: storage.k8s.io/v1
+    kind: StorageClass
+    metadata:
+      name: cloudscale-volume-bulk-luks
+    provisioner: csi.cloudscale.ch
+    allowVolumeExpansion: true
+    reclaimPolicy: Delete
+    volumeBindingMode: Immediate
+    parameters:
+      csi.cloudscale.ch/volume-type: bulk
+      csi.cloudscale.ch/luks-encrypted: "true"
+      csi.cloudscale.ch/luks-cipher: "aes-xts-plain64"
+      csi.cloudscale.ch/luks-key-size: "512"
+      csi.storage.k8s.io/node-stage-secret-namespace: $${pvc.namespace}
+      csi.storage.k8s.io/node-stage-secret-name: $${pvc.name}-luks-key
+    ---
+    # Source: csi-cloudscale/templates/rbac.yaml
     kind: ClusterRole
     apiVersion: rbac.authorization.k8s.io/v1
     metadata:
@@ -71,6 +122,12 @@ data:
       - apiGroups: [""]
         resources: ["events"]
         verbs: ["list", "watch", "create", "update", "patch"]
+      - apiGroups: ["snapshot.storage.k8s.io"]
+        resources: ["volumesnapshots"]
+        verbs: ["get", "list", "watch", "update"]
+      - apiGroups: ["snapshot.storage.k8s.io"]
+        resources: ["volumesnapshotcontents"]
+        verbs: ["get", "list"]
       - apiGroups: ["coordination.k8s.io"]
         resources: ["leases"]
         verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
@@ -84,6 +141,7 @@ data:
         resources: ["volumeattachments"]
         verbs: ["get", "list", "watch"]
     ---
+    # Source: csi-cloudscale/templates/rbac.yaml
     kind: ClusterRole
     apiVersion: rbac.authorization.k8s.io/v1
     metadata:
@@ -102,6 +160,29 @@ data:
         resources: ["volumeattachments/status"]
         verbs: ["patch"]
     ---
+    # Source: csi-cloudscale/templates/rbac.yaml
+    kind: ClusterRole
+    apiVersion: rbac.authorization.k8s.io/v1
+    metadata:
+      name: csi-cloudscale-snapshotter-role
+    rules:
+      - apiGroups: ["snapshot.storage.k8s.io"]
+        resources: ["volumesnapshots"]
+        verbs: ["get", "list", "watch", "update"]
+      - apiGroups: ["snapshot.storage.k8s.io"]
+        resources: ["volumesnapshotcontents"]
+        verbs: ["get", "list", "watch", "update", "patch"]
+      - apiGroups: ["snapshot.storage.k8s.io"]
+        resources: ["volumesnapshotcontents/status"]
+        verbs: ["update", "patch"]
+      - apiGroups: ["snapshot.storage.k8s.io"]
+        resources: ["volumesnapshotclasses"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: [""]
+        resources: ["events"]
+        verbs: ["list", "watch", "create", "update", "patch"]
+    ---
+    # Source: csi-cloudscale/templates/rbac.yaml
     kind: ClusterRole
     apiVersion: rbac.authorization.k8s.io/v1
     metadata:
@@ -126,6 +207,7 @@ data:
         resources: ["volumeattributesclasses"]
         verbs: ["get", "list", "watch"]
     ---
+    # Source: csi-cloudscale/templates/rbac.yaml
     kind: ClusterRole
     apiVersion: rbac.authorization.k8s.io/v1
     metadata:
@@ -135,6 +217,7 @@ data:
         resources: ["events"]
         verbs: ["get", "list", "watch", "create", "update", "patch"]
     ---
+    # Source: csi-cloudscale/templates/rbac.yaml
     kind: ClusterRoleBinding
     apiVersion: rbac.authorization.k8s.io/v1
     metadata:
@@ -148,6 +231,21 @@ data:
       name: csi-cloudscale-provisioner-role
       apiGroup: rbac.authorization.k8s.io
     ---
+    # Source: csi-cloudscale/templates/rbac.yaml
+    kind: ClusterRoleBinding
+    apiVersion: rbac.authorization.k8s.io/v1
+    metadata:
+      name: csi-cloudscale-snapshotter-binding
+    subjects:
+      - kind: ServiceAccount
+        name: csi-cloudscale-controller-sa
+        namespace: kube-system
+    roleRef:
+      kind: ClusterRole
+      name: csi-cloudscale-snapshotter-role
+      apiGroup: rbac.authorization.k8s.io
+    ---
+    # Source: csi-cloudscale/templates/rbac.yaml
     kind: ClusterRoleBinding
     apiVersion: rbac.authorization.k8s.io/v1
     metadata:
@@ -161,6 +259,7 @@ data:
       name: csi-cloudscale-resizer-role
       apiGroup: rbac.authorization.k8s.io
     ---
+    # Source: csi-cloudscale/templates/rbac.yaml
     kind: ClusterRoleBinding
     apiVersion: rbac.authorization.k8s.io/v1
     metadata:
@@ -174,6 +273,7 @@ data:
       name: csi-cloudscale-attacher-role
       apiGroup: rbac.authorization.k8s.io
     ---
+    # Source: csi-cloudscale/templates/rbac.yaml
     kind: ClusterRoleBinding
     apiVersion: rbac.authorization.k8s.io/v1
     metadata:
@@ -187,6 +287,7 @@ data:
       name: csi-cloudscale-node-driver-registrar-role
       apiGroup: rbac.authorization.k8s.io
     ---
+    # Source: csi-cloudscale/templates/daemonset.yaml
     kind: DaemonSet
     apiVersion: apps/v1
     metadata:
@@ -234,7 +335,7 @@ data:
                 - name: registration-dir
                   mountPath: /registration/
             - name: csi-cloudscale-plugin
-              image: "quay.io/cloudscalech/cloudscale-csi-plugin:v4.0.0"
+              image: "quay.io/cloudscalech/cloudscale-csi-plugin:v4.0.1"
               imagePullPolicy: IfNotPresent
               args:
                 - "--endpoint=$(CSI_ENDPOINT)"
@@ -287,6 +388,7 @@ data:
               emptyDir:
                 medium: Memory
     ---
+    # Source: csi-cloudscale/templates/statefulset.yaml
     kind: StatefulSet
     apiVersion: apps/v1
     metadata:
@@ -348,8 +450,20 @@ data:
               volumeMounts:
                 - name: socket-dir
                   mountPath: /var/lib/csi/sockets/pluginproxy/
+            - name: csi-snapshotter
+              image: "registry.k8s.io/sig-storage/csi-snapshotter:v8.4.0"
+              imagePullPolicy: IfNotPresent
+              args:
+                - "--csi-address=$(CSI_ENDPOINT)"
+                - "--v=5"
+              env:
+                - name: CSI_ENDPOINT
+                  value: unix:///var/lib/csi/sockets/pluginproxy/csi.sock
+              volumeMounts:
+                - name: socket-dir
+                  mountPath: /var/lib/csi/sockets/pluginproxy/
             - name: csi-cloudscale-plugin
-              image: "quay.io/cloudscalech/cloudscale-csi-plugin:v4.0.0"
+              image: "quay.io/cloudscalech/cloudscale-csi-plugin:v4.0.1"
               args:
                 - "--endpoint=$(CSI_ENDPOINT)"
                 - "--url=$(CLOUDSCALE_API_URL)"
@@ -372,6 +486,7 @@ data:
             - name: socket-dir
               emptyDir: {}
     ---
+    # Source: csi-cloudscale/templates/csi_driver.yaml
     apiVersion: storage.k8s.io/v1
     kind: CSIDriver
     metadata:
@@ -379,6 +494,14 @@ data:
     spec:
       attachRequired: true
       podInfoOnMount: true
+    ---
+    # Source: csi-cloudscale/templates/volumesnapshotclass.yaml
+    apiVersion: snapshot.storage.k8s.io/v1
+    kind: VolumeSnapshotClass
+    metadata:
+      name: cloudscale-snapshots
+    driver: csi.cloudscale.ch
+    deletionPolicy: Delete
 ---
 apiVersion: addons.cluster.x-k8s.io/v1beta2
 kind: ClusterResourceSet
