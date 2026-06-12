@@ -4,4 +4,4 @@ config:
   label: CAPCS
   live_reload_deps: ["cmd", "go.mod", "go.sum", "api", "internal"]
   go_main: cmd/main.go
-  version: v0.99.99
+  version: v1.99.99
