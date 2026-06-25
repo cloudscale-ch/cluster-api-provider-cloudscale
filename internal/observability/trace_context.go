@@ -35,6 +35,8 @@ type traceContextSink struct {
 	span trace.Span
 }
 
+var _ logr.LogSink = &traceContextSink{}
+
 func newTraceContextSink(base logr.LogSink, span trace.Span) logr.LogSink {
 	return &traceContextSink{base: base, span: span}
 }

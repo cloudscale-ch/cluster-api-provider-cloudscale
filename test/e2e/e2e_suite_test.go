@@ -127,7 +127,7 @@ var _ = SynchronizedBeforeSuite(func() []byte {
 	if artifactFolder == "" {
 		artifactFolder = filepath.Join(os.TempDir(), "capcs-e2e-artifacts")
 	}
-	Expect(os.MkdirAll(artifactFolder, 0755)).To(Succeed())
+	Expect(os.MkdirAll(artifactFolder, 0750)).To(Succeed())
 
 	By("Creating a clusterctl local repository")
 	clusterctlConfigPath = clusterctl.CreateRepository(ctx, clusterctl.CreateRepositoryInput{

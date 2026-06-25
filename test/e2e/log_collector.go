@@ -23,7 +23,7 @@ import (
 	"fmt"
 	"net"
 	"os"
-	osExec "os/exec"
+	"os/exec"
 	"path/filepath"
 
 	"golang.org/x/crypto/ssh"
@@ -50,7 +50,9 @@ func (c CloudscaleLogCollector) CollectMachineLog(ctx context.Context, _ client.
 	if err != nil {
 		return fmt.Errorf("SSH dial to %s (%s): %w", m.Name, ip, err)
 	}
-	defer sshClient.Close()
+	defer func(sshClient *ssh.Client) {
+		_ = sshClient.Close()
+	}(sshClient)
 
 	if err := os.MkdirAll(outputPath, 0750); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
@@ -76,7 +78,7 @@ func (c CloudscaleLogCollector) CollectMachineLog(ctx context.Context, _ client.
 	}
 
 	// Collect /var/log/pods as a tarball and extract locally
-	if err := sshCollectPods(sshClient, filepath.Join(outputPath, "pods")); err != nil {
+	if err := sshCollectPods(ctx, sshClient, filepath.Join(outputPath, "pods")); err != nil {
 		logger.V(1).Info("Failed to collect pod logs", "error", err)
 	}
 
@@ -108,7 +110,7 @@ func sshDial(host string) (*ssh.Client, error) {
 		return nil, fmt.Errorf("SSH_AUTH_SOCK not set; ssh-agent is required for log collection")
 	}
 
-	conn, err := net.Dial("unix", sock)
+	conn, err := net.Dial("unix", sock) //nolint:gosec,noctx // G704 does not apply, unix filesystem. This is test code
 	if err != nil {
 		return nil, fmt.Errorf("connect to ssh-agent: %w", err)
 	}
@@ -124,7 +126,7 @@ func sshDial(host string) (*ssh.Client, error) {
 
 	client, err := ssh.Dial("tcp", net.JoinHostPort(host, "22"), config)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, err
 	}
 	return client, nil
@@ -136,7 +138,9 @@ func sshRunToFile(client *ssh.Client, command, outputFile string) error {
 	if err != nil {
 		return err
 	}
-	defer session.Close()
+	defer func(session *ssh.Session) {
+		_ = session.Close()
+	}(session)
 
 	output, err := session.CombinedOutput(command)
 	if err != nil {
@@ -151,12 +155,14 @@ func sshRunToFile(client *ssh.Client, command, outputFile string) error {
 }
 
 // sshCollectPods tars /var/log/pods on the remote and extracts it locally.
-func sshCollectPods(client *ssh.Client, outputDir string) error {
+func sshCollectPods(ctx context.Context, client *ssh.Client, outputDir string) error {
 	session, err := client.NewSession()
 	if err != nil {
 		return err
 	}
-	defer session.Close()
+	defer func(session *ssh.Session) {
+		_ = session.Close()
+	}(session)
 
 	tarData, err := session.CombinedOutput("sudo tar -cf - -C /var/log/pods . 2>/dev/null")
 	if err != nil {
@@ -176,17 +182,19 @@ func sshCollectPods(client *ssh.Client, outputDir string) error {
 	if err != nil {
 		return err
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func(name string) {
+		_ = os.Remove(name)
+	}(tmpFile.Name())
 
 	if _, err := tmpFile.Write(tarData); err != nil {
-		tmpFile.Close()
+		_ = tmpFile.Close()
 		return err
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	// Use local tar to extract
 	cmd := fmt.Sprintf("tar -xf %s -C %s", tmpFile.Name(), outputDir)
-	return runLocalCommand(cmd)
+	return runLocalCommand(ctx, cmd)
 }
 
 // writeFile writes data to a file, creating parent directories as needed.
@@ -198,6 +206,6 @@ func writeFile(path string, data []byte) error {
 }
 
 // runLocalCommand runs a shell command on the local machine.
-func runLocalCommand(command string) error {
-	return osExec.Command("sh", "-c", command).Run() //nolint:gosec // E2E test helper with controlled input.
+func runLocalCommand(ctx context.Context, command string) error {
+	return exec.CommandContext(ctx, "sh", "-c", command).Run() //nolint:gosec // E2E test helper with controlled input.
 }

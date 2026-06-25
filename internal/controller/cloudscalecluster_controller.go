@@ -207,8 +207,6 @@ func (r *CloudscaleClusterReconciler) reconcileNormal(ctx context.Context, clust
 
 // reconcileDelete handles deletion of cloudscale.ch infrastructure.
 // Resources are deleted in reverse order of creation: Load Balancer -> Network.
-//
-//nolint:unparam // Returns ctrl.Result for consistency with reconcile pattern
 func (r *CloudscaleClusterReconciler) reconcileDelete(ctx context.Context, clusterScope *scope.ClusterScope) (ctrl.Result, error) {
 	ctx, logger, done := observability.StartSpanWithLogger(ctx, "controllers.CloudscaleClusterReconciler.reconcileDelete")
 	defer done()

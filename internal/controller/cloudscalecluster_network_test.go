@@ -1008,7 +1008,7 @@ func TestDeleteNetwork_RequeuesOnLBPoolMembersError(t *testing.T) {
 	networkService := &testutils.MockNetworkService{
 		DeleteFn: func(ctx context.Context, id string) error {
 			//goland:noinspection GoErrorStringFormat
-			return fmt.Errorf("There are still one or more load balancer pool members in this network.")
+			return fmt.Errorf("There are still one or more load balancer pool members in this network.") //nolint:revive // this is an actual response from the API
 		},
 	}
 

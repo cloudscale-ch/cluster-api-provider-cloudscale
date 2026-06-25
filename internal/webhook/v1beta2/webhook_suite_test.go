@@ -122,7 +122,14 @@ func TestMain(m *testing.M) {
 	addrPort := fmt.Sprintf("%s:%d", webhookInstallOptions.LocalServingHost, webhookInstallOptions.LocalServingPort)
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		conn, dialErr := tls.DialWithDialer(dialer, "tcp", addrPort, &tls.Config{InsecureSkipVerify: true}) //nolint:gosec
+		d := tls.Dialer{
+			NetDialer: dialer,
+			Config: &tls.Config{
+				InsecureSkipVerify: true, //nolint:gosec // testing code
+			},
+		}
+
+		conn, dialErr := d.DialContext(ctx, "tcp", addrPort)
 		if dialErr == nil {
 			_ = conn.Close()
 			break

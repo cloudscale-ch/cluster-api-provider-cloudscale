@@ -29,7 +29,6 @@ import (
 )
 
 func TestGetToken(t *testing.T) {
-
 	tests := []struct {
 		name      string
 		secret    *corev1.Secret
@@ -141,9 +140,9 @@ func TestGetToken(t *testing.T) {
 			if tt.wantErr {
 				g.Expect(err).To(HaveOccurred())
 				return
-			} else {
-				g.Expect(err).ToNot(HaveOccurred())
 			}
+
+			g.Expect(err).ToNot(HaveOccurred())
 			g.Expect(token).To(Equal(tt.wantToken))
 		})
 	}

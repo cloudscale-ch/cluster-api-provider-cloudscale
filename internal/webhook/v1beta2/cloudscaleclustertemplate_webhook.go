@@ -31,7 +31,6 @@ import (
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/cloudscale"
 )
 
-// nolint:unused
 // log is for logging in this package.
 var cloudscaleclustertemplatelog = logf.Log.WithName("cloudscaleclustertemplate-resource")
 
