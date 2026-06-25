@@ -10,7 +10,6 @@ import (
 )
 
 func TestFlavorInfo(t *testing.T) {
-	g := NewWithT(t)
 	flavors := []cloudscalesdk.Flavor{
 		{
 			Slug:      "small",
@@ -30,12 +29,14 @@ func TestFlavorInfo(t *testing.T) {
 	fi := NewFlavorInfo(flavors)
 
 	t.Run("IsValidFlavor", func(t *testing.T) {
+		g := NewWithT(t)
 		g.Expect(fi.IsValidFlavor("small")).To(BeTrue())
 		g.Expect(fi.IsValidFlavor("gpu-large")).To(BeTrue())
 		g.Expect(fi.IsValidFlavor("non-existent")).To(BeFalse())
 	})
 
 	t.Run("GetFlavor", func(t *testing.T) {
+		g := NewWithT(t)
 		f := fi.GetFlavor("small")
 		g.Expect(f).NotTo(BeNil())
 		g.Expect(f.Slug).To(Equal("small"))
@@ -45,28 +46,30 @@ func TestFlavorInfo(t *testing.T) {
 	})
 
 	t.Run("GetCapacity", func(t *testing.T) {
+		g := NewWithT(t)
 		// Test standard flavor
-		capSmall, err := fi.GetCapacity("small", 20)
+		capSmall, err := fi.GetCapacity("small")
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(capSmall[corev1.ResourceCPU]).To(Equal(resource.MustParse("2")))
 		g.Expect(capSmall[corev1.ResourceMemory]).To(Equal(resource.MustParse("4Gi")))
 		g.Expect(capSmall[ResourceNvidiaGPU]).To(BeZero())
 
 		// Test GPU flavor
-		capGPU, err := fi.GetCapacity("gpu-large", 100)
+		capGPU, err := fi.GetCapacity("gpu-large")
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(capGPU[corev1.ResourceCPU]).To(Equal(resource.MustParse("8")))
 		g.Expect(capGPU[corev1.ResourceMemory]).To(Equal(resource.MustParse("32Gi")))
 		g.Expect(capGPU[ResourceNvidiaGPU]).To(Equal(resource.MustParse("1")))
 
 		// Test unknown flavor
-		capUnknown, err := fi.GetCapacity("unknown", 20)
+		capUnknown, err := fi.GetCapacity("unknown")
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(capUnknown).To(BeNil())
 		g.Expect(err.Error()).To(ContainSubstring("unknown flavor: unknown"))
 	})
 
 	t.Run("GetAllFlavors", func(t *testing.T) {
+		g := NewWithT(t)
 		slugs := fi.GetAllFlavors()
 		g.Expect(slugs).To(HaveLen(2))
 		g.Expect(slugs).To(ContainElement("small"))

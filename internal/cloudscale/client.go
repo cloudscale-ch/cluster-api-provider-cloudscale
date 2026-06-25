@@ -132,7 +132,7 @@ func IsNotFound(err error) bool {
 	if ok := errors.As(err, &errResp); !ok {
 		return false
 	}
-	return errResp.StatusCode == 404
+	return errResp.StatusCode == http.StatusNotFound
 }
 
 // IsFloatingIPNoPublicInterface returns true if the error indicates the target

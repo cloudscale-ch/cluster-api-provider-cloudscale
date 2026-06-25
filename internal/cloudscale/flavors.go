@@ -48,7 +48,7 @@ func (fi *FlavorInfo) GetFlavor(slug string) *cloudscalesdk.Flavor {
 
 // GetCapacity returns the resource capacity for a flavor slug.
 // rootVolumeSizeGB is used to calculate ephemeral-storage.
-func (fi *FlavorInfo) GetCapacity(slug string, rootVolumeSizeGB int) (corev1.ResourceList, error) {
+func (fi *FlavorInfo) GetCapacity(slug string) (corev1.ResourceList, error) {
 	flavor, ok := fi.flavors[slug]
 	if !ok {
 		return nil, fmt.Errorf("unknown flavor: %s", slug)

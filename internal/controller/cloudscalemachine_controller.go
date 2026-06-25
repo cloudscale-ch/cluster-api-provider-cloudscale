@@ -249,8 +249,6 @@ func (r *CloudscaleMachineReconciler) setReadyCondition(machine *infrastructurev
 }
 
 // reconcileDelete handles deletion of CloudscaleMachine.
-//
-//nolint:unparam // Returns ctrl.Result for consistency with reconcile pattern
 func (r *CloudscaleMachineReconciler) reconcileDelete(ctx context.Context, machineScope *scope.MachineScope) (ctrl.Result, error) {
 	ctx, logger, done := observability.StartSpanWithLogger(ctx, "controllers.CloudscaleMachineReconciler.reconcileDelete")
 	defer done()

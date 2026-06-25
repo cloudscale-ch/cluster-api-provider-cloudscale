@@ -73,7 +73,7 @@ func (r *CloudscaleMachineTemplateReconciler) Reconcile(ctx context.Context, req
 	}
 
 	// Get capacity for the flavor
-	capacity, err := r.FlavorInfo.GetCapacity(flavor, template.Spec.Template.Spec.RootVolumeSize)
+	capacity, err := r.FlavorInfo.GetCapacity(flavor)
 	if err != nil {
 		// Unknown flavor - don't populate capacity
 		// flavor is already validated in webhook - this branch is only here for defensive coding reasons

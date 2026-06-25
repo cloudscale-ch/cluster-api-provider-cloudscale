@@ -150,6 +150,7 @@ func TestTraceContextSink_InfoAddsTraceIDs(t *testing.T) {
 func TestTraceContextSink_InfoNoopSpanLeavesKVsUnchanged(t *testing.T) {
 	g := NewWithT(t)
 	_, span := tracenoop.NewTracerProvider().Tracer("test").Start(context.Background(), "op")
+	defer span.End()
 
 	base := newRecordingSink()
 	sink := newTraceContextSink(base, span)
