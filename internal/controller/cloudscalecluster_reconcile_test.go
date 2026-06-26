@@ -26,6 +26,7 @@ package controller
 import (
 	"context"
 	"testing"
+	"time"
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
 	. "github.com/onsi/gomega"
@@ -124,6 +125,32 @@ func TestReconcileNormal_FullyProvisionedCluster(t *testing.T) {
 	readyCond := conditions.Get(clusterScope.CloudscaleCluster, infrastructurev1beta2.ReadyCondition)
 	g.Expect(readyCond).ToNot(BeNil())
 	g.Expect(readyCond.Status).To(Equal(metav1.ConditionTrue))
+}
+
+// TestReconcileNormal_RequeuesForHealthMonitorWithoutBlockingProvisioning ensures a provisioned cluster will poll
+// for control plane initialized (in reconcile health monitor).
+func TestReconcileNormal_RequeuesForHealthMonitorWithoutBlockingProvisioning(t *testing.T) {
+	g := NewWithT(t)
+
+	clusterScope := defaultProvisionedScope()
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "test", NetworkID: "net-123", SubnetID: "subnet-123", Managed: true},
+	}
+	clusterScope.CloudscaleCluster.Status.LoadBalancerID = "lb-123"
+	clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID = "pool-123"
+	clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID = "listener-123"
+
+	r := newTestReconciler()
+
+	result, err := r.reconcileNormal(context.Background(), clusterScope)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result.RequeueAfter).To(Equal(10*time.Second), "must keep polling for control-plane initialization")
+
+	// provisioning and controlPlaneEndpoint should be set, even though we requeue due to the logic in reconciling the health monitor.
+	g.Expect(clusterScope.CloudscaleCluster.Status.Initialization).ToNot(BeNil())
+	g.Expect(*clusterScope.CloudscaleCluster.Status.Initialization.Provisioned).To(BeTrue())
+	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host).ToNot(BeEmpty())
 }
 
 // TestReconcileDelete_SuccessfulDeletion is the top-level happy-path smoke test

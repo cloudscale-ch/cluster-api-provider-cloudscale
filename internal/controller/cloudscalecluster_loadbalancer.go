@@ -142,21 +142,14 @@ func (r *CloudscaleClusterReconciler) reconcileLoadBalancer(ctx context.Context,
 		return result, nil
 	}
 
-	// 4. Reconcile the health monitor
-	if result, err := r.reconcileLBHealthMonitor(ctx, clusterScope); err != nil {
-		return ctrl.Result{}, fmt.Errorf("reconciling load balancer health monitor: %w", err)
-	} else if !result.IsZero() {
-		return result, nil
-	}
-
-	// 5. Reconcile the members
+	// 4. Reconcile the members
 	if result, err := r.reconcileLBMembers(ctx, clusterScope); err != nil {
 		return ctrl.Result{}, fmt.Errorf("reconciling load balancer members: %w", err)
 	} else if !result.IsZero() {
 		return result, nil
 	}
 
-	// 6. Set the control plane endpoint from the VIP
+	// 5. Set the control plane endpoint from the VIP
 	if clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host == "" {
 		if clusterScope.CloudscaleCluster.Spec.FloatingIP != nil {
 			// Floating IP is configured — the FIP reconciler will set the endpoint.
@@ -172,7 +165,19 @@ func (r *CloudscaleClusterReconciler) reconcileLoadBalancer(ctx context.Context,
 		}
 	}
 
+	// The LB is not running (degraded/error).
+	// We poll for the LB status since we don't have a way to watch the loadbalancer status otherwise.
+	if lbPending {
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+
 	return ctrl.Result{}, nil
+}
+
+// controlPlaneInitialized denotes when the control plane is functional enough to accept requests.
+// Never goes back to false once true.
+func controlPlaneInitialized(clusterScope *scope.ClusterScope) bool {
+	return ptr.Deref(clusterScope.Cluster.Status.Initialization.ControlPlaneInitialized, false)
 }
 
 // reconcileLB ensures the load balancer exists.
@@ -338,9 +343,24 @@ func (r *CloudscaleClusterReconciler) reconcileLBListener(ctx context.Context, c
 	return ctrl.Result{}, nil
 }
 
-// reconcileLBHealthMonitor ensures the load balancer health monitor exists.
+// reconcileLBHealthMonitor ensures the load balancer health monitor exists once the control plane is initialized.
+//
+// Without a health monitor, all members are marked as `no_monitor` and traffic will be routed to them regardless
+// if they respond or not.
 // The health monitor performs TCP health checks on the API server port.
+// This is called as the last phase of reconcileNormal, after the cluster is marked provisioned.
 func (r *CloudscaleClusterReconciler) reconcileLBHealthMonitor(ctx context.Context, clusterScope *scope.ClusterScope) (ctrl.Result, error) {
+	// External control plane: no load balancer, so no health monitor.
+	if !ptr.Deref(clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled, true) {
+		return ctrl.Result{}, nil
+	}
+
+	// Defer the initial creation until the control plane is initialized.
+	if clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID == "" && !controlPlaneInitialized(clusterScope) {
+		clusterScope.Info("Waiting for control-plane initialized before creating health monitor")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+
 	_, id, err := ensureResource(ctx, clusterScope,
 		clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID,
 		"load balancer health monitor",
@@ -406,7 +426,7 @@ func (r *CloudscaleClusterReconciler) reconcileLBMembers(ctx context.Context, cl
 		return ctrl.Result{}, fmt.Errorf("failed to get desired load balancer members: %w", err)
 	}
 
-	clusterScope.V(2).Info("reconcileLBMembers", "currentMembers", currentMembers, "desiredMembers", desiredMembers)
+	clusterScope.V(2).Info("Reconciling LB Members", "currentMembers", currentMembers, "desiredMembers", desiredMembers)
 
 	// Build maps keyed by member name for comparison
 	currentByName := make(map[string]cloudscalesdk.LoadBalancerPoolMember, len(currentMembers))

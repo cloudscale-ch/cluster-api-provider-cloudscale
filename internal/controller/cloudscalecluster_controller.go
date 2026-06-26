@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -189,6 +190,17 @@ func (r *CloudscaleClusterReconciler) reconcileNormal(ctx context.Context, clust
 	provisioned := r.isInfrastructureProvisioned(clusterScope)
 	clusterScope.CloudscaleCluster.Status.Initialization.Provisioned = new(provisioned)
 
+	// The load balancer health monitor is created only once the control plane is
+	// initialized, which itself requires the infrastructure to be provisioned.
+	// Running this last lets us poll for ControlPlaneInitialized without deadlocking the control plane we wait on.
+	result, err = r.reconcileLBHealthMonitor(ctx, clusterScope)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("reconciling load balancer health monitor: %w", err)
+	}
+	if !result.IsZero() {
+		return result, nil
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -328,6 +340,12 @@ func (r *CloudscaleClusterReconciler) SetupWithManager(ctx context.Context, mgr 
 		Watches(
 			&clusterv1.Cluster{},
 			handler.EnqueueRequestsFromMapFunc(util.ClusterToInfrastructureMapFunc(ctx, infrastructurev1beta2.SchemeGroupVersion.WithKind("CloudscaleCluster"), mgr.GetClient(), &infrastructurev1beta2.CloudscaleCluster{})),
+			builder.WithPredicates(predicates.Any(r.Scheme, logger,
+				// Resume reconciliation when the Cluster is paused/unpaused, and when
+				// the control plane initializes so the LB health monitor gets added.
+				predicates.ClusterPausedTransitions(r.Scheme, logger),
+				predicates.ClusterControlPlaneInitialized(r.Scheme, logger),
+			)),
 		).
 		Watches(
 			&infrastructurev1beta2.CloudscaleMachine{},
@@ -348,7 +366,7 @@ func (r *CloudscaleClusterReconciler) cloudscaleMachineToCluster(ctx context.Con
 		}
 
 		// Only care about control plane machines
-		if _, ok := machine.Labels[clusterv1.MachineControlPlaneNameLabel]; !ok {
+		if _, ok := machine.Labels[clusterv1.MachineControlPlaneLabel]; !ok {
 			return nil
 		}
 

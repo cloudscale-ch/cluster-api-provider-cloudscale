@@ -10,8 +10,8 @@ import (
 )
 
 // NewControlPlaneMachine builds a control-plane CloudscaleMachine fixture in
-// the "default" namespace, labelled as control-plane of "test-cluster" and
-// with the given ServerID. Used heavily by the FIP and LB controller tests.
+// the "default" namespace, labeled as control-plane of "test-cluster" and
+// with the given ServerID.
 func NewControlPlaneMachine(name, serverID string) *infrastructurev1beta2.CloudscaleMachine {
 	m := &infrastructurev1beta2.CloudscaleMachine{
 		ObjectMeta: metav1.ObjectMeta{

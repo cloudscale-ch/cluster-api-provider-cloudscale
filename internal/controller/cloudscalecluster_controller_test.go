@@ -29,7 +29,42 @@ import (
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/scope"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/testutils"
 )
+
+// TestCloudscaleMachineToCluster verifies the CloudscaleMachine watch maps a
+// control-plane machine to its owning CloudscaleCluster.
+func TestCloudscaleMachineToCluster(t *testing.T) {
+	cluster := &infrastructurev1beta2.CloudscaleCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-cluster",
+			Namespace: "default",
+			Labels:    map[string]string{clusterv1.ClusterNameLabel: "test-cluster"},
+		},
+	}
+
+	t.Run("control-plane machine maps to its cluster", func(t *testing.T) {
+		g := NewWithT(t)
+		r := newTestReconciler(cluster)
+		mapFn := r.cloudscaleMachineToCluster(context.Background(), r.Client)
+
+		requests := mapFn(context.Background(), testutils.NewControlPlaneMachine("cp-0", "srv-0"))
+
+		g.Expect(requests).To(HaveLen(1))
+		g.Expect(requests[0].NamespacedName).To(Equal(types.NamespacedName{Name: "test-cluster", Namespace: "default"}))
+	})
+
+	t.Run("non control-plane machine maps to nothing", func(t *testing.T) {
+		g := NewWithT(t)
+		r := newTestReconciler(cluster)
+		mapFn := r.cloudscaleMachineToCluster(context.Background(), r.Client)
+
+		worker := testutils.NewControlPlaneMachine("worker-0", "srv-1")
+		delete(worker.Labels, clusterv1.MachineControlPlaneLabel)
+
+		g.Expect(mapFn(context.Background(), worker)).To(BeEmpty())
+	})
+}
 
 // TestCloudscaleClusterReconciler_Reconcile_EntryPoint covers the cheap
 // early-exit paths of Reconcile against the envtest API server.

@@ -252,6 +252,7 @@ func TestReconcileLBHealthMonitor(t *testing.T) {
 			}
 
 			clusterScope := newLBClusterScope(
+				testutils.WithControlPlaneInitialized(true),
 				testutils.WithHMService(healthMonitorService),
 				testutils.WithHealthMonitorParams(tc.delayS, tc.timeoutS, tc.upThreshold, tc.downThresh),
 			)
@@ -333,7 +334,7 @@ func TestReconcileLoadBalancer_ErrorStatusProceedsWithMemberReconciliation(t *te
 	result, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(result.RequeueAfter).To(BeZero(), "error status should not block member reconciliation")
+	g.Expect(result.RequeueAfter).To(Equal(10*time.Second), "error status should requeue to re-check the LB after member reconciliation")
 
 	// LoadBalancerReadyCondition should be False because LB is not running
 	cond := conditions.Get(clusterScope.CloudscaleCluster, infrastructurev1beta2.LoadBalancerReadyCondition)
@@ -371,7 +372,7 @@ func TestReconcileLoadBalancer_DegradedStatusProceedsWithMemberReconciliation(t 
 	result, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(result.RequeueAfter).To(BeZero(), "degraded status should not block member reconciliation")
+	g.Expect(result.RequeueAfter).To(Equal(10*time.Second), "degraded status should requeue to re-check the LB after member reconciliation")
 
 	// Stale member should have been removed
 	g.Expect(deletedMemberUUID).To(Equal("stale-uuid"))
@@ -433,15 +434,78 @@ func TestReconcileLoadBalancer_SetsControlPlaneEndpoint(t *testing.T) {
 	clusterScope.CloudscaleCluster.Status.LoadBalancerID = testLBUUID
 	clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID = testPoolUUID
 	clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID = testListenerUUID
-	clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID = testHMUUID
 
 	r := newTestReconciler()
 
-	_, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
+	result, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result.IsZero()).To(BeTrue(), "reconcileLoadBalancer must not requeue for the health monitor")
 	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host).To(Equal("203.0.113.10"))
 	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Port).To(Equal(int32(6443)))
+}
+
+// hmServiceWithCreate returns a health-monitor mock whose List is empty and
+// whose Create flips *created and returns a fixed UUID.
+func hmServiceWithCreate(created *bool) *testutils.MockLoadBalancerHealthMonitorService {
+	return &testutils.MockLoadBalancerHealthMonitorService{
+		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.LoadBalancerHealthMonitor, error) {
+			return nil, nil
+		},
+		CreateFn: func(ctx context.Context, req *cloudscalesdk.LoadBalancerHealthMonitorRequest) (*cloudscalesdk.LoadBalancerHealthMonitor, error) {
+			*created = true
+			return &cloudscalesdk.LoadBalancerHealthMonitor{UUID: "hm-uuid"}, nil
+		},
+	}
+}
+
+func TestReconcileLBHealthMonitor_RequeuesUntilControlPlaneInitialized(t *testing.T) {
+	g := NewWithT(t)
+
+	var created bool
+	clusterScope := newLBClusterScope(testutils.WithHMService(hmServiceWithCreate(&created)))
+	clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID = testPoolUUID
+
+	result, err := newTestReconciler().reconcileLBHealthMonitor(context.Background(), clusterScope)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result.RequeueAfter).To(Equal(10*time.Second), "must poll until the control plane is initialized")
+	g.Expect(created).To(BeFalse(), "health monitor must not be created before the control plane is initialized")
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID).To(BeEmpty())
+}
+
+func TestReconcileLBHealthMonitor_CreatesWhenControlPlaneInitialized(t *testing.T) {
+	g := NewWithT(t)
+
+	var created bool
+	clusterScope := newLBClusterScope(
+		testutils.WithControlPlaneInitialized(true),
+		testutils.WithHMService(hmServiceWithCreate(&created)),
+	)
+	clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID = testPoolUUID
+
+	result, err := newTestReconciler().reconcileLBHealthMonitor(context.Background(), clusterScope)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result.IsZero()).To(BeTrue())
+	g.Expect(created).To(BeTrue(), "health monitor must be created once the control plane is initialized")
+	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID).To(Equal("hm-uuid"))
+}
+
+func TestReconcileLBHealthMonitor_SkipsWhenLBDisabled(t *testing.T) {
+	g := NewWithT(t)
+
+	var created bool
+	clusterScope := newLBClusterScope(
+		testutils.WithLBEnabled(false),
+		testutils.WithHMService(hmServiceWithCreate(&created)),
+	)
+
+	result, err := newTestReconciler().reconcileLBHealthMonitor(context.Background(), clusterScope)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result.IsZero()).To(BeTrue())
+	g.Expect(created).To(BeFalse(), "external control plane has no health monitor")
 }
 
 // ============================================================================

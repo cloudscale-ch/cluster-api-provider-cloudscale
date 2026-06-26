@@ -163,6 +163,15 @@ func WithGeneration(gen int64) ClusterScopeOption {
 	}
 }
 
+// WithControlPlaneInitialized sets the CAPI Cluster ControlPlaneInitialized flag.
+func WithControlPlaneInitialized(v bool) ClusterScopeOption {
+	return func(cs *scope.ClusterScope) {
+		cs.Cluster.Status.Initialization = clusterv1.ClusterInitializationStatus{
+			ControlPlaneInitialized: new(v),
+		}
+	}
+}
+
 // MachineScopeOption configures a MachineScope for testing.
 type MachineScopeOption func(*scope.MachineScope)
 
