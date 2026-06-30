@@ -151,15 +151,13 @@ func TestReconcilePreExistingFloatingIP(t *testing.T) {
 			},
 		},
 		{
-			name: "fetches FIP and assigns to LB; sets status + endpoint",
+			name: "fetches FIP and assigns to LB; sets status",
 			setup: func(cs *scope.ClusterScope) {
 				cs.CloudscaleCluster.Status.LoadBalancerID = "lb-x"
 			},
 			fip: &cloudscalesdk.FloatingIP{Network: "5.6.7.8/32"},
 			assert: func(g *WithT, cs *scope.ClusterScope, captured *cloudscalesdk.FloatingIPUpdateRequest) {
 				g.Expect(cs.CloudscaleCluster.Status.FloatingIP).To(Equal("5.6.7.8"))
-				g.Expect(cs.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host).To(Equal("5.6.7.8"))
-				g.Expect(cs.CloudscaleCluster.Spec.ControlPlaneEndpoint.Port).To(Equal(int32(6443)))
 				g.Expect(captured).ToNot(BeNil())
 				g.Expect(captured.LoadBalancer).To(Equal("lb-x"))
 			},
@@ -202,7 +200,6 @@ func TestReconcilePreExistingFloatingIP(t *testing.T) {
 			fip:   &cloudscalesdk.FloatingIP{Network: "9.9.9.9/32", Region: nil},
 			assert: func(g *WithT, cs *scope.ClusterScope, _ *cloudscalesdk.FloatingIPUpdateRequest) {
 				g.Expect(cs.CloudscaleCluster.Status.FloatingIP).To(Equal("9.9.9.9"))
-				g.Expect(cs.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host).To(Equal("9.9.9.9"))
 			},
 		},
 	}
@@ -347,7 +344,7 @@ func TestReconcileManagedFloatingIP_ExistingFIPEnsuresAssignment(t *testing.T) {
 	_, err := r.reconcileManagedFloatingIP(context.Background(), clusterScope, fipSpec)
 
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host).To(Equal("10.0.0.1"))
+	g.Expect(clusterScope.CloudscaleCluster.Status.FloatingIP).To(Equal("10.0.0.1"))
 }
 
 func TestReconcileManagedFloatingIP_CreatesIPv4(t *testing.T) {
@@ -660,40 +657,6 @@ func TestEnsureFloatingIPAssignment(t *testing.T) {
 			}
 		})
 	}
-}
-
-// --- setControlPlaneEndpointFromFIP tests ---
-
-func TestSetControlPlaneEndpointFromFIP_SetsEndpoint(t *testing.T) {
-	g := NewWithT(t)
-
-	clusterScope := newFIPTestClusterScope(&testutils.MockFloatingIPService{})
-
-	r := newTestReconciler()
-
-	fip := &cloudscalesdk.FloatingIP{Network: "10.20.30.40/32"}
-
-	r.setControlPlaneEndpointFromFIP(clusterScope, fip)
-
-	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host).To(Equal("10.20.30.40"))
-	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Port).To(Equal(int32(6443)))
-}
-
-func TestSetControlPlaneEndpointFromFIP_SkipsIfAlreadySet(t *testing.T) {
-	g := NewWithT(t)
-
-	clusterScope := newFIPTestClusterScope(&testutils.MockFloatingIPService{})
-	clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host = "existing-host"
-	clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Port = 9999
-
-	r := newTestReconciler()
-
-	fip := &cloudscalesdk.FloatingIP{Network: "10.20.30.40/32"}
-
-	r.setControlPlaneEndpointFromFIP(clusterScope, fip)
-
-	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host).To(Equal("existing-host"))
-	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Port).To(Equal(int32(9999)))
 }
 
 // --- deleteFloatingIP tests ---

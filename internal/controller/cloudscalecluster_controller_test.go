@@ -69,6 +69,83 @@ func TestCloudscaleClusterReconciler_Reconcile_EntryPoint(t *testing.T) {
 	})
 }
 
+func TestReconcileControlPlaneEndpoint_FromLBVIP(t *testing.T) {
+	g := NewWithT(t)
+
+	clusterScope := newLBClusterScope() // LB enabled, no floating IP
+	r := newTestReconciler()
+
+	r.reconcileControlPlaneEndpoint(clusterScope, "203.0.113.10")
+
+	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host).To(Equal("203.0.113.10"))
+	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Port).To(Equal(int32(6443)))
+}
+
+func TestReconcileControlPlaneEndpoint_FloatingIPTakesPrecedenceOverVIP(t *testing.T) {
+	g := NewWithT(t)
+
+	clusterScope := newLBClusterScope()
+	clusterScope.CloudscaleCluster.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{}
+	clusterScope.CloudscaleCluster.Status.FloatingIP = "10.20.30.40"
+	r := newTestReconciler()
+
+	r.reconcileControlPlaneEndpoint(clusterScope, "203.0.113.10")
+
+	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host).To(Equal("10.20.30.40"))
+	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Port).To(Equal(int32(6443)))
+}
+
+func TestReconcileControlPlaneEndpoint_SkipsIfAlreadySet(t *testing.T) {
+	g := NewWithT(t)
+
+	clusterScope := newLBClusterScope()
+	clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host = "existing-host"
+	clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Port = 9999
+	r := newTestReconciler()
+
+	r.reconcileControlPlaneEndpoint(clusterScope, "203.0.113.10")
+
+	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host).To(Equal("existing-host"))
+	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Port).To(Equal(int32(9999)))
+}
+
+func TestReconcileControlPlaneEndpoint_WaitsWhenVIPMissing(t *testing.T) {
+	g := NewWithT(t)
+
+	clusterScope := newLBClusterScope() // LB enabled, no floating IP
+	r := newTestReconciler()
+
+	r.reconcileControlPlaneEndpoint(clusterScope, "")
+
+	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host).To(BeEmpty())
+}
+
+func TestReconcileControlPlaneEndpoint_WaitsWhenFloatingIPNotProvisioned(t *testing.T) {
+	g := NewWithT(t)
+
+	clusterScope := newLBClusterScope()
+	clusterScope.CloudscaleCluster.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{}
+	// Status.FloatingIP is empty: the FIP is configured but not provisioned yet.
+	r := newTestReconciler()
+
+	r.reconcileControlPlaneEndpoint(clusterScope, "203.0.113.10")
+
+	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host).To(BeEmpty(),
+		"must not fall back to the VIP when a floating IP is configured but not yet provisioned")
+}
+
+func TestReconcileControlPlaneEndpoint_ExternalControlPlaneNoSource(t *testing.T) {
+	g := NewWithT(t)
+
+	clusterScope := newLBClusterScope()
+	clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled = new(false) // external CP, no LB, no FIP
+	r := newTestReconciler()
+
+	r.reconcileControlPlaneEndpoint(clusterScope, "")
+
+	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host).To(BeEmpty())
+}
+
 // TestIsInfrastructureProvisioned exercises the readiness predicate used by
 // reconcileNormal to decide when to flip Status.Initialization.Provisioned.
 func TestIsInfrastructureProvisioned(t *testing.T) {

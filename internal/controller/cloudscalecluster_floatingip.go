@@ -83,7 +83,6 @@ func (r *CloudscaleClusterReconciler) reconcilePreExistingFloatingIP(ctx context
 	}
 
 	clusterScope.CloudscaleCluster.Status.FloatingIP = fip.IP()
-	r.setControlPlaneEndpointFromFIP(clusterScope, fip)
 	return r.ensureFloatingIPAssignment(ctx, clusterScope, fip)
 }
 
@@ -110,7 +109,6 @@ func (r *CloudscaleClusterReconciler) reconcileManagedFloatingIP(ctx context.Con
 		if err := r.ensureFloatingIPAssignment(ctx, clusterScope, fip); err != nil {
 			return ctrl.Result{}, err
 		}
-		r.setControlPlaneEndpointFromFIP(clusterScope, fip)
 		return ctrl.Result{}, nil
 	}
 
@@ -162,7 +160,6 @@ func (r *CloudscaleClusterReconciler) reconcileManagedFloatingIP(ctx context.Con
 	r.recorder.Eventf(clusterScope.CloudscaleCluster, nil, corev1.EventTypeNormal, "FloatingIPCreated", "CreateFloatingIP",
 		"Created floating IP %s", ip)
 
-	r.setControlPlaneEndpointFromFIP(clusterScope, fip)
 	return ctrl.Result{}, nil
 }
 
@@ -247,22 +244,6 @@ func (r *CloudscaleClusterReconciler) ensureFloatingIPAssignment(ctx context.Con
 	}
 
 	return nil
-}
-
-func (r *CloudscaleClusterReconciler) setControlPlaneEndpointFromFIP(clusterScope *scope.ClusterScope, fip *cloudscalesdk.FloatingIP) {
-	if clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host != "" {
-		return
-	}
-
-	floatingIP := fip.IP()
-
-	apiServerPort := clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.APIServerPort
-	clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host = floatingIP
-	clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Port = apiServerPort
-	clusterScope.Info("Set control plane endpoint from floating IP",
-		"endpoint", floatingIP, "port", apiServerPort)
-	r.recorder.Eventf(clusterScope.CloudscaleCluster, nil, corev1.EventTypeNormal, "ControlPlaneSet", "SetControlPlaneEndpoint",
-		"Control plane endpoint set to %s:%d (floating IP)", floatingIP, apiServerPort)
 }
 
 // deleteFloatingIP deletes the floating IP if it's managed.

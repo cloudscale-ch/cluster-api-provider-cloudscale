@@ -295,10 +295,11 @@ func TestReconcileLoadBalancer_SkipsWhenDisabled(t *testing.T) {
 
 	r := newTestReconciler()
 
-	result, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
+	status, result, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(result.RequeueAfter).To(BeZero())
+	g.Expect(status.ready).To(BeTrue(), "disabled LB reports running so reconcileNormal does not poll")
 }
 
 func TestReconcileLoadBalancer_ChangingStatusBlocksAndRequeues(t *testing.T) {
@@ -311,10 +312,11 @@ func TestReconcileLoadBalancer_ChangingStatusBlocksAndRequeues(t *testing.T) {
 
 	r := newTestReconciler()
 
-	result, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
+	status, result, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(result.RequeueAfter).To(Equal(10*time.Second), "changing status should requeue after 10s")
+	g.Expect(status.ready).To(BeFalse())
 }
 
 func TestReconcileLoadBalancer_ErrorStatusProceedsWithMemberReconciliation(t *testing.T) {
@@ -330,10 +332,11 @@ func TestReconcileLoadBalancer_ErrorStatusProceedsWithMemberReconciliation(t *te
 
 	r := newTestReconciler()
 
-	result, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
+	status, result, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(result.RequeueAfter).To(BeZero(), "error status should not block member reconciliation")
+	g.Expect(result.RequeueAfter).To(BeZero(), "error status does not requeue, reconcileNormal polls due to the ready: false flag")
+	g.Expect(status.ready).To(BeFalse())
 
 	// LoadBalancerReadyCondition should be False because LB is not running
 	cond := conditions.Get(clusterScope.CloudscaleCluster, infrastructurev1beta2.LoadBalancerReadyCondition)
@@ -368,10 +371,11 @@ func TestReconcileLoadBalancer_DegradedStatusProceedsWithMemberReconciliation(t 
 
 	r := newTestReconciler()
 
-	result, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
+	status, result, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(result.RequeueAfter).To(BeZero(), "degraded status should not block member reconciliation")
+	g.Expect(result.RequeueAfter).To(BeZero(), "degraded status does not requeue, reconcileNormal polls due to the ready: false flag")
+	g.Expect(status.ready).To(BeFalse())
 
 	// Stale member should have been removed
 	g.Expect(deletedMemberUUID).To(Equal("stale-uuid"))
@@ -403,7 +407,7 @@ func TestReconcileLoadBalancer_ErrorStatusMessageNamesDownMembers(t *testing.T) 
 
 	r := newTestReconciler()
 
-	_, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
+	_, _, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
 	g.Expect(err).ToNot(HaveOccurred())
 
 	cond := conditions.Get(clusterScope.CloudscaleCluster, infrastructurev1beta2.LoadBalancerReadyCondition)
@@ -414,7 +418,10 @@ func TestReconcileLoadBalancer_ErrorStatusMessageNamesDownMembers(t *testing.T) 
 	g.Expect(cond.Message).To(ContainSubstring("cp-0@10.0.0.110:6443"))
 }
 
-func TestReconcileLoadBalancer_SetsControlPlaneEndpoint(t *testing.T) {
+// TestReconcileLoadBalancer_ObservesVIPAndRunning verifies reconcileLoadBalancer
+// reports the VIP and ready status via lbStatus and does not set the
+// control plane endpoint itself (that is reconcileControlPlaneEndpoint's job).
+func TestReconcileLoadBalancer_ObservesVIPAndRunning(t *testing.T) {
 	g := NewWithT(t)
 
 	clusterScope := newLBClusterScope(
@@ -437,11 +444,14 @@ func TestReconcileLoadBalancer_SetsControlPlaneEndpoint(t *testing.T) {
 
 	r := newTestReconciler()
 
-	_, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
+	status, result, err := r.reconcileLoadBalancer(context.Background(), clusterScope)
 
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host).To(Equal("203.0.113.10"))
-	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Port).To(Equal(int32(6443)))
+	g.Expect(result.IsZero()).To(BeTrue())
+	g.Expect(status.ipAddress).To(Equal("203.0.113.10"))
+	g.Expect(status.ready).To(BeTrue())
+	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host).To(BeEmpty(),
+		"reconcileLoadBalancer does not set the endpoint")
 }
 
 // ============================================================================
