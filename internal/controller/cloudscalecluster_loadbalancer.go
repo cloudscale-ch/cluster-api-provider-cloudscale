@@ -45,20 +45,32 @@ const (
 	LoadBalancerErrorStatus    = "error"
 )
 
-// reconcileLoadBalancer ensures the load balancer, pool, and listener exist for the control plane.
-// It also sets the control plane endpoint from the load balancer's VIP address.
-// When the load balancer is disabled (external control plane), this function returns immediately.
-func (r *CloudscaleClusterReconciler) reconcileLoadBalancer(ctx context.Context, clusterScope *scope.ClusterScope) (result ctrl.Result, reterr error) {
+// lbStatus is the observed state of the control plane load balancer for the
+// current reconcile.
+type lbStatus struct {
+	// ipAddress is the load balancer VIP. Empty until the LB has one.
+	ipAddress string
+	// ready is true when the LB reports the "running" status.
+	ready bool
+}
+
+// reconcileLoadBalancer ensures the load balancer, pool, listener, health
+// monitor, and members exist for the control plane, and reports the observed
+// VIP and running status via lbStatus.
+// When the load balancer is disabled (external control plane), this function
+// returns immediately.
+func (r *CloudscaleClusterReconciler) reconcileLoadBalancer(ctx context.Context, clusterScope *scope.ClusterScope) (status lbStatus, result ctrl.Result, reterr error) {
 	ctx, logger, done := observability.StartSpanWithLogger(ctx, "controllers.CloudscaleClusterReconciler.reconcileLoadBalancer")
 	defer done()
 
 	logger.Info("Reconciling load balancer")
 
-	// LB disabled: set condition and return before defer is registered
+	// LB disabled: set condition and return before defer is registered.
+	// ready is reported true so reconcileNormal does not poll an LB that does not exist.
 	if !ptr.Deref(clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled, true) {
 		clusterScope.Info("Load balancer is disabled, skipping reconciliation (external control plane)")
 		r.setCondition(clusterScope, infrastructurev1beta2.LoadBalancerReadyCondition, metav1.ConditionTrue, infrastructurev1beta2.LoadBalancerDisabledReason, "")
-		return ctrl.Result{}, nil
+		return lbStatus{ready: true}, ctrl.Result{}, nil
 	}
 
 	var lbPending bool
@@ -76,15 +88,15 @@ func (r *CloudscaleClusterReconciler) reconcileLoadBalancer(ctx context.Context,
 
 	// 1. Reconcile the load balancer itself
 	if result, err := r.reconcileLB(ctx, clusterScope); err != nil {
-		return ctrl.Result{}, fmt.Errorf("reconciling load balancer: %w", err)
+		return lbStatus{}, ctrl.Result{}, fmt.Errorf("reconciling load balancer: %w", err)
 	} else if !result.IsZero() {
-		return result, nil
+		return lbStatus{}, result, nil
 	}
 
 	// Wait for LB to be running before creating pool/listener
 	if clusterScope.CloudscaleCluster.Status.LoadBalancerID == "" {
 		lbPending = true
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		return lbStatus{}, ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
 	// Check if LB is running
@@ -92,7 +104,7 @@ func (r *CloudscaleClusterReconciler) reconcileLoadBalancer(ctx context.Context,
 	defer getCancel()
 	lb, err := clusterScope.CloudscaleClient.LoadBalancers.Get(getCtx, clusterScope.CloudscaleCluster.Status.LoadBalancerID)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("getting load balancer status: %w", err)
+		return lbStatus{}, ctrl.Result{}, fmt.Errorf("getting load balancer status: %w", err)
 	}
 
 	switch lb.Status {
@@ -101,7 +113,8 @@ func (r *CloudscaleClusterReconciler) reconcileLoadBalancer(ctx context.Context,
 	case LoadBalancerChangingStatus:
 		clusterScope.Info("Waiting for load balancer to finish changing", "status", lb.Status)
 		lbPending = true
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		// during load balancer changing, we explicitly requeue every 10s
+		return lbStatus{}, ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	default:
 		// degraded, error, stopped, unknown — proceed with member reconciliation
 		// because removing stale members is the only path back to "running"
@@ -130,49 +143,38 @@ func (r *CloudscaleClusterReconciler) reconcileLoadBalancer(ctx context.Context,
 
 	// 2. Reconcile the pool
 	if result, err := r.reconcileLBPool(ctx, clusterScope); err != nil {
-		return ctrl.Result{}, fmt.Errorf("reconciling load balancer pool: %w", err)
+		return lbStatus{}, ctrl.Result{}, fmt.Errorf("reconciling load balancer pool: %w", err)
 	} else if !result.IsZero() {
-		return result, nil
+		return lbStatus{}, result, nil
 	}
 
 	// 3. Reconcile the listener
 	if result, err := r.reconcileLBListener(ctx, clusterScope); err != nil {
-		return ctrl.Result{}, fmt.Errorf("reconciling load balancer listener: %w", err)
+		return lbStatus{}, ctrl.Result{}, fmt.Errorf("reconciling load balancer listener: %w", err)
 	} else if !result.IsZero() {
-		return result, nil
+		return lbStatus{}, result, nil
 	}
 
 	// 4. Reconcile the health monitor
 	if result, err := r.reconcileLBHealthMonitor(ctx, clusterScope); err != nil {
-		return ctrl.Result{}, fmt.Errorf("reconciling load balancer health monitor: %w", err)
+		return lbStatus{}, ctrl.Result{}, fmt.Errorf("reconciling load balancer health monitor: %w", err)
 	} else if !result.IsZero() {
-		return result, nil
+		return lbStatus{}, result, nil
 	}
 
 	// 5. Reconcile the members
 	if result, err := r.reconcileLBMembers(ctx, clusterScope); err != nil {
-		return ctrl.Result{}, fmt.Errorf("reconciling load balancer members: %w", err)
+		return lbStatus{}, ctrl.Result{}, fmt.Errorf("reconciling load balancer members: %w", err)
 	} else if !result.IsZero() {
-		return result, nil
+		return lbStatus{}, result, nil
 	}
 
-	// 6. Set the control plane endpoint from the VIP
-	if clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host == "" {
-		if clusterScope.CloudscaleCluster.Spec.FloatingIP != nil {
-			// Floating IP is configured — the FIP reconciler will set the endpoint.
-			// The FIP provides a stable IP that survives LB recreation.
-			clusterScope.Info("Skipping control plane endpoint from LB VIP (floating IP will provide it)")
-		} else if len(lb.VIPAddresses) > 0 {
-			apiServerPort := clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.APIServerPort
-			clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host = lb.VIPAddresses[0].Address
-			clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Port = apiServerPort
-			clusterScope.Info("Set control plane endpoint from load balancer VIP",
-				"endpoint", lb.VIPAddresses[0].Address, "port", apiServerPort)
-			r.recorder.Eventf(clusterScope.CloudscaleCluster, nil, corev1.EventTypeNormal, "ControlPlaneSet", "SetControlPlaneEndpoint", "Control plane endpoint set to %s:%d", lb.VIPAddresses[0].Address, apiServerPort)
-		}
+	var ipAddress string
+	if len(lb.VIPAddresses) > 0 {
+		ipAddress = lb.VIPAddresses[0].Address
 	}
 
-	return ctrl.Result{}, nil
+	return lbStatus{ipAddress: ipAddress, ready: !lbPending}, ctrl.Result{}, nil
 }
 
 // reconcileLB ensures the load balancer exists.
@@ -406,7 +408,7 @@ func (r *CloudscaleClusterReconciler) reconcileLBMembers(ctx context.Context, cl
 		return ctrl.Result{}, fmt.Errorf("failed to get desired load balancer members: %w", err)
 	}
 
-	clusterScope.V(2).Info("reconcileLBMembers", "currentMembers", currentMembers, "desiredMembers", desiredMembers)
+	clusterScope.V(2).Info("Reconciling LB Members", "currentMembers", currentMembers, "desiredMembers", desiredMembers)
 
 	// Build maps keyed by member name for comparison
 	currentByName := make(map[string]cloudscalesdk.LoadBalancerPoolMember, len(currentMembers))

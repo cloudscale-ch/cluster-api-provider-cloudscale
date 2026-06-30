@@ -26,6 +26,7 @@ package controller
 import (
 	"context"
 	"testing"
+	"time"
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
 	. "github.com/onsi/gomega"
@@ -111,6 +112,7 @@ func TestReconcileNormal_FullyProvisionedCluster(t *testing.T) {
 		Host: "1.2.3.4",
 		Port: 6443,
 	}
+	clusterScope.Cluster.Status.Initialization.ControlPlaneInitialized = new(true)
 
 	r := newTestReconciler()
 
@@ -124,6 +126,35 @@ func TestReconcileNormal_FullyProvisionedCluster(t *testing.T) {
 	readyCond := conditions.Get(clusterScope.CloudscaleCluster, infrastructurev1beta2.ReadyCondition)
 	g.Expect(readyCond).ToNot(BeNil())
 	g.Expect(readyCond.Status).To(Equal(metav1.ConditionTrue))
+}
+
+// TestReconcileNormal_PollsUntilControlPlaneInitialized verifies a fully
+// provisioned cluster keeps re-queuing while the control plane is not yet
+// initialized, but provisioning and the control plane endpoint are set
+// regardless of that poll. Ensuring the LB-health poll never blocks provisioning,
+// so the control plane it waits on can come up (no bootstrap deadlock).
+func TestReconcileNormal_PollsUntilControlPlaneInitialized(t *testing.T) {
+	g := NewWithT(t)
+
+	clusterScope := defaultProvisionedScope()
+	clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+		{Name: "test", NetworkID: "net-123", SubnetID: "subnet-123", Managed: true},
+	}
+	clusterScope.CloudscaleCluster.Status.LoadBalancerID = "lb-123"
+	clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID = "pool-123"
+	clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID = "listener-123"
+	clusterScope.CloudscaleCluster.Status.LoadBalancerHealthMonitorID = "hm-123"
+	// No explicit endpoint and ControlPlaneInitialized is false: the endpoint is set from the LB VIP, and reconcileNormal keeps polling.
+
+	r := newTestReconciler()
+
+	result, err := r.reconcileNormal(context.Background(), clusterScope)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result.RequeueAfter).To(Equal(10*time.Second), "must keep polling until the control plane is initialized")
+	g.Expect(clusterScope.CloudscaleCluster.Status.Initialization).ToNot(BeNil())
+	g.Expect(*clusterScope.CloudscaleCluster.Status.Initialization.Provisioned).To(BeTrue())
+	g.Expect(clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host).To(Equal("1.2.3.4"))
 }
 
 // TestReconcileDelete_SuccessfulDeletion is the top-level happy-path smoke test

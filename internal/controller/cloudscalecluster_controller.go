@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -35,6 +36,7 @@ import (
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -166,7 +168,7 @@ func (r *CloudscaleClusterReconciler) reconcileNormal(ctx context.Context, clust
 		return result, nil
 	}
 
-	result, err = r.reconcileLoadBalancer(ctx, clusterScope)
+	lb, result, err := r.reconcileLoadBalancer(ctx, clusterScope)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("reconciling load balancer: %w", err)
 	}
@@ -182,12 +184,23 @@ func (r *CloudscaleClusterReconciler) reconcileNormal(ctx context.Context, clust
 		return result, nil
 	}
 
+	// Reconcile the control plane endpoint after the load balancer and floating IP have been reconciled.
+	r.reconcileControlPlaneEndpoint(clusterScope, lb.ipAddress)
+
 	// Mark infrastructure as provisioned when all resources exist
 	if clusterScope.CloudscaleCluster.Status.Initialization == nil {
 		clusterScope.CloudscaleCluster.Status.Initialization = &infrastructurev1beta2.ClusterInitializationStatus{}
 	}
 	provisioned := r.isInfrastructureProvisioned(clusterScope)
 	clusterScope.CloudscaleCluster.Status.Initialization.Provisioned = new(provisioned)
+
+	// ensure Cluster is re-queued, if the load-balancer is not ready or the control plane is not initialized yet.
+	// This re-queuing needs to be done after controlPlaneEndpoint and provisioning status have been determined, because
+	// they individually also contribute to the progression of a cluster provisioning.
+	if !lb.ready || !ptr.Deref(clusterScope.Cluster.Status.Initialization.ControlPlaneInitialized, false) {
+		clusterScope.Info("Waiting for control plane initialization", "lbReady", lb.ready, "controlPlaneInitialized", ptr.Deref(clusterScope.Cluster.Status.Initialization.ControlPlaneInitialized, false))
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
 
 	return ctrl.Result{}, nil
 }
@@ -235,6 +248,45 @@ func (r *CloudscaleClusterReconciler) reconcileDelete(ctx context.Context, clust
 	controllerutil.RemoveFinalizer(clusterScope.CloudscaleCluster, infrastructurev1beta2.ClusterFinalizer)
 
 	return ctrl.Result{}, nil
+}
+
+// reconcileControlPlaneEndpoint ensures spec.ControlPlaneEndpoint is set to the right host/port combination
+// at the end of the reconcile process when all dependant reconciliations have finished (lb and floatingIP).
+// How it works:
+//  1. a controlPlaneEndpoint once set, is never changed. The reconciler will be a no-op after setting it for the first time.
+//  2. floatingIP has precedence over LB
+//  3. host/port is only set once floatingIP or LB have finished provisioning
+func (r *CloudscaleClusterReconciler) reconcileControlPlaneEndpoint(clusterScope *scope.ClusterScope, lbIPAddress string) {
+	cluster := clusterScope.CloudscaleCluster
+
+	// Already resolved (set explicitly by the user or on a previous reconcile).
+	if cluster.Spec.ControlPlaneEndpoint.Host != "" {
+		return
+	}
+
+	var host, source string
+	switch {
+	case cluster.Spec.FloatingIP != nil:
+		host, source = cluster.Status.FloatingIP, "floating IP"
+	case ptr.Deref(cluster.Spec.ControlPlaneLoadBalancer.Enabled, true):
+		host, source = lbIPAddress, "load balancer"
+	default:
+		// External control plane: the endpoint must be provided by the user.
+		return
+	}
+
+	if host == "" {
+		// source is not provisioned yet; retry on the next reconcile.
+		return
+	}
+
+	port := cluster.Spec.ControlPlaneLoadBalancer.APIServerPort
+	cluster.Spec.ControlPlaneEndpoint.Host = host
+	cluster.Spec.ControlPlaneEndpoint.Port = port
+
+	clusterScope.Info("Set control plane endpoint", "endpoint", host, "port", port, "source", source)
+	r.recorder.Eventf(cluster, nil, corev1.EventTypeNormal, "ControlPlaneSet", "SetControlPlaneEndpoint",
+		"Control plane endpoint set to %s:%d (%s)", host, port, source)
 }
 
 // isInfrastructureProvisioned returns true if all cluster infrastructure is ready.
@@ -328,6 +380,12 @@ func (r *CloudscaleClusterReconciler) SetupWithManager(ctx context.Context, mgr 
 		Watches(
 			&clusterv1.Cluster{},
 			handler.EnqueueRequestsFromMapFunc(util.ClusterToInfrastructureMapFunc(ctx, infrastructurev1beta2.SchemeGroupVersion.WithKind("CloudscaleCluster"), mgr.GetClient(), &infrastructurev1beta2.CloudscaleCluster{})),
+			builder.WithPredicates(predicates.Any(r.Scheme, logger,
+				// Resume reconciliation when the Cluster is paused/unpaused, and when
+				// the control plane initializes so the LB health monitor gets added.
+				predicates.ClusterPausedTransitions(r.Scheme, logger),
+				predicates.ClusterControlPlaneInitialized(r.Scheme, logger),
+			)),
 		).
 		Watches(
 			&infrastructurev1beta2.CloudscaleMachine{},
@@ -348,7 +406,7 @@ func (r *CloudscaleClusterReconciler) cloudscaleMachineToCluster(ctx context.Con
 		}
 
 		// Only care about control plane machines
-		if _, ok := machine.Labels[clusterv1.MachineControlPlaneNameLabel]; !ok {
+		if _, ok := machine.Labels[clusterv1.MachineControlPlaneLabel]; !ok {
 			return nil
 		}
 
