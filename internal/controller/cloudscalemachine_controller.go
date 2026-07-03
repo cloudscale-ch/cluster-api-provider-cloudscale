@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/conditions"
+	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -161,7 +162,14 @@ func (r *CloudscaleMachineReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		// when the reconcile context has timed out.
 		patchCtx, patchCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer patchCancel()
-		if err := machineScope.Close(patchCtx); err != nil && reterr == nil {
+
+		// Advance status.observedGeneration only on a successful reconcile so
+		// it lags metadata.generation while reconciliation is failing.
+		var opts []patch.Option
+		if reterr == nil {
+			opts = append(opts, patch.WithStatusObservedGeneration{})
+		}
+		if err := machineScope.Close(patchCtx, opts...); err != nil && reterr == nil {
 			reterr = err
 		}
 	}()

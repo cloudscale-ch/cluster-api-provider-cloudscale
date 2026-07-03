@@ -92,8 +92,8 @@ func NewMachineScope(params MachineScopeParams) (*MachineScope, error) {
 }
 
 // Close persists the CloudscaleMachine status and spec changes.
-func (s *MachineScope) Close(ctx context.Context) error {
-	return s.patchHelper.Patch(ctx, s.CloudscaleMachine)
+func (s *MachineScope) Close(ctx context.Context, opts ...patch.Option) error {
+	return s.patchHelper.Patch(ctx, s.CloudscaleMachine, opts...)
 }
 
 // Name returns the machine name.

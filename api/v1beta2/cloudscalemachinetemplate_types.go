@@ -35,6 +35,11 @@ type CloudscaleMachineTemplateResource struct {
 
 // CloudscaleMachineTemplateStatus defines the observed state of CloudscaleMachineTemplate.
 type CloudscaleMachineTemplateStatus struct {
+	// observedGeneration is the latest generation observed by the controller.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
 	// Capacity defines the resource capacity for nodes created from this template.
 	// This value is used for autoscaling from zero operations as defined in:
 	// https://github.com/kubernetes-sigs/cluster-api/blob/main/docs/proposals/20210310-opt-in-autoscaling-from-zero.md
