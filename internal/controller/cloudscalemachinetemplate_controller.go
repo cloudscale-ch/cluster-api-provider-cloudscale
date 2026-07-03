@@ -83,7 +83,9 @@ func (r *CloudscaleMachineTemplateReconciler) Reconcile(ctx context.Context, req
 
 	template.Status.Capacity = capacity
 
-	if err := patchHelper.Patch(ctx, template); err != nil {
+	// This patch is only reached on the success path, so advance
+	// status.observedGeneration to the reconciled generation.
+	if err := patchHelper.Patch(ctx, template, patch.WithStatusObservedGeneration{}); err != nil {
 		logger.Error(err, "Failed to patch CloudscaleMachineTemplate status")
 		return ctrl.Result{}, err
 	}

@@ -238,6 +238,12 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              observedGeneration:
+                description: observedGeneration is the latest generation observed
+                  by the controller.
+                format: int64
+                minimum: 1
+                type: integer
             type: object
         required:
         - spec
