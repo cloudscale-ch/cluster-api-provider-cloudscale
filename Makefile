@@ -91,6 +91,9 @@ LOCALBIN := $(shell pwd)/bin
 $(LOCALBIN):
 	mkdir -p "$(LOCALBIN)"
 
+# Host OS/ARCH used to namespace tool binaries in $(LOCALBIN)
+HOST_PLATFORM := $(shell go env GOOS)-$(shell go env GOARCH)
+
 ## Tool Binaries
 KUBECTL ?= kubectl
 KIND ?= kind
@@ -427,15 +430,15 @@ $(GOVULNCHECK): $(LOCALBIN)
 # $2 - package url which can be installed
 # $3 - specific version of package
 define go-install-tool
-@[ -f "$(1)-$(3)" ] && [ "$$(readlink -- "$(1)" 2>/dev/null)" = "$(1)-$(3)" ] || { \
+@[ -f "$(1)-$(3)-$(HOST_PLATFORM)" ] && [ "$$(readlink -- "$(1)" 2>/dev/null)" = "$(1)-$(3)-$(HOST_PLATFORM)" ] || { \
 set -e; \
 package=$(2)@$(3) ;\
-echo "Downloading $${package}" ;\
+echo "Downloading $${package} ($(HOST_PLATFORM))" ;\
 rm -f "$(1)" ;\
 GOBIN="$(LOCALBIN)" go install $${package} ;\
-mv "$(LOCALBIN)/$$(basename "$(1)")" "$(1)-$(3)" ;\
+mv "$(LOCALBIN)/$$(basename "$(1)")" "$(1)-$(3)-$(HOST_PLATFORM)" ;\
 } ;\
-ln -sf "$$(realpath "$(1)-$(3)")" "$(1)"
+ln -sf "$$(realpath "$(1)-$(3)-$(HOST_PLATFORM)")" "$(1)"
 endef
 
 define gomodver
