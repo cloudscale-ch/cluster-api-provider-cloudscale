@@ -79,8 +79,8 @@ func NewClusterScope(params ClusterScopeParams) (*ClusterScope, error) {
 }
 
 // Close persists the CloudscaleCluster status and spec changes.
-func (s *ClusterScope) Close(ctx context.Context) error {
-	return s.patchHelper.Patch(ctx, s.CloudscaleCluster)
+func (s *ClusterScope) Close(ctx context.Context, opts ...patch.Option) error {
+	return s.patchHelper.Patch(ctx, s.CloudscaleCluster, opts...)
 }
 
 // Name returns the cluster name.

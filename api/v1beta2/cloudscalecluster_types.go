@@ -233,6 +233,11 @@ type FloatingIPSpec struct {
 
 // CloudscaleClusterStatus defines the observed state of CloudscaleCluster.
 type CloudscaleClusterStatus struct {
+	// observedGeneration is the latest generation observed by the controller.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
 	// Initialization contains v1beta2 initialization tracking.
 	// +optional
 	Initialization *ClusterInitializationStatus `json:"initialization,omitempty"`
