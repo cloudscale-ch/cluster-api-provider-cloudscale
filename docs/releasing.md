@@ -53,12 +53,14 @@ After the workflow completes:
 1. **Check the GitHub Actions run** succeeded without errors
 2. **Verify the container image** exists
    on [quay.io](https://quay.io/repository/cloudscalech/cluster-api-cloudscale-controller)
-3. **Verify the GitHub release** has all artifacts attached (manifests, checksums,
-   signature, SBOM)
-4. **Verify the signatures/attestations** — see [Verifying a Release](#verifying-a-release)
-5. **Test installation** on a fresh management cluster.
+3. **Verify the GitHub release** has all artifacts attached (manifests, checksums with bundle,
+   SBOM, release attestation)
+4. **Test installation** on a fresh management cluster.
 
 See [Testing Releases](testing-releases.md) for detailed testing instructions.
+
+Optionally, the release artifacts can be verified using the section below. This is optional because during release
+the verification is already done.
 
 ## Verifying a Release
 
@@ -71,46 +73,92 @@ issued by `https://token.actions.githubusercontent.com`.
 Requires [`cosign`](https://docs.sigstore.dev/cosign/system_config/installation/)
 and the [GitHub CLI](https://cli.github.com/) (`gh`).
 
+```bash
+export TAG=v1.0.0
+export IMG=quay.io/cloudscalech/cluster-api-cloudscale-controller:$TAG
+export ID_REGEXP='^https://github.com/cloudscale-ch/cluster-api-provider-cloudscale/\.github/workflows/release\.yml@refs/tags/'
+export ISSUER=https://token.actions.githubusercontent.com
+```
+
 ### Container image signature
 
+`cosign sign` pushes the signature into the registry alongside the image itself, not to a separate file. We can verify
+the signature using `cosign verify`.
+
 ```bash
-IMG=quay.io/cloudscalech/cluster-api-cloudscale-controller:v1.0.0
 cosign verify "$IMG" \
-  --certificate-identity-regexp '^https://github.com/cloudscale-ch/cluster-api-provider-cloudscale/\.github/workflows/release\.yml@refs/tags/' \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+    --certificate-identity-regexp "$ID_REGEXP" \
+    --certificate-oidc-issuer "$ISSUER"
 ```
 
 ### Build provenance & SBOM attestations
 
 ```bash
-# SLSA provenance + SBOM attestation attached to the image:
-gh attestation verify oci://$IMG --owner cloudscale-ch
+# Build provenance (predicate type slsa.dev/provenance/v1, this happens to be
+# gh's default if --predicate-type is omitted, but named explicitly here anyway)
+gh attestation verify oci://$IMG --owner cloudscale-ch \
+  --predicate-type https://slsa.dev/provenance/v1
 
-# List everything attached to the image (signature + attestations):
+# The provenance claim's actual content: which commit/workflow run produced
+# this image (buildDefinition, runDetails.builder.id):
+gh attestation verify oci://$IMG --owner cloudscale-ch \
+  --predicate-type https://slsa.dev/provenance/v1 \
+  --format json \
+  --jq '.[].verificationResult.statement.predicate'
+
+# SBOM (predicate type spdx.dev/Document/v2.3, must be given explicitly,
+# otherwise gh defaults to provenance and the SBOM is never checked)
+gh attestation verify oci://$IMG --owner cloudscale-ch \
+  --predicate-type https://spdx.dev/Document/v2.3
+
+# A verified copy of the SBOM's actual content, extracted from the checked
+# attestation rather than trusted from the release asset on its own:
+gh attestation verify oci://$IMG --owner cloudscale-ch \
+  --predicate-type https://spdx.dev/Document/v2.3 \
+  --format json \
+  --jq '.[].verificationResult.statement.predicate'
+
+# Everything attached at once:
 cosign tree "$IMG"
 ```
 
-The SBOM is also attached to the GitHub release as `sbom.spdx.json`.
+`sbom.spdx.json` is also attached to the GitHub release directly, but that copy isn't
+independently verifiable as a standalone file: its attestation's subject is the image,
+not the file. The SBOM extraction command above prints the verified content instead.
 
 ### Release manifests
 
-Download `checksums.txt`, `checksums.txt.bundle` and the
-`*.yaml` manifests into the same directory, then (run from that directory):
+Unlike the image, these are plain files with no registry to push into, so
+`cosign sign-blob` produces `checksums.txt.bundle` as a standalone file instead. Both
+checks below matter: `shasum` proves your files match `checksums.txt`; the signature
+proves `checksums.txt` itself is genuine. Either alone isn't enough.
 
 ```bash
-# Verify the manifest digests. `shasum` ships by default on both macOS and Linux
-# and reads the checksum file; GNU coreutils users can use `sha256sum -c` instead.
-# (Do not use BSD `sha256sum -c` — there `-c` compares against a single digest string.)
+cd "$(mktemp -d)"
+gh release download "$TAG" \
+  -R cloudscale-ch/cluster-api-provider-cloudscale \
+  -p 'checksums.txt' \
+  -p 'checksums.txt.bundle' \
+  -p '*.yaml'
+
+# Files match their checksums. `shasum` ships by default on macOS and Linux;
+# GNU coreutils users can use `sha256sum -c` instead (BSD sha256sum's -c compares
+# against a single digest string, not a checksum file).
 shasum -a 256 -c checksums.txt
 
-# The bundle is a self-describing Sigstore bundle carrying the signature,
-# signing certificate, and transparency-log proof.
+# checksums.txt itself is signed (predicate type sigstore.dev/cosign/sign/v1). The
+# bundle is a self-describing Sigstore bundle: signature + certificate +
+# transparency-log proof.
 cosign verify-blob \
   --bundle checksums.txt.bundle \
-  --certificate-identity-regexp '^https://github.com/cloudscale-ch/cluster-api-provider-cloudscale/\.github/workflows/release\.yml@refs/tags/' \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp "$ID_REGEXP" \
+  --certificate-oidc-issuer "$ISSUER" \
   checksums.txt
 
-# Each manifest also carries a SLSA provenance attestation:
-gh attestation verify infrastructure-components.yaml --owner cloudscale-ch
+# Each manifest also carries its own build provenance (predicate type
+# slsa.dev/provenance/v1, gh's default, named explicitly here anyway):
+for f in *.yaml; do
+  gh attestation verify "$f" --owner cloudscale-ch \
+    --predicate-type https://slsa.dev/provenance/v1
+done
 ```
