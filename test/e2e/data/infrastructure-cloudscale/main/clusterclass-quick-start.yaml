@@ -17,7 +17,7 @@ spec:
           - name: cloud-provider
             value: external
       users:
-      - groups: adm, sudo
+      - groups: sudo
         name: capi
         shell: /bin/bash
         sshAuthorizedKeys: []
@@ -133,7 +133,7 @@ spec:
         valueFrom:
           template: |
             - name: capi
-              groups: "adm, sudo"
+              groups: sudo
               shell: "/bin/bash"
               sudo: "ALL=(ALL) NOPASSWD:ALL"
               sshAuthorizedKeys: {{ .cloudscaleSSHKeys | toJson }}
@@ -150,7 +150,7 @@ spec:
         valueFrom:
           template: |
             - name: capi
-              groups: "adm, sudo"
+              groups: sudo
               shell: "/bin/bash"
               sudo: "ALL=(ALL) NOPASSWD:ALL"
               sshAuthorizedKeys: {{ .cloudscaleSSHKeys | toJson }}
@@ -278,7 +278,7 @@ spec:
             - name: cloud-provider
               value: external
         users:
-        - groups: adm, sudo
+        - groups: sudo
           name: capi
           shell: /bin/bash
           sshAuthorizedKeys: []

@@ -72,7 +72,7 @@ spec:
             value: external
     users:
       - name: capi
-        groups: "adm, sudo"
+        groups: sudo
         shell: "/bin/bash"
         sudo: "ALL=(ALL) NOPASSWD:ALL"
         sshAuthorizedKeys:
@@ -150,7 +150,7 @@ spec:
               value: external
       users:
         - name: capi
-          groups: "adm, sudo"
+          groups: sudo
           shell: "/bin/bash"
           sudo: "ALL=(ALL) NOPASSWD:ALL"
           sshAuthorizedKeys:
