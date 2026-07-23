@@ -25,6 +25,9 @@ jobs:
       TAG: ${{ github.ref_name }}
       IMG_REPO: quay.io/cloudscalech/cluster-api-cloudscale-controller
       IMG: quay.io/cloudscalech/cluster-api-cloudscale-controller:${{ github.ref_name }}
+      # Keyless Sigstore signing identity
+      ID_REGEXP: '^https://github.com/cloudscale-ch/cluster-api-provider-cloudscale/\.github/workflows/release\.yml@refs/tags/'
+      ISSUER: https://token.actions.githubusercontent.com
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -77,6 +80,15 @@ jobs:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: cosign sign --yes "${IMG_REPO}@${DIGEST}"
 
+      # Verify the signature we just created.
+      - name: Verify the container image signature
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign verify "${IMG_REPO}@${DIGEST}" \
+            --certificate-identity-regexp "$ID_REGEXP" \
+            --certificate-oidc-issuer "$ISSUER"
+
       # SLSA build provenance attestation, pushed to quay and the GitHub
       # attestation store (verifiable with `gh attestation verify`).
       - name: Attest build provenance
@@ -85,6 +97,15 @@ jobs:
           subject-name: ${{ env.IMG_REPO }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+
+      # Verify the provenance attestation we just pushed.
+      - name: Verify build provenance attestation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          gh attestation verify "oci://${IMG_REPO}@${DIGEST}" --owner cloudscale-ch \
+            --predicate-type https://slsa.dev/provenance/v1
 
       - name: Generate SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
@@ -105,6 +126,15 @@ jobs:
           sbom-path: sbom.spdx.json
           push-to-registry: true
 
+      # Verify the SBOM attestation we just pushed.
+      - name: Verify SBOM attestation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          gh attestation verify "oci://${IMG_REPO}@${DIGEST}" --owner cloudscale-ch \
+            --predicate-type https://spdx.dev/Document/v2.3
+
       - name: Build release manifests
         run: make release-manifests IMG=$IMG
 
@@ -117,13 +147,14 @@ jobs:
             --bundle checksums.txt.bundle \
             checksums.txt
 
-      # Verify the signature we just created
-      - name: Verify blob
+      # Verify the files match the checksums, and the signature we just created.
+      - name: Verify checksums and blob signature
         run: |
           cd dist
+          sha256sum -c checksums.txt
           cosign verify-blob --bundle checksums.txt.bundle \
-            --certificate-identity-regexp '^https://github.com/cloudscale-ch/cluster-api-provider-cloudscale/\.github/workflows/release\.yml@refs/tags/' \
-            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity-regexp "$ID_REGEXP" \
+            --certificate-oidc-issuer "$ISSUER" \
             checksums.txt
 
       # SLSA provenance for the release manifest files (GitHub attestation store;
@@ -132,6 +163,16 @@ jobs:
         uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
         with:
           subject-path: 'dist/*.yaml'
+
+      # Verify the provenance attestations we just created for each manifest.
+      - name: Verify release manifests provenance
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for f in dist/*.yaml; do
+            gh attestation verify "$f" --owner cloudscale-ch \
+              --predicate-type https://slsa.dev/provenance/v1
+          done
 
       - name: Create GitHub Release
         env:
