@@ -83,6 +83,41 @@ cluster-template file, so the `quick-start` ClusterClass in
 `templates/cluster-class.yaml` must also be applied separately (or bundled with
 a kustomize overlay).
 
+## Deploying locally without Tilt
+
+For a quick manual check of a locally-built image, without pulling in the Tilt toolchain,
+deploy CAPCS with the plain kubebuilder-scaffold targets against a `kind` cluster:
+
+```bash
+kind create cluster --name capcs-mgmt
+
+# example.invalid never resolves and the datetime suffix is unique per build.
+# Together, `make deploy` can only succeed by running the image `kind load` just put on the
+# node, never by pulling from a registry or reusing a stale cached image of the same name
+# (config/manager/kustomization.yaml otherwise defaults to quay.io/cloudscalech/capcs-staging,
+# and imagePullPolicy: IfNotPresent would happily reuse a same-tagged image without telling you).
+export IMG=example.invalid/capcs/manager:dev-$(date +%Y%m%d%H%M%S)
+make docker-build IMG=$IMG
+kind load docker-image $IMG --name capcs-mgmt
+
+# Core CAPI + kubeadm bootstrap + kubeadm control-plane only. CAPCS itself is
+# about to be deployed from the local build below, not from a published release.
+clusterctl init
+
+export CLOUDSCALE_API_TOKEN=<your-api-token>
+make install
+make deploy IMG=$IMG
+```
+
+`make deploy` also runs `kustomize edit set image` directly against
+`config/manager/kustomization.yaml`, so it leaves that file locally modified (pointing at
+whatever `IMG` you last deployed) — this is standard kubebuilder-scaffold behavior, not specific
+to CAPCS. Revert it once you're done: 
+
+```
+git checkout -- config/manager/kustomization.yaml
+```
+
 ## Tilt
 
 The fastest inner loop is Cluster API's
