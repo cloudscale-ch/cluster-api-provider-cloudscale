@@ -103,6 +103,21 @@ ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 GINKGO ?= $(LOCALBIN)/ginkgo
 GOVULNCHECK ?= $(LOCALBIN)/govulncheck
+CLUSTERCTL ?= clusterctl
+
+## Local development (clusterctl) configuration
+DEV_KIND_CLUSTER ?= capcs-mgmt
+# example.invalid never resolves, so imagePullPolicy: IfNotPresent can only use the kind-loaded image.
+DEV_IMG ?= example.invalid/capcs/manager:dev
+# Must match a release series in metadata.yaml (currently 1.0 / v1beta2).
+DEV_PROVIDER_VERSION ?= v1.0.99
+# clusterctl reads its overrides layer from $$XDG_CONFIG_HOME/cluster-api/overrides and falls back
+# to ~/.cluster-api/overrides when that directory does not exist. Careful: the XDG library clusterctl
+# uses resolves $$XDG_CONFIG_HOME to ~/Library/Application Support on macOS (NOT ~/.config), so the
+# home-dir fallback below is the location that behaves the same on Linux and macOS. Point
+# CLUSTERCTL_OVERRIDES_DIR at your XDG overrides dir if you deliberately keep one.
+CLUSTERCTL_OVERRIDES_DIR ?= $(HOME)/.cluster-api/overrides
+DEV_OVERRIDES_DIR := $(CLUSTERCTL_OVERRIDES_DIR)/infrastructure-cloudscale-ch-cloudscale/$(DEV_PROVIDER_VERSION)
 
 ##@ E2E Testing
 
@@ -346,30 +361,36 @@ release-manifests: build-installer ## Build all release artifacts into dist/ (in
 	cp templates/cluster-template*.yaml dist/
 	cp templates/cluster-class*.yaml dist/
 
-##@ Deployment
+##@ Local development
+# These targets install CAPCS to a local kind cluster which gets created on the fly when invoking `dev-deploy`.
 
-ifndef ignore-not-found
-  ignore-not-found = false
-endif
+.PHONY: dev-kind-cluster
+dev-kind-cluster: ## Create the dev kind management cluster if it does not exist.
+	@$(KIND) get clusters | grep -qx $(DEV_KIND_CLUSTER) || $(KIND) create cluster --name $(DEV_KIND_CLUSTER)
 
-.PHONY: install
-install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
-	@out="$$( "$(KUSTOMIZE)" build config/crd 2>/dev/null || true )"; \
-	if [ -n "$$out" ]; then echo "$$out" | "$(KUBECTL)" apply -f -; else echo "No CRDs to install; skipping."; fi
+.PHONY: dev-deploy
+dev-deploy: IMG = $(DEV_IMG)
+dev-deploy: docker-build release-manifests dev-kind-cluster ## Build image and install CAPCS into a local kind cluster via clusterctl's overrides layer (requires CLOUDSCALE_API_TOKEN).
+	git checkout -- config/manager/kustomization.yaml   # release-manifests/build-installer mutates this
+	$(KIND) load docker-image $(IMG) --name $(DEV_KIND_CLUSTER)
+	mkdir -p "$(DEV_OVERRIDES_DIR)"
+	cp dist/infrastructure-components.yaml dist/metadata.yaml dist/cluster-template*.yaml dist/cluster-class*.yaml "$(DEV_OVERRIDES_DIR)/"
+	$(KIND) export kubeconfig --name $(DEV_KIND_CLUSTER)
+	$(CLUSTERCTL) init --infrastructure cloudscale-ch-cloudscale:$(DEV_PROVIDER_VERSION)
 
-.PHONY: uninstall
-uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	@out="$$( "$(KUSTOMIZE)" build config/crd 2>/dev/null || true )"; \
-	if [ -n "$$out" ]; then echo "$$out" | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -; else echo "No CRDs to delete; skipping."; fi
+.PHONY: dev-redeploy
+dev-redeploy: IMG = $(DEV_IMG)
+dev-redeploy: docker-build ## Rebuild the manager image and restart CAPCS in the kind cluster.
+	$(KIND) load docker-image $(IMG) --name $(DEV_KIND_CLUSTER)
+	$(KUBECTL) -n capcs-system rollout restart deployment/capcs-controller-manager
+	$(KUBECTL) -n capcs-system rollout status deployment/capcs-controller-manager
 
-.PHONY: deploy
-deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config (requires CLOUDSCALE_API_TOKEN to be exported).
-	cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG}
-	"$(KUSTOMIZE)" build config/default | envsubst '$$CLOUDSCALE_API_TOKEN' | "$(KUBECTL)" apply -f -
+.PHONY: dev-clean
+dev-clean: ## Tear down the dev kind cluster and remove the dev provider overrides.
+	-$(KIND) delete cluster --name $(DEV_KIND_CLUSTER)
+	-rm -rf "$(DEV_OVERRIDES_DIR)"
 
-.PHONY: undeploy
-undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -
+##@ Tooling
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.8.1
