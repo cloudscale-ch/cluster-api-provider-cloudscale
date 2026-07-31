@@ -83,49 +83,12 @@ cluster-template file, so the `quick-start` ClusterClass in
 `templates/cluster-class.yaml` must also be applied separately (or bundled with
 a kustomize overlay).
 
-## Deploying locally without Tilt
-
-For a quick manual check of a locally-built image, without pulling in the Tilt toolchain,
-deploy CAPCS with the plain kubebuilder-scaffold targets against a `kind` cluster:
-
-```bash
-kind create cluster --name capcs-mgmt
-
-# example.invalid never resolves and the datetime suffix is unique per build.
-# Together, `make deploy` can only succeed by running the image `kind load` just put on the
-# node, never by pulling from a registry or reusing a stale cached image of the same name
-# (config/manager/kustomization.yaml otherwise defaults to quay.io/cloudscalech/capcs-staging,
-# and imagePullPolicy: IfNotPresent would happily reuse a same-tagged image without telling you).
-export IMG=example.invalid/capcs/manager:dev-$(date +%Y%m%d%H%M%S)
-make docker-build IMG=$IMG
-kind load docker-image $IMG --name capcs-mgmt
-
-# Core CAPI + kubeadm bootstrap + kubeadm control-plane only. CAPCS itself is
-# about to be deployed from the local build below, not from a published release.
-clusterctl init
-
-export CLOUDSCALE_API_TOKEN=<your-api-token>
-make install
-make deploy IMG=$IMG
-```
-
-`make deploy` also runs `kustomize edit set image` directly against
-`config/manager/kustomization.yaml`, so it leaves that file locally modified (pointing at
-whatever `IMG` you last deployed) — this is standard kubebuilder-scaffold behavior, not specific
-to CAPCS. Revert it once you're done: 
-
-```
-git checkout -- config/manager/kustomization.yaml
-```
-
 ## Tilt
 
-The fastest inner loop is Cluster API's
-[Tilt setup](https://cluster-api.sigs.k8s.io/developer/core/tilt.html). It runs
-out of a local clone of [cluster-api](https://github.com/kubernetes-sigs/cluster-api),
-**not** out of this repository.
+The best way to develop CAPCS is using Cluster APIs [Tilt setup](https://cluster-api.sigs.k8s.io/developer/core/tilt.html). It runs
+out of a local clone of [cluster-api](https://github.com/kubernetes-sigs/cluster-api), **not** out of this repository.
 
-Drop a `tilt-settings.yaml` next to the cluster-api checkout:
+Drop a `tilt-settings.yaml` into the cluster-api directory:
 
 ```yaml
 default_registry: ""
@@ -166,7 +129,7 @@ template_dirs:
 #  - tempo
 ```
 
-Then `tilt up` from the cluster-api checkout.
+Then `tilt up` from the cluster-api directory.
 
 The `deploy_observability` block is processed by the cluster-api Tiltfile and
 brings up Prometheus, Grafana, Tempo, and friends in the management cluster;
@@ -175,6 +138,33 @@ for what each component does and how to reach the resulting UIs. CAPCS's
 `ServiceMonitor` is auto-discovered once the prometheus kustomization is
 enabled. For production metric/tracing setup, see
 [Observability](observability.md).
+
+## Deploying locally without Tilt
+
+For a quick manual check of a locally-built image, without pulling in the Tilt toolchain,
+deploy CAPCS against a `kind` cluster:
+
+```bash
+# create kind cluster and deploy cluster api and capcs with a locally built image
+make dev-deploy
+
+# re-deploy in case you made changes
+make dev-redeploy
+
+# clean up the kind cluster
+make dev-clean
+```
+
+By default `dev-deploy` writes clusterctl overrides to `~/.cluster-api/overrides` (`CLUSTERCTL_OVERRIDES_DIR`). That is
+the home-dir location clusterctl falls back to on both Linux and macOS. Note that
+clusterctl actually prefers `$XDG_CONFIG_HOME/cluster-api/overrides` and only falls back
+to the home dir when that directory does **not** exist. 
+If you keep an XDG overrides directory (e.g. you exported
+`XDG_CONFIG_HOME`), point the targets at it:
+
+```bash
+make dev-deploy CLUSTERCTL_OVERRIDES_DIR="$XDG_CONFIG_HOME/cluster-api/overrides"
+```
 
 ## Tests
 
