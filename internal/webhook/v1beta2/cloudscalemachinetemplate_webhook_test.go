@@ -17,9 +17,15 @@ limitations under the License.
 package v1beta2
 
 import (
+	"context"
 	"testing"
 
 	. "github.com/onsi/gomega"
+
+	admissionv1 "k8s.io/api/admission/v1"
+	"k8s.io/utils/ptr"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/testutils"
@@ -52,6 +58,13 @@ func newMachineTemplateWebhookTestObjects() (
 		},
 	}
 	return
+}
+
+// ctxWithDryRun returns a context carrying an admission.Request with the given dry-run flag.
+func ctxWithDryRun(dryRun bool) context.Context {
+	return admission.NewContextWithRequest(context.Background(), admission.Request{
+		AdmissionRequest: admissionv1.AdmissionRequest{DryRun: ptr.To(dryRun)},
+	})
 }
 
 // ============================================================================
@@ -116,7 +129,7 @@ func TestMachineTemplateValidateUpdate_FlavorChange(t *testing.T) {
 	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: testutils.NewTestFlavorInfo()}
 	obj.Spec.Template.Spec.Flavor = "flex-16-8"
 
-	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+	_, err := validator.ValidateUpdate(ctxWithDryRun(false), oldObj, obj)
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("spec.template.spec"))
 }
@@ -127,7 +140,48 @@ func TestMachineTemplateValidateUpdate_ImageChange(t *testing.T) {
 	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: testutils.NewTestFlavorInfo()}
 	obj.Spec.Template.Spec.Image = "ubuntu-22.04"
 
-	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+	_, err := validator.ValidateUpdate(ctxWithDryRun(false), oldObj, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("spec.template.spec"))
+}
+
+// A spec change during a topology dry-run (annotation set + DryRun=true) must be allowed,
+// so the topology controller can detect the diff and rotate the template.
+func TestMachineTemplateValidateUpdate_DryRunSkipsImmutability(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj := newMachineTemplateWebhookTestObjects()
+	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: testutils.NewTestFlavorInfo()}
+
+	obj.Spec.Template.Spec.Flavor = "flex-16-8"
+	obj.SetAnnotations(map[string]string{clusterv1.TopologyDryRunAnnotation: ""})
+
+	_, err := validator.ValidateUpdate(ctxWithDryRun(true), oldObj, obj)
+	g.Expect(err).NotTo(HaveOccurred())
+}
+
+// Dry-run without the topology annotation must be rejected (not a topology rotation).
+func TestMachineTemplateValidateUpdate_DryRunWithoutAnnotationStillImmutable(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj := newMachineTemplateWebhookTestObjects()
+	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: testutils.NewTestFlavorInfo()}
+
+	obj.Spec.Template.Spec.Flavor = "flex-16-8"
+
+	_, err := validator.ValidateUpdate(ctxWithDryRun(true), oldObj, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("spec.template.spec"))
+}
+
+// Non-dry-run with the annotation must be rejected since it would be a real write.
+func TestMachineTemplateValidateUpdate_AnnotationSetButNotDryRunStillImmutable(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj := newMachineTemplateWebhookTestObjects()
+	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: testutils.NewTestFlavorInfo()}
+
+	obj.Spec.Template.Spec.Flavor = "flex-16-8"
+	obj.SetAnnotations(map[string]string{clusterv1.TopologyDryRunAnnotation: ""})
+
+	_, err := validator.ValidateUpdate(ctxWithDryRun(false), oldObj, obj)
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("spec.template.spec"))
 }

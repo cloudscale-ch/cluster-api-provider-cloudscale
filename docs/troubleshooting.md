@@ -132,7 +132,7 @@ Other validations that commonly trip people up:
 | `exactly one of ipFamily or ip must be specified` on `floatingIP`       | Set `ipFamily` to let CAPCS allocate, or `ip` to reuse a pre-existing floating IP                                                                        |
 | `field is immutable after cluster creation`                             | Most cloudscale-side topology fields (region, zone, networks, floating IP, etc.) cannot be changed once the cluster exists                               |
 | `field is immutable` on `CloudscaleMachine.spec`                        | Most machine spec fields (flavor, image, server group, …) cannot be changed once the machine exists — recreate via `MachineDeployment` rollout instead   |
-| `CloudscaleClusterTemplate.Spec is immutable`                           | Override `quick-start` ClusterClass variables on the `Cluster` (`spec.topology.variables`) instead of mutating the `CloudscaleClusterTemplate` directly. |
+| `field is immutable` on `CloudscaleMachineTemplate.spec`                  | On non-topology clusters the template spec cannot be edited in place — create a new template and update the reference. On ClusterClass topology clusters, change the variable in `Cluster.spec.topology.variables` and the topology controller rotates the template automatically. |
 
 When in doubt, run `kubectl explain cloudscalecluster.spec.<field>` — the
 generated CRDs carry the rules the webhook enforces.

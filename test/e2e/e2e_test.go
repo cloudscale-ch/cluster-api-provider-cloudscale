@@ -19,8 +19,21 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
+	"fmt"
+	"path/filepath"
+
 	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/utils/ptr"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	capi_e2e "sigs.k8s.io/cluster-api/test/e2e"
+	"sigs.k8s.io/cluster-api/test/framework"
+	"sigs.k8s.io/cluster-api/test/framework/clusterctl"
+	"sigs.k8s.io/cluster-api/util"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // Workload cluster lifecycle tests verify basic cluster provisioning on cloudscale.
@@ -80,6 +93,101 @@ var _ = Describe("Workload cluster-class topology", Label("topology"), func() {
 				WorkerMachineCount:       new(int64(1)),
 				PostMachinesProvisioned:  validateCloudscaleResources,
 			}
+		})
+	})
+})
+
+// Topology variable rotation tests verify that changing a ClusterClass variable
+// that patches a CloudscaleMachineTemplate field triggers template rotation instead
+// of failing with an immutability error.
+var _ = Describe("Topology variable rotation", Label("topology", "rotation"), func() {
+	Context("With ClusterClass topology", func() {
+		var (
+			namespace        *corev1.Namespace
+			cancelWatches    context.CancelFunc
+			clusterResources *clusterctl.ApplyClusterTemplateAndWaitResult
+		)
+
+		BeforeEach(func() {
+			namespace, cancelWatches = framework.SetupSpecNamespace(ctx, "topology-variable-rotation", bootstrapClusterProxy, artifactFolder, nil)
+			clusterResources = new(clusterctl.ApplyClusterTemplateAndWaitResult)
+		})
+
+		It("Should rotate CloudscaleMachineTemplate when worker flavor changes", func() {
+			By("Creating a workload cluster with topology")
+			clusterName := fmt.Sprintf("topology-rotation-%s", util.RandomString(6))
+			clusterctl.ApplyClusterTemplateAndWait(ctx, clusterctl.ApplyClusterTemplateAndWaitInput{
+				ClusterProxy: bootstrapClusterProxy,
+				ConfigCluster: clusterctl.ConfigClusterInput{
+					LogFolder:                filepath.Join(artifactFolder, "clusters", bootstrapClusterProxy.GetName()),
+					ClusterctlConfigPath:     clusterctlConfigPath,
+					KubeconfigPath:           bootstrapClusterProxy.GetKubeconfigPath(),
+					InfrastructureProvider:   "cloudscale-ch-cloudscale",
+					Flavor:                   "topology",
+					Namespace:                namespace.Name,
+					ClusterName:              clusterName,
+					KubernetesVersion:        e2eConfig.MustGetVariable("KUBERNETES_VERSION"),
+					ControlPlaneMachineCount: ptr.To[int64](1),
+					WorkerMachineCount:       ptr.To[int64](1),
+				},
+				WaitForClusterIntervals:      e2eConfig.GetIntervals("topology", "wait-cluster"),
+				WaitForControlPlaneIntervals: e2eConfig.GetIntervals("topology", "wait-control-plane"),
+				WaitForMachineDeployments:    e2eConfig.GetIntervals("topology", "wait-worker-nodes"),
+				PostMachinesProvisioned: func() {
+					validateCloudscaleResources(bootstrapClusterProxy, namespace.Name, clusterName)
+				},
+			}, clusterResources)
+
+			By("Getting the initial MachineDeployment")
+			cluster := clusterResources.Cluster
+			Expect(cluster.Spec.Topology.Workers.MachineDeployments).To(HaveLen(1))
+			mdTopologyName := cluster.Spec.Topology.Workers.MachineDeployments[0].Name
+
+			mdList := &clusterv1.MachineDeploymentList{}
+			Expect(bootstrapClusterProxy.GetClient().List(ctx, mdList,
+				client.InNamespace(namespace.Name),
+				client.MatchingLabels{clusterv1.ClusterTopologyMachineDeploymentNameLabel: mdTopologyName})).To(Succeed())
+			Expect(mdList.Items).To(HaveLen(1))
+			md := mdList.Items[0]
+			initialTemplateRef := md.Spec.Template.Spec.InfrastructureRef
+
+			By("Modifying the worker flavor topology variable")
+			const workerMachineFlavorVariableName = "cloudscaleWorkerMachineFlavor"
+
+			originalCluster := cluster.DeepCopy()
+			found := false
+			for i := range cluster.Spec.Topology.Variables {
+
+				if cluster.Spec.Topology.Variables[i].Name == workerMachineFlavorVariableName {
+					cluster.Spec.Topology.Variables[i] = clusterv1.ClusterVariable{
+						Name:  workerMachineFlavorVariableName,
+						Value: apiextensionsv1.JSON{Raw: []byte(`"flex-8-4"`)},
+					}
+					found = true
+					break
+				}
+			}
+			Expect(found).To(BeTrue(), workerMachineFlavorVariableName+" variable not found in Cluster topology")
+			Expect(bootstrapClusterProxy.GetClient().Patch(ctx, cluster, client.MergeFrom(originalCluster))).To(Succeed())
+
+			By("Waiting for new CloudscaleMachineTemplate to be created")
+			Eventually(func(g Gomega) {
+				mdList := &clusterv1.MachineDeploymentList{}
+				g.Expect(bootstrapClusterProxy.GetClient().List(ctx, mdList,
+					client.InNamespace(namespace.Name),
+					client.MatchingLabels{clusterv1.ClusterTopologyMachineDeploymentNameLabel: mdTopologyName})).To(Succeed())
+				g.Expect(mdList.Items).To(HaveLen(1))
+
+				currentMD := mdList.Items[0]
+				g.Expect(currentMD.Spec.Template.Spec.InfrastructureRef.Name).ToNot(Equal(initialTemplateRef.Name),
+					"MachineDeployment should reference a new CloudscaleMachineTemplate after rotation")
+			}, e2eConfig.GetIntervals("topology", "wait-worker-nodes")...).Should(Succeed())
+
+			By("PASSED!")
+		})
+
+		AfterEach(func() {
+			framework.DumpSpecResourcesAndCleanup(ctx, "topology-variable-rotation", bootstrapClusterProxy, clusterctlConfigPath, artifactFolder, namespace, cancelWatches, clusterResources.Cluster, e2eConfig.GetIntervals, skipCleanup)
 		})
 	})
 })

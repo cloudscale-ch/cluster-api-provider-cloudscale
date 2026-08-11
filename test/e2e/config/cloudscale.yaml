@@ -103,6 +103,11 @@ intervals:
   default/wait-control-plane: ["20m", "30s"]
   default/wait-worker-nodes: ["15m", "30s"]
 
+  # Topology variable rotation
+  topology/wait-cluster: ["15m", "30s"]
+  topology/wait-control-plane: ["20m", "30s"]
+  topology/wait-worker-nodes: ["15m", "30s"]
+
   # Machine operations
   default/wait-machine-status: ["10m", "30s"]
   default/wait-machine-remediation: ["15m", "30s"]

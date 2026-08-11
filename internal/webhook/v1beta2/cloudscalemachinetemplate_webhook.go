@@ -18,11 +18,13 @@ package v1beta2
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"sigs.k8s.io/cluster-api/util/topology"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -88,15 +90,28 @@ func (v *CloudscaleMachineTemplateCustomValidator) ValidateCreate(_ context.Cont
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type CloudscaleMachineTemplate.
-func (v *CloudscaleMachineTemplateCustomValidator) ValidateUpdate(_ context.Context, oldObj, newObj *infrastructurev1beta2.CloudscaleMachineTemplate) (admission.Warnings, error) {
+func (v *CloudscaleMachineTemplateCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj *infrastructurev1beta2.CloudscaleMachineTemplate) (admission.Warnings, error) {
 	cloudscalemachinetemplatelog.Info("Validation for CloudscaleMachineTemplate upon update", "name", newObj.GetName())
 
-	// MachineTemplate spec is fully immutable (CAPI convention).
-	if !reflect.DeepEqual(newObj.Spec.Template.Spec, oldObj.Spec.Template.Spec) {
-		var allErrs = make(field.ErrorList, 0, 1)
-		allErrs = append(allErrs, field.Forbidden(
-			field.NewPath("spec", "template", "spec"),
-			"field is immutable"))
+	// The CAPI topology controller performs an SSA dry-run against the existing template to
+	// detect whether a template rotation is required (e.g. after a ClusterClass variable change).
+	// When it does so it sets the TopologyDryRunAnnotation. In that specific case we must skip the
+	// immutability check so the dry-run succeeds and the controller can rotate the template.
+	// This is a mandatory part of the CAPI InfraMachineTemplate contract for ClusterClass support.
+	// See: https://cluster-api.sigs.k8s.io/developer/providers/contracts/infra-machine
+	req, err := admission.RequestFromContext(ctx)
+	if err != nil {
+		return nil, apierrors.NewBadRequest(fmt.Sprintf("expected an admission.Request inside context: %v", err))
+	}
+
+	// MachineTemplate spec is fully immutable (CAPI convention) except during a topology dry-run.
+	if !topology.IsDryRunRequest(req, newObj) &&
+		!reflect.DeepEqual(newObj.Spec.Template.Spec, oldObj.Spec.Template.Spec) {
+		allErrs := field.ErrorList{
+			field.Forbidden(
+				field.NewPath("spec", "template", "spec"),
+				"field is immutable"),
+		}
 		return nil, apierrors.NewInvalid(
 			schema.GroupKind{Group: infrastructurev1beta2.SchemeGroupVersion.Group, Kind: "CloudscaleMachineTemplate"},
 			newObj.Name, allErrs)
