@@ -90,6 +90,11 @@ func WithSubnetService(svc cloudscale.SubnetService) ClusterScopeOption {
 	return func(cs *scope.ClusterScope) { cs.CloudscaleClient.Subnets = svc }
 }
 
+// WithRouterService wires a custom Router service into the client.
+func WithRouterService(svc cloudscale.RouterService) ClusterScopeOption {
+	return func(cs *scope.ClusterScope) { cs.CloudscaleClient.Routers = svc }
+}
+
 // WithServerGroupService wires a custom ServerGroup service into the client.
 func WithServerGroupService(svc cloudscale.ServerGroupService) ClusterScopeOption {
 	return func(cs *scope.ClusterScope) { cs.CloudscaleClient.ServerGroups = svc }

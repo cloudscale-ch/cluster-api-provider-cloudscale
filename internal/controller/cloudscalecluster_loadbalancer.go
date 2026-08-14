@@ -525,10 +525,20 @@ func (r *CloudscaleClusterReconciler) getMemberSubnetCIDR(clusterScope *scope.Cl
 }
 
 // getPoolMemberSubnetID determines the subnet UUID for LB pool members.
-// If the LB is on a private network, use that network's subnet.
-// Otherwise (public LB), use the first network's subnet.
+// An explicit PoolMemberNetwork wins (decoupled from VIP placement, e.g. a
+// public VIP with private control-plane nodes, or a private VIP on a dedicated
+// access network). Otherwise, if the LB is on a private network, use that
+// network's subnet; else (public LB) use the first network's subnet.
 func (r *CloudscaleClusterReconciler) getPoolMemberSubnetID(clusterScope *scope.ClusterScope) (string, error) {
-	if clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Network != "" {
+	lb := clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer
+	if lb.PoolMemberNetwork != "" {
+		ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus(lb.PoolMemberNetwork)
+		if ns == nil || ns.SubnetID == "" {
+			return "", fmt.Errorf("pool member network %q not yet provisioned", lb.PoolMemberNetwork)
+		}
+		return ns.SubnetID, nil
+	}
+	if lb.Network != "" {
 		return lbPrivateNetworkSubnetID(clusterScope)
 	}
 

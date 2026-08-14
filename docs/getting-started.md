@@ -119,6 +119,7 @@ Set them in your shell, or keep them in `clusterctl.yaml` alongside the token.
 | `fip`                     | Pre-existing             | Floating IP, IPv4      | Public + cluster  | `CLOUDSCALE_NETWORK_UUID`                            |
 | `pre-existing-network`    | Pre-existing             | Public LB, DualStack   | Public + cluster  | `CLOUDSCALE_NETWORK_UUID`                            |
 | `public-lb-private-nodes` | Pre-existing + NAT       | Public LB              | Private only      | `CLOUDSCALE_NETWORK_UUID`, with a NAT gateway set up |
+| `router-nat`              | Managed + managed router | Public LB              | Private only      | —                                                    |
 | `topology`                | Managed, `172.18.0.0/24` | Public LB, DualStack   | Public + cluster  | `CLUSTER_TOPOLOGY=true` feature gate                 |
 
 These flavors just show possible configurations. You're encouraged to copy and adjust them to your needs.

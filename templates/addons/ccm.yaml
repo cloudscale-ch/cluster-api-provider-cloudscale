@@ -153,7 +153,7 @@ data:
                 - "--concurrent-service-syncs=2"
               env:
                 - name: CLOUDSCALE_API_URL
-                  value: https://api.cloudscale.ch/
+                  value: "${CLOUDSCALE_API_URL}"
                 - name: CLOUDSCALE_ACCESS_TOKEN
                   valueFrom:
                     secretKeyRef:

@@ -1,0 +1,166 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: "${CLUSTER_NAME}-credentials"
+  namespace: "${NAMESPACE}"
+type: Opaque
+stringData:
+  token: "${CLOUDSCALE_API_TOKEN}"
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: "${CLUSTER_NAME}"
+  namespace: "${NAMESPACE}"
+  labels:
+    ccm: cloudscale
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks: ["192.168.0.0/16"]
+    services:
+      cidrBlocks: ["10.96.0.0/12"]
+    serviceDomain: "cluster.local"
+  infrastructureRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: CloudscaleCluster
+    name: "${CLUSTER_NAME}"
+  controlPlaneRef:
+    apiGroup: controlplane.cluster.x-k8s.io
+    kind: KubeadmControlPlane
+    name: "${CLUSTER_NAME}-control-plane"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+kind: CloudscaleCluster
+metadata:
+  name: "${CLUSTER_NAME}"
+  namespace: "${NAMESPACE}"
+spec:
+  region: "${CLOUDSCALE_REGION}"
+  networks:
+  - name: "${CLUSTER_NAME}"
+    cidr: "10.10.0.0/24"
+    # gatewayAddress is auto-defaulted to 10.10.0.3 by the admission webhook
+    # when a router interface references this network (cloudscale.ch reserves .1 and .2 for DNS)
+  routers:
+  - name: "${CLUSTER_NAME}-router"
+    internetGateway: true  # enables SNAT for outbound internet access
+    interfaces:
+    - network: "${CLUSTER_NAME}"
+  credentialsRef:
+    name: "${CLUSTER_NAME}-credentials"
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1beta2
+kind: KubeadmControlPlane
+metadata:
+  name: "${CLUSTER_NAME}-control-plane"
+  namespace: "${NAMESPACE}"
+spec:
+  replicas: ${CONTROL_PLANE_MACHINE_COUNT:=1}
+  version: "${KUBERNETES_VERSION}"
+  machineTemplate:
+    spec:
+      infrastructureRef:
+        apiGroup: infrastructure.cluster.x-k8s.io
+        kind: CloudscaleMachineTemplate
+        name: "${CLUSTER_NAME}-control-plane"
+  kubeadmConfigSpec:
+    initConfiguration:
+      nodeRegistration:
+        kubeletExtraArgs:
+          - name: cloud-provider
+            value: external
+    joinConfiguration:
+      nodeRegistration:
+        kubeletExtraArgs:
+          - name: cloud-provider
+            value: external
+    users:
+      - name: capi
+        groups: sudo
+        shell: "/bin/bash"
+        sudo: "ALL=(ALL) NOPASSWD:ALL"
+        sshAuthorizedKeys:
+          - "${CLOUDSCALE_SSH_PUBLIC_KEY}"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+kind: CloudscaleMachineTemplate
+metadata:
+  name: "${CLUSTER_NAME}-control-plane"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      flavor: "${CLOUDSCALE_CONTROL_PLANE_MACHINE_FLAVOR}"
+      image: "${CLOUDSCALE_MACHINE_IMAGE}"
+      rootVolumeSize: ${CLOUDSCALE_ROOT_VOLUME_SIZE}
+      serverGroup:
+        name: "${CLUSTER_NAME}-control-plane"
+      interfaces:
+        - network: "${CLUSTER_NAME}"
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: MachineDeployment
+metadata:
+  name: "${CLUSTER_NAME}-md-0"
+  namespace: "${NAMESPACE}"
+spec:
+  clusterName: "${CLUSTER_NAME}"
+  replicas: ${WORKER_MACHINE_COUNT:=2}
+  selector:
+    matchLabels:
+  template:
+    spec:
+      clusterName: "${CLUSTER_NAME}"
+      version: "${KUBERNETES_VERSION}"
+      bootstrap:
+        configRef:
+          name: "${CLUSTER_NAME}-md-0"
+          apiGroup: bootstrap.cluster.x-k8s.io
+          kind: KubeadmConfigTemplate
+      infrastructureRef:
+        name: "${CLUSTER_NAME}-md-0"
+        apiGroup: infrastructure.cluster.x-k8s.io
+        kind: CloudscaleMachineTemplate
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+kind: CloudscaleMachineTemplate
+metadata:
+  name: "${CLUSTER_NAME}-md-0"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      flavor: "${CLOUDSCALE_WORKER_MACHINE_FLAVOR}"
+      image: "${CLOUDSCALE_MACHINE_IMAGE}"
+      rootVolumeSize: ${CLOUDSCALE_ROOT_VOLUME_SIZE}
+      serverGroup:
+        name: "${CLUSTER_NAME}-md-0"
+      interfaces:
+        - network: "${CLUSTER_NAME}"
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
+kind: KubeadmConfigTemplate
+metadata:
+  name: "${CLUSTER_NAME}-md-0"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      initConfiguration:
+        nodeRegistration:
+          kubeletExtraArgs:
+            - name: cloud-provider
+              value: external
+      joinConfiguration:
+        nodeRegistration:
+          kubeletExtraArgs:
+            - name: cloud-provider
+              value: external
+      users:
+        - name: capi
+          groups: sudo
+          shell: "/bin/bash"
+          sudo: "ALL=(ALL) NOPASSWD:ALL"
+          sshAuthorizedKeys:
+            - "${CLOUDSCALE_SSH_PUBLIC_KEY}"

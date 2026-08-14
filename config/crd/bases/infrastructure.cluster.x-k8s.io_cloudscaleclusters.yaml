@@ -154,8 +154,18 @@ spec:
                     description: |-
                       Network places the LB VIP on a private network (internal LB).
                       References spec.networks[].name. Omit for a public LB.
-                      When multiple networks are defined this field is required so the LB
-                      pool members can be registered against a specific subnet.
+                      When multiple networks are defined, either this field or PoolMemberNetwork
+                      must be set so the LB pool members can be registered against a specific
+                      subnet.
+                    type: string
+                  poolMemberNetwork:
+                    description: |-
+                      PoolMemberNetwork selects the network whose subnet the LB pool members are
+                      registered on (i.e. the network the control-plane machines attach to).
+                      References spec.networks[].name. Defaults to Network when set, else the first
+                      network. Set this when the control-plane nodes live on a different network
+                      than the VIP (Network), e.g. a public VIP with private control-plane nodes,
+                      or a private VIP on a dedicated access network. Immutable after creation.
                     type: string
                 type: object
               credentialsRef:
@@ -222,12 +232,15 @@ spec:
                       type: string
                     gatewayAddress:
                       description: |-
-                        GatewayAddress is the gateway IP address for the subnet.
-                        Only applicable when CIDR is set (managed network).
-                        By default, no gateway is configured on the subnet. This ensures
-                        that outbound internet traffic uses the public network interface.
-                        Set this to a specific IP address (e.g., "10.0.0.1") only if you have configured
-                        a NAT gateway or similar infrastructure on the private network.
+                        GatewayAddress controls the gateway for this network's subnet.
+                        When no router interface references this network: the value is set as the
+                        subnet's static gateway at creation time (empty means no gateway).
+                        When a router interface references this network: the value is requested as
+                        the router interface's IP on the subnet. If empty and a router interface
+                        references this network, CAPCS defaults to network-address + 3, because
+                        cloudscale.ch reserves .1 and .2 for DNS.
+                        In both cases the subnet's gateway is then updated to the actual IP.
+                        Only applicable when CIDR is set (managed network). Immutable after creation.
                       type: string
                     name:
                       description: |-
@@ -258,6 +271,74 @@ spec:
                 - rma
                 - lpg
                 type: string
+              routers:
+                description: |-
+                  Routers define cloudscale.ch routers managed or adopted by CAPCS.
+                  Each router can be attached to one or more networks via its interfaces.
+                  Routers are provisioned after networks and deleted before networks.
+                items:
+                  description: |-
+                    RouterSpec defines a cloudscale.ch router managed or adopted by CAPCS.
+                    Exactly one of UUID (pre-existing) or InternetGateway (managed) governs behaviour.
+                  properties:
+                    interfaces:
+                      description: Interfaces lists the networks this router is attached
+                        to.
+                      items:
+                        description: RouterInterfaceSpec defines a single network
+                          attachment for a router.
+                        properties:
+                          address:
+                            description: |-
+                              Address is the IP requested for this router interface within the referenced
+                              network's subnet. The cloudscale.ch API requires an explicit address per
+                              interface, so the admission webhook defaults this for managed (CIDR) networks:
+                              the ConfigureSubnetGateway owner gets network+3 (mirrored to the network's
+                              gatewayAddress), and additional interfaces on the same network get network+4,
+                              network+5, ... in order. It may be set explicitly to override the default.
+                              Immutable after creation.
+                            type: string
+                          configureSubnetGateway:
+                            default: true
+                            description: |-
+                              ConfigureSubnetGateway, when true (default), sets the subnet's gatewayAddress
+                              to this router interface's assigned IP, making the router the default route for
+                              servers on that subnet.
+                              Set to false for transit/backbone networks where a different router (e.g. the
+                              internet-gateway router) owns the subnet gateway.
+                              Immutable after creation.
+                            type: boolean
+                          network:
+                            description: Network references spec.networks[].name.
+                            type: string
+                        required:
+                        - network
+                        type: object
+                      type: array
+                    internetGateway:
+                      description: |-
+                        InternetGateway enables SNAT for outbound internet access on a managed router.
+                        When false (default), the router performs pure L3 routing between attached networks.
+                        Only valid when UUID is not set. Immutable after creation.
+                      type: boolean
+                    name:
+                      description: Name identifies this router within the cluster.
+                      maxLength: 63
+                      pattern: ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$
+                      type: string
+                    uuid:
+                      description: |-
+                        UUID references a pre-existing cloudscale.ch router by UUID.
+                        CAPCS attaches and detaches interfaces but does not create or delete the router.
+                        Mutually exclusive with InternetGateway. Immutable after creation.
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               zone:
                 description: |-
                   Zone is the cloudscale.ch zone within Region.
@@ -378,6 +459,11 @@ spec:
                         CIDR is the subnet CIDR block.
                         Set from spec for managed networks or discovered from the API for pre-existing networks.
                       type: string
+                    gatewayAddress:
+                      description: |-
+                        GatewayAddress is the subnet gateway IP that CAPCS has configured on the router interface.
+                        Empty until the router interface is attached and the subnet gateway is updated.
+                      type: string
                     managed:
                       description: |-
                         Managed indicates whether CAPCS manages this network's lifecycle.
@@ -406,6 +492,33 @@ spec:
                 format: int64
                 minimum: 1
                 type: integer
+              routers:
+                description: Routers track the provisioned state of each router defined
+                  in spec.routers.
+                items:
+                  description: RouterStatus tracks the provisioned state of a single
+                    router.
+                  properties:
+                    interfaceIDs:
+                      additionalProperties:
+                        type: string
+                      description: |-
+                        InterfaceIDs maps network name to interface UUID for each CAPCS-created interface.
+                        Used during deletion to remove only interfaces CAPCS created on pre-existing routers.
+                      type: object
+                    name:
+                      description: Name matches spec.routers[].name.
+                      type: string
+                    routerID:
+                      description: RouterID is the cloudscale.ch router UUID.
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
             type: object
         required:
         - spec

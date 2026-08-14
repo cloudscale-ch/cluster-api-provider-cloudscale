@@ -32,6 +32,7 @@ import (
 type Client struct {
 	Networks                   NetworkService
 	Subnets                    SubnetService
+	Routers                    RouterService
 	Regions                    RegionService
 	Servers                    ServerService
 	ServerGroups               ServerGroupService
@@ -109,6 +110,7 @@ func NewClient(token, version string, transport http.RoundTripper) *Client {
 	return &Client{
 		Networks:                   sdkClient.Networks,
 		Subnets:                    sdkClient.Subnets,
+		Routers:                    sdkClient.Routers,
 		Regions:                    sdkClient.Regions,
 		Servers:                    sdkClient.Servers,
 		ServerGroups:               sdkClient.ServerGroups,

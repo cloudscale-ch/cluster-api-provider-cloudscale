@@ -61,10 +61,10 @@ func TestMachineReconcileNormal_ServerRunning_SetsProvisioned(t *testing.T) {
 				UUID:          id,
 				Status:        "running",
 				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
-				Interfaces: []cloudscalesdk.Interface{
+				Interfaces: []cloudscalesdk.ServerInterface{
 					{
 						Type: "private",
-						Addresses: []cloudscalesdk.Address{
+						Addresses: []cloudscalesdk.ServerAddress{
 							{Address: "10.0.0.5", Version: 4},
 						},
 					},

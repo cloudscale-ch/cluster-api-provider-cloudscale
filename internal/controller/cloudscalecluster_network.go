@@ -203,6 +203,7 @@ func (r *CloudscaleClusterReconciler) reconcileManagedNetwork(ctx context.Contex
 	}
 
 	r.setNetworkStatus(clusterScope, netSpec.Name, resolvedNetworkID, resolvedSubnetID, netSpec.CIDR, true)
+
 	return ctrl.Result{}, nil
 }
 
@@ -299,6 +300,16 @@ func (r *CloudscaleClusterReconciler) setNetworkStatus(clusterScope *scope.Clust
 		CIDR:      cidr,
 		Managed:   managed,
 	})
+}
+
+// setNetworkGatewayAddress records the configured subnet gateway IP in the network status entry.
+func (r *CloudscaleClusterReconciler) setNetworkGatewayAddress(clusterScope *scope.ClusterScope, networkName, gatewayAddress string) {
+	for i := range clusterScope.CloudscaleCluster.Status.Networks {
+		if clusterScope.CloudscaleCluster.Status.Networks[i].Name == networkName {
+			clusterScope.CloudscaleCluster.Status.Networks[i].GatewayAddress = gatewayAddress
+			return
+		}
+	}
 }
 
 // networkTags returns the tags for a specific named network, combining cluster ownership with network name.

@@ -176,6 +176,13 @@ func (r *CloudscaleClusterReconciler) reconcileNormal(ctx context.Context, clust
 		return result, nil
 	}
 
+	if result, err = r.reconcileRouters(ctx, clusterScope); err != nil || !result.IsZero() {
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("reconciling routers: %w", err)
+		}
+		return result, nil
+	}
+
 	lb, result, err := r.reconcileLoadBalancer(ctx, clusterScope)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("reconciling load balancer: %w", err)
@@ -239,6 +246,12 @@ func (r *CloudscaleClusterReconciler) reconcileDelete(ctx context.Context, clust
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("deleting server groups: %w", err)
+	}
+
+	// Delete routers before the network: a network cannot be
+	// deleted while a router interface is attached to its subnet.
+	if err := r.deleteRouters(ctx, clusterScope); err != nil {
+		return ctrl.Result{}, fmt.Errorf("deleting routers: %w", err)
 	}
 
 	if err := r.deleteNetwork(ctx, clusterScope); err != nil {
@@ -309,6 +322,19 @@ func (r *CloudscaleClusterReconciler) isInfrastructureProvisioned(clusterScope *
 		}
 	}
 
+	// All routers must be provisioned with all interfaces attached.
+	for _, routerSpec := range clusterScope.CloudscaleCluster.Spec.Routers {
+		rs := clusterScope.CloudscaleCluster.Status.GetRouterStatus(routerSpec.Name)
+		if rs == nil || rs.RouterID == "" {
+			return false
+		}
+		for _, iface := range routerSpec.Interfaces {
+			if rs.InterfaceIDs[iface.Network] == "" {
+				return false
+			}
+		}
+	}
+
 	// Load balancer, pool, and listener must exist (if LB is enabled)
 	if ptr.Deref(clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled, true) {
 		if clusterScope.CloudscaleCluster.Status.LoadBalancerID == "" ||
@@ -338,6 +364,7 @@ func (r *CloudscaleClusterReconciler) setReadyCondition(clusterScope *scope.Clus
 	// Check all sub-conditions
 	subConditions := []string{
 		infrastructurev1beta2.NetworkReadyCondition,
+		infrastructurev1beta2.RouterReadyCondition,
 		infrastructurev1beta2.LoadBalancerReadyCondition,
 		infrastructurev1beta2.FloatingIPReadyCondition,
 	}

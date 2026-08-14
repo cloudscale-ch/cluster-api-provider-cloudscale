@@ -256,6 +256,7 @@ func TestSetReadyCondition(t *testing.T) {
 			name: "all sub-conditions True yields Ready=True",
 			subConditions: []metav1.Condition{
 				{Type: infrastructurev1beta2.NetworkReadyCondition, Status: metav1.ConditionTrue, Reason: "Provisioned", ObservedGeneration: 1},
+				{Type: infrastructurev1beta2.RouterReadyCondition, Status: metav1.ConditionTrue, Reason: "RouterDisabled", ObservedGeneration: 1},
 				{Type: infrastructurev1beta2.LoadBalancerReadyCondition, Status: metav1.ConditionTrue, Reason: "Provisioned", ObservedGeneration: 1},
 				{Type: infrastructurev1beta2.FloatingIPReadyCondition, Status: metav1.ConditionTrue, Reason: "Provisioned", ObservedGeneration: 1},
 			},
@@ -266,6 +267,7 @@ func TestSetReadyCondition(t *testing.T) {
 			name: "Network=False propagates reason and message",
 			subConditions: []metav1.Condition{
 				{Type: infrastructurev1beta2.NetworkReadyCondition, Status: metav1.ConditionFalse, Reason: "Provisioning", Message: "Network is being provisioned", ObservedGeneration: 1},
+				{Type: infrastructurev1beta2.RouterReadyCondition, Status: metav1.ConditionTrue, Reason: "RouterDisabled", ObservedGeneration: 1},
 				{Type: infrastructurev1beta2.LoadBalancerReadyCondition, Status: metav1.ConditionTrue, Reason: "Provisioned", ObservedGeneration: 1},
 			},
 			expectStatus:      metav1.ConditionFalse,
@@ -276,6 +278,7 @@ func TestSetReadyCondition(t *testing.T) {
 			name: "LoadBalancer=False propagates reason and message",
 			subConditions: []metav1.Condition{
 				{Type: infrastructurev1beta2.NetworkReadyCondition, Status: metav1.ConditionTrue, Reason: "Provisioned", ObservedGeneration: 1},
+				{Type: infrastructurev1beta2.RouterReadyCondition, Status: metav1.ConditionTrue, Reason: "RouterDisabled", ObservedGeneration: 1},
 				{Type: infrastructurev1beta2.LoadBalancerReadyCondition, Status: metav1.ConditionFalse, Reason: infrastructurev1beta2.LoadBalancerNotReadyReason, Message: "Load balancer is not running", ObservedGeneration: 1},
 			},
 			expectStatus:      metav1.ConditionFalse,

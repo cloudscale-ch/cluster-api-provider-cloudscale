@@ -18,8 +18,10 @@ package v1beta2
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"net"
+	"sort"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -120,6 +122,142 @@ func clusterSpecDefault(spec *infrastructurev1beta2.CloudscaleClusterSpec) {
 	if spec.FloatingIP != nil && spec.FloatingIP.IPFamily == nil && spec.FloatingIP.Address == "" {
 		spec.FloatingIP.IPFamily = new(infrastructurev1beta2.IPFamilyIPv4)
 	}
+
+	defaultRouterInterfaceAddresses(spec)
+}
+
+// defaultRouterInterfaceAddresses assigns a deterministic IP to every router
+// interface attached to a managed (CIDR) network. The cloudscale.ch API requires
+// an explicit address per interface, and reserves the first two host addresses
+// (.1, .2) for DNS, so allocation starts at network-address + 3.
+//
+// The ConfigureSubnetGateway owner gets network+3 (mirrored to the network's
+// GatewayAddress, making the router the subnet's default route); additional
+// interfaces on the same network get network+4, network+5, ... in spec order.
+// Addresses set explicitly are preserved and reserved so defaulting never
+// collides with them.
+func defaultRouterInterfaceAddresses(spec *infrastructurev1beta2.CloudscaleClusterSpec) {
+	// Default configureSubnetGateway to true. The CRD schema default is only
+	// applied after this webhook runs, so a nil pointer here means "unset".
+	for ri := range spec.Routers {
+		for ii := range spec.Routers[ri].Interfaces {
+			iface := &spec.Routers[ri].Interfaces[ii]
+			if iface.ConfigureSubnetGateway == nil {
+				iface.ConfigureSubnetGateway = new(true)
+			}
+		}
+	}
+
+	netByName := make(map[string]*infrastructurev1beta2.NetworkSpec, len(spec.Networks))
+	for i := range spec.Networks {
+		netByName[spec.Networks[i].Name] = &spec.Networks[i]
+	}
+
+	// Group interface pointers by network, preserving spec order.
+	ifacesByNetwork := make(map[string][]*infrastructurev1beta2.RouterInterfaceSpec)
+	orderedNetworks := make([]string, 0)
+	for ri := range spec.Routers {
+		for ii := range spec.Routers[ri].Interfaces {
+			iface := &spec.Routers[ri].Interfaces[ii]
+			if _, seen := ifacesByNetwork[iface.Network]; !seen {
+				orderedNetworks = append(orderedNetworks, iface.Network)
+			}
+			ifacesByNetwork[iface.Network] = append(ifacesByNetwork[iface.Network], iface)
+		}
+	}
+
+	for _, networkName := range orderedNetworks {
+		n := netByName[networkName]
+		if n == nil || n.CIDR == "" {
+			continue // unknown or pre-existing (UUID) network: no CIDR to offset from
+		}
+		ifaces := ifacesByNetwork[networkName]
+
+		used := make(map[string]bool)
+		for _, iface := range ifaces {
+			if iface.Address != "" {
+				used[iface.Address] = true
+			}
+		}
+
+		// Owner (ConfigureSubnetGateway) keeps network+3 and defines the subnet
+		// gateway. Validation guarantees at most one owner per network.
+		for _, iface := range ifaces {
+			if !ptr.Deref(iface.ConfigureSubnetGateway, true) {
+				continue
+			}
+			if iface.Address == "" {
+				if n.GatewayAddress != "" {
+					iface.Address = n.GatewayAddress
+				} else if addr, err := nextFreeHostAddress(n.CIDR, used, 3); err == nil {
+					iface.Address = addr
+				}
+				if iface.Address != "" {
+					used[iface.Address] = true
+				}
+			}
+			if n.GatewayAddress == "" {
+				n.GatewayAddress = iface.Address
+			}
+			break
+		}
+
+		// Siblings get the next free host addresses after the reserved ones
+		// (the owner's network+3 is already in `used`, so they start at network+4).
+		for _, iface := range ifaces {
+			if ptr.Deref(iface.ConfigureSubnetGateway, true) || iface.Address != "" {
+				continue
+			}
+			if addr, err := nextFreeHostAddress(n.CIDR, used, 3); err == nil {
+				iface.Address = addr
+				used[addr] = true
+			}
+		}
+	}
+}
+
+// nextFreeHostAddress returns the first host address at or after network+startOffset
+// that is not already in `used`, staying within the CIDR.
+func nextFreeHostAddress(cidr string, used map[string]bool, startOffset uint32) (string, error) {
+	_, ipNet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return "", fmt.Errorf("parsing CIDR %q: %w", cidr, err)
+	}
+	for off := startOffset; ; off++ {
+		addr, err := hostAddressInNet(ipNet, off)
+		if err != nil {
+			return "", err // ran past the end of the subnet
+		}
+		if !used[addr] {
+			return addr, nil
+		}
+	}
+}
+
+// cidrHostAddress returns the IPv4 host address at network-address + offset within
+// the given CIDR, or an error if the CIDR is not IPv4 or the offset falls outside it.
+func cidrHostAddress(cidr string, offset uint32) (string, error) {
+	_, ipNet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return "", fmt.Errorf("parsing CIDR %q: %w", cidr, err)
+	}
+	return hostAddressInNet(ipNet, offset)
+}
+
+// hostAddressInNet returns the IPv4 host address at network-address + offset within
+// the already-parsed network, or an error if it is not IPv4 or the offset falls outside it.
+func hostAddressInNet(ipNet *net.IPNet, offset uint32) (string, error) {
+	ip4 := ipNet.IP.To4()
+	if ip4 == nil {
+		return "", fmt.Errorf("CIDR %q is not an IPv4 network", ipNet.String())
+	}
+	n := binary.BigEndian.Uint32(ip4) + offset
+	result := make(net.IP, 4)
+	binary.BigEndian.PutUint32(result, n)
+	if !ipNet.Contains(result) {
+		return "", fmt.Errorf("host offset %d is outside CIDR %q", offset, ipNet.String())
+	}
+	return result.String(), nil
 }
 
 // +kubebuilder:webhook:path=/validate-infrastructure-cluster-x-k8s-io-v1beta2-cloudscalecluster,mutating=false,failurePolicy=fail,sideEffects=None,groups=infrastructure.cluster.x-k8s.io,resources=cloudscaleclusters,verbs=create;update,versions=v1beta2,name=vcloudscalecluster-v1beta2.kb.io,admissionReviewVersions=v1
@@ -164,12 +302,24 @@ func clusterSpecValidateCreate(spec infrastructurev1beta2.CloudscaleClusterSpec,
 	// Validate networks
 	allErrs = append(allErrs, validateNetworks(spec.Networks, fldPath.Child("networks"))...)
 
+	// Validate routers
+	allErrs = append(allErrs, validateRouters(spec.Routers, spec.Networks, fldPath.Child("routers"))...)
+
 	// Validate LB network reference
 	if spec.ControlPlaneLoadBalancer.Network != "" {
 		allErrs = append(allErrs, validateNetworkReference(
 			spec.ControlPlaneLoadBalancer.Network,
 			spec.Networks,
 			fldPath.Child("controlPlaneLoadBalancer", "network"),
+		)...)
+	}
+
+	// Validate LB pool-member network reference
+	if spec.ControlPlaneLoadBalancer.PoolMemberNetwork != "" {
+		allErrs = append(allErrs, validateNetworkReference(
+			spec.ControlPlaneLoadBalancer.PoolMemberNetwork,
+			spec.Networks,
+			fldPath.Child("controlPlaneLoadBalancer", "poolMemberNetwork"),
 		)...)
 	}
 
@@ -213,6 +363,11 @@ func (v *CloudscaleClusterCustomValidator) ValidateUpdate(_ context.Context, old
 	// Validate new networks (new entries must still pass creation validation)
 	allErrs = append(allErrs, validateNetworks(newClusterSpec.Networks, field.NewPath("spec", "networks"))...)
 
+	// Router immutability: validate new/changed routers
+	allErrs = append(allErrs, validateRouterImmutability(oldClusterSpec.Routers, newClusterSpec.Routers, newClusterSpec.Networks, field.NewPath("spec", "routers"))...)
+	// Cross-router addressing rules must hold for the updated router set too.
+	allErrs = append(allErrs, validateRouterNetworkAddressing(newClusterSpec.Routers, field.NewPath("spec", "routers"))...)
+
 	// LoadBalancer Enabled is immutable
 	if ptr.Deref(newClusterSpec.ControlPlaneLoadBalancer.Enabled, true) != ptr.Deref(oldClusterSpec.ControlPlaneLoadBalancer.Enabled, true) {
 		allErrs = append(allErrs, field.Forbidden(
@@ -242,6 +397,15 @@ func (v *CloudscaleClusterCustomValidator) ValidateUpdate(_ context.Context, old
 			newClusterSpec.ControlPlaneLoadBalancer.Network,
 			newClusterSpec.Networks,
 			field.NewPath("spec", "controlPlaneLoadBalancer", "network"),
+		)...)
+	}
+
+	// Validate LB pool-member network reference (for new or existing)
+	if newClusterSpec.ControlPlaneLoadBalancer.PoolMemberNetwork != "" {
+		allErrs = append(allErrs, validateNetworkReference(
+			newClusterSpec.ControlPlaneLoadBalancer.PoolMemberNetwork,
+			newClusterSpec.Networks,
+			field.NewPath("spec", "controlPlaneLoadBalancer", "poolMemberNetwork"),
 		)...)
 	}
 
@@ -384,7 +548,7 @@ func validateNetworkImmutability(oldNetworks, newNetworks []infrastructurev1beta
 				"field is immutable after cluster creation"))
 		}
 
-		if newNet.GatewayAddress != oldNet.GatewayAddress {
+		if oldNet.GatewayAddress != "" && newNet.GatewayAddress != oldNet.GatewayAddress {
 			allErrs = append(allErrs, field.Forbidden(
 				newPath.Child("gatewayAddress"),
 				"field is immutable after cluster creation"))
@@ -432,6 +596,7 @@ func validateLBImmutability(oldLB, newLB *infrastructurev1beta2.LoadBalancerSpec
 	forbidIfChanged("algorithm", oldLB.Algorithm, newLB.Algorithm)
 	forbidIfChanged("flavor", oldLB.Flavor, newLB.Flavor)
 	forbidIfChanged("apiServerPort", oldLB.APIServerPort, newLB.APIServerPort)
+	forbidIfChanged("poolMemberNetwork", oldLB.PoolMemberNetwork, newLB.PoolMemberNetwork)
 
 	hmPath := fldPath.Child("healthMonitor")
 	hmForbid := func(child string, oldV, newV int) {
@@ -477,6 +642,9 @@ func validateLBPoolMemberNetworkResolvable(spec infrastructurev1beta2.Cloudscale
 		return nil
 	}
 	if spec.ControlPlaneLoadBalancer.Network != "" {
+		return nil
+	}
+	if spec.ControlPlaneLoadBalancer.PoolMemberNetwork != "" {
 		return nil
 	}
 	if len(spec.Networks) <= 1 {
@@ -563,6 +731,222 @@ func validateGatewayInCIDR(cidr, gateway string, fldPath *field.Path) field.Erro
 	if !ipNet.Contains(gatewayIP) {
 		allErrs = append(allErrs, field.Invalid(fldPath, gateway,
 			fmt.Sprintf("gateway must be within CIDR %s", cidr)))
+	}
+
+	return allErrs
+}
+
+// networkIndex builds lookup maps for a networks slice keyed by name.
+type networkIndex struct {
+	cidrs map[string]string // name → CIDR
+	idx   map[string]int    // name → position in the slice (for error paths)
+}
+
+func buildNetworkIndex(networks []infrastructurev1beta2.NetworkSpec) networkIndex {
+	ni := networkIndex{
+		cidrs: make(map[string]string, len(networks)),
+		idx:   make(map[string]int, len(networks)),
+	}
+	for i, n := range networks {
+		ni.cidrs[n.Name] = n.CIDR
+		ni.idx[n.Name] = i
+	}
+	return ni
+}
+
+// validateRouters validates the routers list on create.
+func validateRouters(routers []infrastructurev1beta2.RouterSpec, networks []infrastructurev1beta2.NetworkSpec, fldPath *field.Path) field.ErrorList {
+	ni := buildNetworkIndex(networks)
+	allErrs := validateRouterSpecs(routers, ni, fldPath)
+	allErrs = append(allErrs, validateRouterNetworkAddressing(routers, fldPath)...)
+	return allErrs
+}
+
+// validateRouterSpecs validates the specs.
+func validateRouterSpecs(routers []infrastructurev1beta2.RouterSpec, ni networkIndex, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+
+	routerNames := make(map[string]bool, len(routers))
+	for i, routerSpec := range routers {
+		allErrs = append(allErrs, validateSingleRouter(routerSpec, ni, routerNames, fldPath.Index(i))...)
+	}
+	return allErrs
+}
+
+// validateSingleRouter validates one router spec against a pre-built network
+// index, using routerPath as the base field.Path for errors. routerNames is
+// updated in-place to detect duplicate names across calls.
+func validateSingleRouter(
+	routerSpec infrastructurev1beta2.RouterSpec,
+	ni networkIndex,
+	routerNames map[string]bool,
+	routerPath *field.Path,
+) field.ErrorList {
+	var allErrs field.ErrorList
+
+	if routerNames[routerSpec.Name] {
+		allErrs = append(allErrs, field.Duplicate(routerPath.Child("name"), routerSpec.Name))
+	}
+	routerNames[routerSpec.Name] = true
+
+	if routerSpec.UUID != "" && routerSpec.InternetGateway {
+		allErrs = append(allErrs, field.Invalid(routerPath, routerSpec.Name,
+			"uuid and internetGateway are mutually exclusive"))
+	}
+
+	for j, ifaceSpec := range routerSpec.Interfaces {
+		ifacePath := routerPath.Child("interfaces").Index(j)
+		cidr, netExists := ni.cidrs[ifaceSpec.Network]
+		if !netExists {
+			allErrs = append(allErrs, field.NotFound(ifacePath.Child("network"), ifaceSpec.Network))
+			continue
+		}
+		// An explicit interface address must fall within the referenced network's CIDR.
+		if ifaceSpec.Address != "" && cidr != "" {
+			allErrs = append(allErrs, validateGatewayInCIDR(cidr, ifaceSpec.Address, ifacePath.Child("address"))...)
+		}
+	}
+
+	return allErrs
+}
+
+// validateRouterNetworkAddressing enforces cross-router rules that only make sense
+// when all interfaces on a network are considered together: at most one interface
+// may own the subnet gateway, and explicit addresses must be unique per network.
+func validateRouterNetworkAddressing(routers []infrastructurev1beta2.RouterSpec, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+
+	owners := make(map[string][]*field.Path)
+	addrSeen := make(map[string]map[string]bool)
+
+	for i, router := range routers {
+		for j, iface := range router.Interfaces {
+			ifacePath := fldPath.Index(i).Child("interfaces").Index(j)
+			if ptr.Deref(iface.ConfigureSubnetGateway, true) {
+				owners[iface.Network] = append(owners[iface.Network], ifacePath.Child("configureSubnetGateway"))
+			}
+			if iface.Address != "" {
+				if addrSeen[iface.Network] == nil {
+					addrSeen[iface.Network] = make(map[string]bool)
+				}
+				if addrSeen[iface.Network][iface.Address] {
+					allErrs = append(allErrs, field.Duplicate(ifacePath.Child("address"), iface.Address))
+				} else {
+					addrSeen[iface.Network][iface.Address] = true
+				}
+			}
+		}
+	}
+
+	// Report networks with more than one gateway owner, in a stable order.
+	networks := make([]string, 0, len(owners))
+	for network := range owners {
+		networks = append(networks, network)
+	}
+	sort.Strings(networks)
+	for _, network := range networks {
+		paths := owners[network]
+		if len(paths) <= 1 {
+			continue
+		}
+		for _, p := range paths {
+			allErrs = append(allErrs, field.Invalid(p, true,
+				fmt.Sprintf("network %q has multiple router interfaces configuring the subnet gateway; only one interface may set configureSubnetGateway=true", network)))
+		}
+	}
+
+	return allErrs
+}
+
+// validateRouterImmutability enforces immutability rules for spec.routers on update.
+func validateRouterImmutability(oldRouters, newRouters []infrastructurev1beta2.RouterSpec, newNetworks []infrastructurev1beta2.NetworkSpec, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+
+	ni := buildNetworkIndex(newNetworks)
+
+	newByName := make(map[string]*infrastructurev1beta2.RouterSpec, len(newRouters))
+	newIndexByName := make(map[string]int, len(newRouters))
+	for i := range newRouters {
+		newByName[newRouters[i].Name] = &newRouters[i]
+		newIndexByName[newRouters[i].Name] = i
+	}
+
+	for _, oldRouter := range oldRouters {
+		newRouter, exists := newByName[oldRouter.Name]
+		if !exists {
+			allErrs = append(allErrs, field.Forbidden(fldPath,
+				fmt.Sprintf("removing router %q is not allowed", oldRouter.Name)))
+			continue
+		}
+
+		newIdx := newIndexByName[oldRouter.Name]
+		newPath := fldPath.Index(newIdx)
+
+		if newRouter.UUID != oldRouter.UUID {
+			allErrs = append(allErrs, field.Forbidden(newPath.Child("uuid"),
+				"field is immutable after cluster creation"))
+		}
+		if newRouter.InternetGateway != oldRouter.InternetGateway {
+			allErrs = append(allErrs, field.Forbidden(newPath.Child("internetGateway"),
+				"field is immutable after cluster creation"))
+		}
+
+		// Check existing interfaces for immutability.
+		oldIfaceByNetwork := make(map[string]infrastructurev1beta2.RouterInterfaceSpec, len(oldRouter.Interfaces))
+		for _, iface := range oldRouter.Interfaces {
+			oldIfaceByNetwork[iface.Network] = iface
+		}
+
+		for j, newIface := range newRouter.Interfaces {
+			oldIface, wasExisting := oldIfaceByNetwork[newIface.Network]
+			if !wasExisting {
+				// New interface on an existing router: validate its network reference
+				// and, if set, that its address is within the network CIDR.
+				ifacePath := newPath.Child("interfaces").Index(j)
+				cidr, netExists := ni.cidrs[newIface.Network]
+				if !netExists {
+					allErrs = append(allErrs, field.NotFound(ifacePath.Child("network"), newIface.Network))
+				} else if newIface.Address != "" && cidr != "" {
+					allErrs = append(allErrs, validateGatewayInCIDR(cidr, newIface.Address, ifacePath.Child("address"))...)
+				}
+				continue
+			}
+			if ptr.Deref(newIface.ConfigureSubnetGateway, true) != ptr.Deref(oldIface.ConfigureSubnetGateway, true) {
+				allErrs = append(allErrs, field.Forbidden(newPath.Child("interfaces"),
+					fmt.Sprintf("configureSubnetGateway for network %q is immutable after cluster creation", newIface.Network)))
+			}
+			if newIface.Address != oldIface.Address {
+				allErrs = append(allErrs, field.Forbidden(newPath.Child("interfaces"),
+					fmt.Sprintf("address for network %q is immutable after cluster creation", newIface.Network)))
+			}
+		}
+
+		// Check for removed interfaces.
+		for networkName := range oldIfaceByNetwork {
+			found := false
+			for _, iface := range newRouter.Interfaces {
+				if iface.Network == networkName {
+					found = true
+					break
+				}
+			}
+			if !found {
+				allErrs = append(allErrs, field.Forbidden(newPath.Child("interfaces"),
+					fmt.Sprintf("removing interface for network %q is not allowed", networkName)))
+			}
+		}
+	}
+
+	// Validate any new routers added on update.
+	oldByName := make(map[string]bool, len(oldRouters))
+	for _, r := range oldRouters {
+		oldByName[r.Name] = true
+	}
+	seenNames := make(map[string]bool) // duplicate check scoped to new-router additions
+	for i, newRouter := range newRouters {
+		if !oldByName[newRouter.Name] {
+			allErrs = append(allErrs, validateSingleRouter(newRouter, ni, seenNames, fldPath.Index(i))...)
+		}
 	}
 
 	return allErrs

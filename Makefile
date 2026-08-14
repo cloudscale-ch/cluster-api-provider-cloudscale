@@ -142,6 +142,7 @@ E2E_CLUSTER_TEMPLATES := cluster-template \
 	cluster-template-md-remediation \
 	cluster-template-pre-existing-network \
 	cluster-template-public-lb-private-nodes \
+	cluster-template-router-nat \
 	cluster-template-topology \
 	cluster-template-upgrades \
 	clusterclass-quick-start

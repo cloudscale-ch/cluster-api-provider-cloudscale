@@ -48,10 +48,10 @@ func TestReconcileServer_CreatesServer(t *testing.T) {
 				Name:          req.Name,
 				Status:        "running",
 				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
-				Interfaces: []cloudscalesdk.Interface{
+				Interfaces: []cloudscalesdk.ServerInterface{
 					{
 						Type: "private",
-						Addresses: []cloudscalesdk.Address{
+						Addresses: []cloudscalesdk.ServerAddress{
 							{Address: "10.0.0.5", Version: 4},
 						},
 					},
@@ -122,16 +122,16 @@ func TestReconcileServer_SetsAddresses(t *testing.T) {
 				Name:          req.Name,
 				Status:        "running",
 				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
-				Interfaces: []cloudscalesdk.Interface{
+				Interfaces: []cloudscalesdk.ServerInterface{
 					{
 						Type: "public",
-						Addresses: []cloudscalesdk.Address{
+						Addresses: []cloudscalesdk.ServerAddress{
 							{Address: "185.98.123.45", Version: 4},
 						},
 					},
 					{
 						Type: "private",
-						Addresses: []cloudscalesdk.Address{
+						Addresses: []cloudscalesdk.ServerAddress{
 							{Address: "10.0.0.10", Version: 4},
 						},
 					},

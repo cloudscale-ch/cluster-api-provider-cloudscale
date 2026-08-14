@@ -72,6 +72,14 @@ type CloudscaleClusterSpec struct {
 	// +optional
 	Networks []NetworkSpec `json:"networks,omitempty"`
 
+	// Routers define cloudscale.ch routers managed or adopted by CAPCS.
+	// Each router can be attached to one or more networks via its interfaces.
+	// Routers are provisioned after networks and deleted before networks.
+	// +listType=map
+	// +listMapKey=name
+	// +optional
+	Routers []RouterSpec `json:"routers,omitempty"`
+
 	// ControlPlaneLoadBalancer configures the load balancer for the control plane.
 	// +optional
 	ControlPlaneLoadBalancer LoadBalancerSpec `json:"controlPlaneLoadBalancer,omitzero"`
@@ -127,14 +135,70 @@ type NetworkSpec struct {
 	// +optional
 	CIDR string `json:"cidr,omitempty"`
 
-	// GatewayAddress is the gateway IP address for the subnet.
-	// Only applicable when CIDR is set (managed network).
-	// By default, no gateway is configured on the subnet. This ensures
-	// that outbound internet traffic uses the public network interface.
-	// Set this to a specific IP address (e.g., "10.0.0.1") only if you have configured
-	// a NAT gateway or similar infrastructure on the private network.
+	// GatewayAddress controls the gateway for this network's subnet.
+	// When no router interface references this network: the value is set as the
+	// subnet's static gateway at creation time (empty means no gateway).
+	// When a router interface references this network: the value is requested as
+	// the router interface's IP on the subnet. If empty and a router interface
+	// references this network, CAPCS defaults to network-address + 3, because
+	// cloudscale.ch reserves .1 and .2 for DNS.
+	// In both cases the subnet's gateway is then updated to the actual IP.
+	// Only applicable when CIDR is set (managed network). Immutable after creation.
 	// +optional
 	GatewayAddress string `json:"gatewayAddress,omitempty"`
+}
+
+// RouterSpec defines a cloudscale.ch router managed or adopted by CAPCS.
+// Exactly one of UUID (pre-existing) or InternetGateway (managed) governs behaviour.
+type RouterSpec struct {
+	// Name identifies this router within the cluster.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`
+	// +kubebuilder:validation:MaxLength=63
+	Name string `json:"name"`
+
+	// UUID references a pre-existing cloudscale.ch router by UUID.
+	// CAPCS attaches and detaches interfaces but does not create or delete the router.
+	// Mutually exclusive with InternetGateway. Immutable after creation.
+	// +optional
+	UUID string `json:"uuid,omitempty"`
+
+	// InternetGateway enables SNAT for outbound internet access on a managed router.
+	// When false (default), the router performs pure L3 routing between attached networks.
+	// Only valid when UUID is not set. Immutable after creation.
+	// +optional
+	InternetGateway bool `json:"internetGateway,omitempty"`
+
+	// Interfaces lists the networks this router is attached to.
+	// +optional
+	Interfaces []RouterInterfaceSpec `json:"interfaces,omitempty"`
+}
+
+// RouterInterfaceSpec defines a single network attachment for a router.
+type RouterInterfaceSpec struct {
+	// Network references spec.networks[].name.
+	// +kubebuilder:validation:Required
+	Network string `json:"network"`
+
+	// Address is the IP requested for this router interface within the referenced
+	// network's subnet. The cloudscale.ch API requires an explicit address per
+	// interface, so the admission webhook defaults this for managed (CIDR) networks:
+	// the ConfigureSubnetGateway owner gets network+3 (mirrored to the network's
+	// gatewayAddress), and additional interfaces on the same network get network+4,
+	// network+5, ... in order. It may be set explicitly to override the default.
+	// Immutable after creation.
+	// +optional
+	Address string `json:"address,omitempty"`
+
+	// ConfigureSubnetGateway, when true (default), sets the subnet's gatewayAddress
+	// to this router interface's assigned IP, making the router the default route for
+	// servers on that subnet.
+	// Set to false for transit/backbone networks where a different router (e.g. the
+	// internet-gateway router) owns the subnet gateway.
+	// Immutable after creation.
+	// +kubebuilder:default=true
+	// +optional
+	ConfigureSubnetGateway *bool `json:"configureSubnetGateway,omitempty"`
 }
 
 // LoadBalancerSpec defines the load balancer configuration for the control plane.
@@ -172,10 +236,20 @@ type LoadBalancerSpec struct {
 
 	// Network places the LB VIP on a private network (internal LB).
 	// References spec.networks[].name. Omit for a public LB.
-	// When multiple networks are defined this field is required so the LB
-	// pool members can be registered against a specific subnet.
+	// When multiple networks are defined, either this field or PoolMemberNetwork
+	// must be set so the LB pool members can be registered against a specific
+	// subnet.
 	// +optional
 	Network string `json:"network,omitempty"`
+
+	// PoolMemberNetwork selects the network whose subnet the LB pool members are
+	// registered on (i.e. the network the control-plane machines attach to).
+	// References spec.networks[].name. Defaults to Network when set, else the first
+	// network. Set this when the control-plane nodes live on a different network
+	// than the VIP (Network), e.g. a public VIP with private control-plane nodes,
+	// or a private VIP on a dedicated access network. Immutable after creation.
+	// +optional
+	PoolMemberNetwork string `json:"poolMemberNetwork,omitempty"`
 
 	// HealthMonitor configures the load balancer health monitor.
 	// +optional
@@ -231,6 +305,21 @@ type FloatingIPSpec struct {
 	Address string `json:"address,omitempty"`
 }
 
+// RouterStatus tracks the provisioned state of a single router.
+type RouterStatus struct {
+	// Name matches spec.routers[].name.
+	Name string `json:"name"`
+
+	// RouterID is the cloudscale.ch router UUID.
+	// +optional
+	RouterID string `json:"routerID,omitempty"`
+
+	// InterfaceIDs maps network name to interface UUID for each CAPCS-created interface.
+	// Used during deletion to remove only interfaces CAPCS created on pre-existing routers.
+	// +optional
+	InterfaceIDs map[string]string `json:"interfaceIDs,omitempty"`
+}
+
 // CloudscaleClusterStatus defines the observed state of CloudscaleCluster.
 type CloudscaleClusterStatus struct {
 	// observedGeneration is the latest generation observed by the controller.
@@ -247,6 +336,12 @@ type CloudscaleClusterStatus struct {
 	// +listMapKey=name
 	// +optional
 	Networks []NetworkStatus `json:"networks,omitempty"`
+
+	// Routers track the provisioned state of each router defined in spec.routers.
+	// +listType=map
+	// +listMapKey=name
+	// +optional
+	Routers []RouterStatus `json:"routers,omitempty"`
 
 	// FloatingIP is the cloudscale.ch floating IP.
 	// +optional
@@ -300,6 +395,11 @@ type NetworkStatus struct {
 	// Managed indicates whether CAPCS manages this network's lifecycle.
 	// false for pre-existing networks (referenced by UUID), true for CAPCS-created networks (defined by CIDR).
 	Managed bool `json:"managed"`
+
+	// GatewayAddress is the subnet gateway IP that CAPCS has configured on the router interface.
+	// Empty until the router interface is attached and the subnet gateway is updated.
+	// +optional
+	GatewayAddress string `json:"gatewayAddress,omitempty"`
 }
 
 // ClusterInitializationStatus contains v1beta2 initialization tracking for CloudscaleCluster.
@@ -315,6 +415,16 @@ func (s *CloudscaleClusterStatus) GetNetworkStatus(name string) *NetworkStatus {
 	for i := range s.Networks {
 		if s.Networks[i].Name == name {
 			return &s.Networks[i]
+		}
+	}
+	return nil
+}
+
+// GetRouterStatus returns the RouterStatus for the given router name, or nil if not found.
+func (s *CloudscaleClusterStatus) GetRouterStatus(name string) *RouterStatus {
+	for i := range s.Routers {
+		if s.Routers[i].Name == name {
+			return &s.Routers[i]
 		}
 	}
 	return nil
