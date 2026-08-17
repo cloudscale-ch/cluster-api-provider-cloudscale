@@ -23,6 +23,7 @@ import (
 	"time"
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -84,66 +85,18 @@ func (r *CloudscaleClusterReconciler) reconcileRouters(ctx context.Context, clus
 	return ctrl.Result{}, nil
 }
 
-// reconcileRouter reconciles a single router spec entry.
+// reconcileRouter reconciles a single router spec entry: resolve (adopt or
+// create) the router, record its status, wait until it is active, then reconcile
+// each interface.
 func (r *CloudscaleClusterReconciler) reconcileRouter(ctx context.Context, clusterScope *scope.ClusterScope, routerSpec infrastructurev1beta2.RouterSpec) (ctrl.Result, error) {
-	var router *cloudscalesdk.Router
-	var routerID string
-	var err error
-
-	rs := clusterScope.CloudscaleCluster.Status.GetRouterStatus(routerSpec.Name)
-	if rs != nil {
-		routerID = rs.RouterID
+	var knownID string
+	if rs := clusterScope.CloudscaleCluster.Status.GetRouterStatus(routerSpec.Name); rs != nil {
+		knownID = rs.RouterID
 	}
 
-	if routerSpec.UUID != "" {
-		// Pre-existing router: adopt by UUID.
-		getCtx, cancel := context.WithTimeout(ctx, cloudscale.ReadTimeout)
-		router, err = clusterScope.CloudscaleClient.Routers.Get(getCtx, routerSpec.UUID)
-		cancel()
-		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("getting pre-existing router %q: %w", routerSpec.Name, err)
-		}
-		routerID = router.UUID
-	} else {
-		// Managed router: adopt by tag or create.
-		tags := r.routerTags(clusterScope, routerSpec.Name)
-		router, routerID, err = ensureResource(ctx, clusterScope,
-			routerID,
-			fmt.Sprintf("router/%s", routerSpec.Name),
-			clusterScope.CloudscaleClient.Routers,
-			func(rt cloudscalesdk.Router) string { return rt.UUID },
-			tags,
-		)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-
-		if routerID == "" {
-			clusterScope.Info("Creating router", "name", routerSpec.Name)
-			createCtx, cancel := context.WithTimeout(ctx, cloudscale.WriteTimeout)
-			defer cancel()
-			router, err = clusterScope.CloudscaleClient.Routers.Create(createCtx, &cloudscalesdk.RouterCreateRequest{
-				Name:            routerSpec.Name,
-				InternetGateway: routerSpec.InternetGateway,
-				ZonalResourceRequest: cloudscalesdk.ZonalResourceRequest{
-					Zone: clusterScope.CloudscaleCluster.Spec.Zone,
-				},
-				TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-					Tags: new(tags),
-				},
-			})
-			if err != nil {
-				if cloudscale.IsTimeoutError(err) {
-					clusterScope.Info("Router creation timed out, waiting before retry", "requeueAfter", createNetworkTimeoutRequeueAfter)
-					return ctrl.Result{RequeueAfter: createNetworkTimeoutRequeueAfter}, nil
-				}
-				return ctrl.Result{}, fmt.Errorf("creating router %q: %w", routerSpec.Name, err)
-			}
-			routerID = router.UUID
-			clusterScope.Info("Created router", "name", routerSpec.Name, "routerID", routerID)
-			r.recorder.Eventf(clusterScope.CloudscaleCluster, nil, corev1.EventTypeNormal, "RouterCreated", "CreateRouter",
-				"Created router %s (%s) in zone %s", routerSpec.Name, routerID, clusterScope.CloudscaleCluster.Spec.Zone)
-		}
+	router, routerID, result, err := r.resolveRouter(ctx, clusterScope, routerSpec, knownID)
+	if err != nil || !result.IsZero() {
+		return result, err
 	}
 
 	r.setRouterStatus(clusterScope, routerSpec.Name, routerID)
@@ -166,6 +119,62 @@ func (r *CloudscaleClusterReconciler) reconcileRouter(ctx context.Context, clust
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// resolveRouter adopts a pre-existing router by UUID, or adopts-by-tag / creates a
+// managed router. It returns the router and its UUID, or a non-zero result telling
+// the caller to requeue (e.g. a create that timed out).
+func (r *CloudscaleClusterReconciler) resolveRouter(ctx context.Context, clusterScope *scope.ClusterScope, routerSpec infrastructurev1beta2.RouterSpec, routerID string) (*cloudscalesdk.Router, string, ctrl.Result, error) {
+	if routerSpec.UUID != "" {
+		getCtx, cancel := context.WithTimeout(ctx, cloudscale.ReadTimeout)
+		defer cancel()
+		router, err := clusterScope.CloudscaleClient.Routers.Get(getCtx, routerSpec.UUID)
+		if err != nil {
+			return nil, "", ctrl.Result{}, fmt.Errorf("getting pre-existing router %q: %w", routerSpec.Name, err)
+		}
+		return router, router.UUID, ctrl.Result{}, nil
+	}
+
+	// Managed router: adopt by tag or create.
+	tags := r.routerTags(clusterScope, routerSpec.Name)
+	router, routerID, err := ensureResource(ctx, clusterScope,
+		routerID,
+		fmt.Sprintf("router/%s", routerSpec.Name),
+		clusterScope.CloudscaleClient.Routers,
+		func(rt cloudscalesdk.Router) string { return rt.UUID },
+		tags,
+	)
+	if err != nil {
+		return nil, "", ctrl.Result{}, err
+	}
+	if routerID != "" {
+		return router, routerID, ctrl.Result{}, nil
+	}
+
+	clusterScope.Info("Creating router", "name", routerSpec.Name)
+	createCtx, cancel := context.WithTimeout(ctx, cloudscale.WriteTimeout)
+	defer cancel()
+	router, err = clusterScope.CloudscaleClient.Routers.Create(createCtx, &cloudscalesdk.RouterCreateRequest{
+		Name:            routerSpec.Name,
+		InternetGateway: routerSpec.InternetGateway,
+		ZonalResourceRequest: cloudscalesdk.ZonalResourceRequest{
+			Zone: clusterScope.CloudscaleCluster.Spec.Zone,
+		},
+		TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
+			Tags: new(tags),
+		},
+	})
+	if err != nil {
+		if cloudscale.IsTimeoutError(err) {
+			clusterScope.Info("Router creation timed out, waiting before retry", "requeueAfter", createNetworkTimeoutRequeueAfter)
+			return nil, "", ctrl.Result{RequeueAfter: createNetworkTimeoutRequeueAfter}, nil
+		}
+		return nil, "", ctrl.Result{}, fmt.Errorf("creating router %q: %w", routerSpec.Name, err)
+	}
+	clusterScope.Info("Created router", "name", routerSpec.Name, "routerID", router.UUID)
+	r.recorder.Eventf(clusterScope.CloudscaleCluster, nil, corev1.EventTypeNormal, "RouterCreated", "CreateRouter",
+		"Created router %s (%s) in zone %s", routerSpec.Name, router.UUID, clusterScope.CloudscaleCluster.Spec.Zone)
+	return router, router.UUID, ctrl.Result{}, nil
 }
 
 // reconcileRouterInterface ensures a single router interface is attached and the subnet gateway is configured.
@@ -261,11 +270,9 @@ func (r *CloudscaleClusterReconciler) deleteRouters(ctx context.Context, cluster
 		logger := clusterScope.WithValues("name", rs.Name, "routerID", rs.RouterID)
 
 		// Delete tracked interfaces first (for all routers).
+		errs = append(errs, r.deleteRouterInterfaces(ctx, clusterScope, rs, logger)...)
 		if len(rs.InterfaceIDs) > 0 {
-			errs = append(errs, r.deleteRouterInterfaces(ctx, clusterScope, rs, logger)...)
-			if len(rs.InterfaceIDs) > 0 {
-				continue // some interfaces failed to delete; retry before removing the router
-			}
+			continue // some interfaces failed to delete; retry before removing the router
 		}
 
 		// Pre-existing router: leave the router itself, only detach interfaces.
@@ -302,7 +309,7 @@ func (r *CloudscaleClusterReconciler) deleteRouterInterfaces(
 	ctx context.Context,
 	clusterScope *scope.ClusterScope,
 	rs *infrastructurev1beta2.RouterStatus,
-	logger interface{ Info(string, ...any) },
+	logger logr.Logger,
 ) (errs []error) {
 	for networkName, ifaceUUID := range rs.InterfaceIDs {
 		delCtx, cancel := context.WithTimeout(ctx, cloudscale.DeleteTimeout)
@@ -325,36 +332,29 @@ func (r *CloudscaleClusterReconciler) routerTags(clusterScope *scope.ClusterScop
 	}
 }
 
+// getOrCreateRouterStatus returns the RouterStatus entry for name, appending an
+// empty one if it does not exist yet.
+func (r *CloudscaleClusterReconciler) getOrCreateRouterStatus(clusterScope *scope.ClusterScope, name string) *infrastructurev1beta2.RouterStatus {
+	if rs := clusterScope.CloudscaleCluster.Status.GetRouterStatus(name); rs != nil {
+		return rs
+	}
+	routers := &clusterScope.CloudscaleCluster.Status.Routers
+	*routers = append(*routers, infrastructurev1beta2.RouterStatus{Name: name})
+	return &(*routers)[len(*routers)-1]
+}
+
 // setRouterStatus upserts the router status entry for the given name and routerID.
 func (r *CloudscaleClusterReconciler) setRouterStatus(clusterScope *scope.ClusterScope, name, routerID string) {
-	for i := range clusterScope.CloudscaleCluster.Status.Routers {
-		if clusterScope.CloudscaleCluster.Status.Routers[i].Name == name {
-			clusterScope.CloudscaleCluster.Status.Routers[i].RouterID = routerID
-			return
-		}
-	}
-	clusterScope.CloudscaleCluster.Status.Routers = append(clusterScope.CloudscaleCluster.Status.Routers, infrastructurev1beta2.RouterStatus{
-		Name:     name,
-		RouterID: routerID,
-	})
+	r.getOrCreateRouterStatus(clusterScope, name).RouterID = routerID
 }
 
 // setRouterInterfaceID records the interface UUID in the router status entry.
 func (r *CloudscaleClusterReconciler) setRouterInterfaceID(clusterScope *scope.ClusterScope, routerName, networkName, ifaceUUID string) {
-	for i := range clusterScope.CloudscaleCluster.Status.Routers {
-		if clusterScope.CloudscaleCluster.Status.Routers[i].Name == routerName {
-			if clusterScope.CloudscaleCluster.Status.Routers[i].InterfaceIDs == nil {
-				clusterScope.CloudscaleCluster.Status.Routers[i].InterfaceIDs = make(map[string]string)
-			}
-			clusterScope.CloudscaleCluster.Status.Routers[i].InterfaceIDs[networkName] = ifaceUUID
-			return
-		}
+	rs := r.getOrCreateRouterStatus(clusterScope, routerName)
+	if rs.InterfaceIDs == nil {
+		rs.InterfaceIDs = make(map[string]string)
 	}
-	// Router status entry doesn't exist yet; create it.
-	clusterScope.CloudscaleCluster.Status.Routers = append(clusterScope.CloudscaleCluster.Status.Routers, infrastructurev1beta2.RouterStatus{
-		Name:         routerName,
-		InterfaceIDs: map[string]string{networkName: ifaceUUID},
-	})
+	rs.InterfaceIDs[networkName] = ifaceUUID
 }
 
 // routerInterfaceForNetwork returns the router's internal interface attached to the

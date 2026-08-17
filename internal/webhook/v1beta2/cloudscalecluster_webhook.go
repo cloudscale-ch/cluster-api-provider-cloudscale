@@ -21,7 +21,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
-	"sort"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -126,110 +125,72 @@ func clusterSpecDefault(spec *infrastructurev1beta2.CloudscaleClusterSpec) {
 	defaultRouterInterfaceAddresses(spec)
 }
 
-// defaultRouterInterfaceAddresses assigns a deterministic IP to every router
-// interface attached to a managed (CIDR) network. The cloudscale.ch API requires
-// an explicit address per interface, and reserves the first two host addresses
-// (.1, .2) for DNS, so allocation starts at network-address + 3.
+// defaultRouterInterfaceAddresses derives the router interface IP for the common
+// single-interface-per-network case. The cloudscale.ch API requires an explicit
+// address per interface, and reserves the first two host addresses (.1, .2) for
+// DNS, so the default is network-address + 3.
 //
-// The ConfigureSubnetGateway owner gets network+3 (mirrored to the network's
-// GatewayAddress, making the router the subnet's default route); additional
-// interfaces on the same network get network+4, network+5, ... in spec order.
-// Addresses set explicitly are preserved and reserved so defaulting never
-// collides with them.
+// When exactly one interface references a managed (CIDR) network, its
+// ConfigureSubnetGateway owner takes the network's GatewayAddress (or network+3),
+// and that value is mirrored back to the network's GatewayAddress, making the
+// router the subnet's default route. When more than one interface references the
+// same network, each must set its address explicitly (enforced by validation);
+// defaulting then only mirrors the owner's address to the subnet gateway.
 func defaultRouterInterfaceAddresses(spec *infrastructurev1beta2.CloudscaleClusterSpec) {
-	// Default configureSubnetGateway to true. The CRD schema default is only
-	// applied after this webhook runs, so a nil pointer here means "unset".
+	cidrByNet := make(map[string]*infrastructurev1beta2.NetworkSpec, len(spec.Networks))
+	for i := range spec.Networks {
+		if spec.Networks[i].CIDR != "" {
+			cidrByNet[spec.Networks[i].Name] = &spec.Networks[i]
+		}
+	}
+
+	// Group interface pointers by network, preserving spec order, and normalise a
+	// nil ConfigureSubnetGateway to the default (true) — the CRD schema default is
+	// only applied after this webhook runs.
+	ifacesByNetwork := make(map[string][]*infrastructurev1beta2.RouterInterfaceSpec)
+	order := make([]string, 0)
 	for ri := range spec.Routers {
 		for ii := range spec.Routers[ri].Interfaces {
 			iface := &spec.Routers[ri].Interfaces[ii]
 			if iface.ConfigureSubnetGateway == nil {
 				iface.ConfigureSubnetGateway = new(true)
 			}
-		}
-	}
-
-	netByName := make(map[string]*infrastructurev1beta2.NetworkSpec, len(spec.Networks))
-	for i := range spec.Networks {
-		netByName[spec.Networks[i].Name] = &spec.Networks[i]
-	}
-
-	// Group interface pointers by network, preserving spec order.
-	ifacesByNetwork := make(map[string][]*infrastructurev1beta2.RouterInterfaceSpec)
-	orderedNetworks := make([]string, 0)
-	for ri := range spec.Routers {
-		for ii := range spec.Routers[ri].Interfaces {
-			iface := &spec.Routers[ri].Interfaces[ii]
 			if _, seen := ifacesByNetwork[iface.Network]; !seen {
-				orderedNetworks = append(orderedNetworks, iface.Network)
+				order = append(order, iface.Network)
 			}
 			ifacesByNetwork[iface.Network] = append(ifacesByNetwork[iface.Network], iface)
 		}
 	}
 
-	for _, networkName := range orderedNetworks {
-		n := netByName[networkName]
-		if n == nil || n.CIDR == "" {
+	for _, name := range order {
+		n := cidrByNet[name]
+		if n == nil {
 			continue // unknown or pre-existing (UUID) network: no CIDR to offset from
 		}
-		ifaces := ifacesByNetwork[networkName]
+		group := ifacesByNetwork[name]
 
-		used := make(map[string]bool)
-		for _, iface := range ifaces {
-			if iface.Address != "" {
-				used[iface.Address] = true
+		var owner *infrastructurev1beta2.RouterInterfaceSpec
+		for _, iface := range group {
+			if *iface.ConfigureSubnetGateway {
+				owner = iface
+				break
 			}
 		}
-
-		// Owner (ConfigureSubnetGateway) keeps network+3 and defines the subnet
-		// gateway. Validation guarantees at most one owner per network.
-		for _, iface := range ifaces {
-			if !ptr.Deref(iface.ConfigureSubnetGateway, true) {
-				continue
-			}
-			if iface.Address == "" {
-				if n.GatewayAddress != "" {
-					iface.Address = n.GatewayAddress
-				} else if addr, err := nextFreeHostAddress(n.CIDR, used, 3); err == nil {
-					iface.Address = addr
-				}
-				if iface.Address != "" {
-					used[iface.Address] = true
-				}
-			}
-			if n.GatewayAddress == "" {
-				n.GatewayAddress = iface.Address
-			}
-			break
+		if owner == nil {
+			continue
 		}
 
-		// Siblings get the next free host addresses after the reserved ones
-		// (the owner's network+3 is already in `used`, so they start at network+4).
-		for _, iface := range ifaces {
-			if ptr.Deref(iface.ConfigureSubnetGateway, true) || iface.Address != "" {
-				continue
-			}
-			if addr, err := nextFreeHostAddress(n.CIDR, used, 3); err == nil {
-				iface.Address = addr
-				used[addr] = true
+		// Only the single-interface case is auto-derived; multi-interface networks
+		// require explicit addresses.
+		if owner.Address == "" && len(group) == 1 {
+			if n.GatewayAddress != "" {
+				owner.Address = n.GatewayAddress
+			} else if addr, err := cidrHostAddress(n.CIDR, 3); err == nil {
+				owner.Address = addr
 			}
 		}
-	}
-}
-
-// nextFreeHostAddress returns the first host address at or after network+startOffset
-// that is not already in `used`, staying within the CIDR.
-func nextFreeHostAddress(cidr string, used map[string]bool, startOffset uint32) (string, error) {
-	_, ipNet, err := net.ParseCIDR(cidr)
-	if err != nil {
-		return "", fmt.Errorf("parsing CIDR %q: %w", cidr, err)
-	}
-	for off := startOffset; ; off++ {
-		addr, err := hostAddressInNet(ipNet, off)
-		if err != nil {
-			return "", err // ran past the end of the subnet
-		}
-		if !used[addr] {
-			return addr, nil
+		if n.GatewayAddress == "" {
+			n.GatewayAddress = owner.Address
 		}
 	}
 }
@@ -241,21 +202,14 @@ func cidrHostAddress(cidr string, offset uint32) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("parsing CIDR %q: %w", cidr, err)
 	}
-	return hostAddressInNet(ipNet, offset)
-}
-
-// hostAddressInNet returns the IPv4 host address at network-address + offset within
-// the already-parsed network, or an error if it is not IPv4 or the offset falls outside it.
-func hostAddressInNet(ipNet *net.IPNet, offset uint32) (string, error) {
 	ip4 := ipNet.IP.To4()
 	if ip4 == nil {
-		return "", fmt.Errorf("CIDR %q is not an IPv4 network", ipNet.String())
+		return "", fmt.Errorf("CIDR %q is not an IPv4 network", cidr)
 	}
-	n := binary.BigEndian.Uint32(ip4) + offset
 	result := make(net.IP, 4)
-	binary.BigEndian.PutUint32(result, n)
+	binary.BigEndian.PutUint32(result, binary.BigEndian.Uint32(ip4)+offset)
 	if !ipNet.Contains(result) {
-		return "", fmt.Errorf("host offset %d is outside CIDR %q", offset, ipNet.String())
+		return "", fmt.Errorf("host offset %d is outside CIDR %q", offset, cidr)
 	}
 	return result.String(), nil
 }
@@ -736,49 +690,34 @@ func validateGatewayInCIDR(cidr, gateway string, fldPath *field.Path) field.Erro
 	return allErrs
 }
 
-// networkIndex builds lookup maps for a networks slice keyed by name.
-type networkIndex struct {
-	cidrs map[string]string // name → CIDR
-	idx   map[string]int    // name → position in the slice (for error paths)
-}
-
-func buildNetworkIndex(networks []infrastructurev1beta2.NetworkSpec) networkIndex {
-	ni := networkIndex{
-		cidrs: make(map[string]string, len(networks)),
-		idx:   make(map[string]int, len(networks)),
+// networkCIDRs maps each network name to its CIDR ("" for a pre-existing / UUID
+// network). Used to resolve router interface network references.
+func networkCIDRs(networks []infrastructurev1beta2.NetworkSpec) map[string]string {
+	cidrs := make(map[string]string, len(networks))
+	for _, n := range networks {
+		cidrs[n.Name] = n.CIDR
 	}
-	for i, n := range networks {
-		ni.cidrs[n.Name] = n.CIDR
-		ni.idx[n.Name] = i
-	}
-	return ni
+	return cidrs
 }
 
 // validateRouters validates the routers list on create.
 func validateRouters(routers []infrastructurev1beta2.RouterSpec, networks []infrastructurev1beta2.NetworkSpec, fldPath *field.Path) field.ErrorList {
-	ni := buildNetworkIndex(networks)
-	allErrs := validateRouterSpecs(routers, ni, fldPath)
+	cidrs := networkCIDRs(networks)
+	var allErrs field.ErrorList
+	routerNames := make(map[string]bool, len(routers))
+	for i, routerSpec := range routers {
+		allErrs = append(allErrs, validateSingleRouter(routerSpec, cidrs, routerNames, fldPath.Index(i))...)
+	}
 	allErrs = append(allErrs, validateRouterNetworkAddressing(routers, fldPath)...)
 	return allErrs
 }
 
-// validateRouterSpecs validates the specs.
-func validateRouterSpecs(routers []infrastructurev1beta2.RouterSpec, ni networkIndex, fldPath *field.Path) field.ErrorList {
-	var allErrs field.ErrorList
-
-	routerNames := make(map[string]bool, len(routers))
-	for i, routerSpec := range routers {
-		allErrs = append(allErrs, validateSingleRouter(routerSpec, ni, routerNames, fldPath.Index(i))...)
-	}
-	return allErrs
-}
-
-// validateSingleRouter validates one router spec against a pre-built network
-// index, using routerPath as the base field.Path for errors. routerNames is
-// updated in-place to detect duplicate names across calls.
+// validateSingleRouter validates one router spec against the network-name → CIDR
+// map, using routerPath as the base field.Path for errors. routerNames is updated
+// in-place to detect duplicate names across calls.
 func validateSingleRouter(
 	routerSpec infrastructurev1beta2.RouterSpec,
-	ni networkIndex,
+	cidrs map[string]string,
 	routerNames map[string]bool,
 	routerPath *field.Path,
 ) field.ErrorList {
@@ -796,7 +735,7 @@ func validateSingleRouter(
 
 	for j, ifaceSpec := range routerSpec.Interfaces {
 		ifacePath := routerPath.Child("interfaces").Index(j)
-		cidr, netExists := ni.cidrs[ifaceSpec.Network]
+		cidr, netExists := cidrs[ifaceSpec.Network]
 		if !netExists {
 			allErrs = append(allErrs, field.NotFound(ifacePath.Child("network"), ifaceSpec.Network))
 			continue
@@ -812,16 +751,29 @@ func validateSingleRouter(
 
 // validateRouterNetworkAddressing enforces cross-router rules that only make sense
 // when all interfaces on a network are considered together: at most one interface
-// may own the subnet gateway, and explicit addresses must be unique per network.
+// may own the subnet gateway, explicit addresses must be unique per network, and
+// when several interfaces share a network each must set an explicit address
+// (auto-defaulting only covers the single-interface case).
 func validateRouterNetworkAddressing(routers []infrastructurev1beta2.RouterSpec, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 
+	type ifaceRef struct {
+		path    *field.Path
+		hasAddr bool
+	}
+	byNetwork := make(map[string][]ifaceRef)
 	owners := make(map[string][]*field.Path)
 	addrSeen := make(map[string]map[string]bool)
+	order := make([]string, 0)
 
 	for i, router := range routers {
 		for j, iface := range router.Interfaces {
 			ifacePath := fldPath.Index(i).Child("interfaces").Index(j)
+			if _, seen := byNetwork[iface.Network]; !seen {
+				order = append(order, iface.Network)
+			}
+			byNetwork[iface.Network] = append(byNetwork[iface.Network], ifaceRef{ifacePath, iface.Address != ""})
+
 			if ptr.Deref(iface.ConfigureSubnetGateway, true) {
 				owners[iface.Network] = append(owners[iface.Network], ifacePath.Child("configureSubnetGateway"))
 			}
@@ -838,20 +790,22 @@ func validateRouterNetworkAddressing(routers []infrastructurev1beta2.RouterSpec,
 		}
 	}
 
-	// Report networks with more than one gateway owner, in a stable order.
-	networks := make([]string, 0, len(owners))
-	for network := range owners {
-		networks = append(networks, network)
-	}
-	sort.Strings(networks)
-	for _, network := range networks {
-		paths := owners[network]
-		if len(paths) <= 1 {
-			continue
+	for _, network := range order {
+		// When multiple interfaces share a network, each must set an explicit address.
+		if refs := byNetwork[network]; len(refs) > 1 {
+			for _, ref := range refs {
+				if !ref.hasAddr {
+					allErrs = append(allErrs, field.Required(ref.path.Child("address"),
+						fmt.Sprintf("address is required when multiple router interfaces reference network %q", network)))
+				}
+			}
 		}
-		for _, p := range paths {
-			allErrs = append(allErrs, field.Invalid(p, true,
-				fmt.Sprintf("network %q has multiple router interfaces configuring the subnet gateway; only one interface may set configureSubnetGateway=true", network)))
+		// At most one interface may own the subnet gateway.
+		if paths := owners[network]; len(paths) > 1 {
+			for _, p := range paths {
+				allErrs = append(allErrs, field.Invalid(p, true,
+					fmt.Sprintf("network %q has multiple router interfaces configuring the subnet gateway; only one interface may set configureSubnetGateway=true", network)))
+			}
 		}
 	}
 
@@ -862,7 +816,7 @@ func validateRouterNetworkAddressing(routers []infrastructurev1beta2.RouterSpec,
 func validateRouterImmutability(oldRouters, newRouters []infrastructurev1beta2.RouterSpec, newNetworks []infrastructurev1beta2.NetworkSpec, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 
-	ni := buildNetworkIndex(newNetworks)
+	cidrs := networkCIDRs(newNetworks)
 
 	newByName := make(map[string]*infrastructurev1beta2.RouterSpec, len(newRouters))
 	newIndexByName := make(map[string]int, len(newRouters))
@@ -903,7 +857,7 @@ func validateRouterImmutability(oldRouters, newRouters []infrastructurev1beta2.R
 				// New interface on an existing router: validate its network reference
 				// and, if set, that its address is within the network CIDR.
 				ifacePath := newPath.Child("interfaces").Index(j)
-				cidr, netExists := ni.cidrs[newIface.Network]
+				cidr, netExists := cidrs[newIface.Network]
 				if !netExists {
 					allErrs = append(allErrs, field.NotFound(ifacePath.Child("network"), newIface.Network))
 				} else if newIface.Address != "" && cidr != "" {
@@ -945,7 +899,7 @@ func validateRouterImmutability(oldRouters, newRouters []infrastructurev1beta2.R
 	seenNames := make(map[string]bool) // duplicate check scoped to new-router additions
 	for i, newRouter := range newRouters {
 		if !oldByName[newRouter.Name] {
-			allErrs = append(allErrs, validateSingleRouter(newRouter, ni, seenNames, fldPath.Index(i))...)
+			allErrs = append(allErrs, validateSingleRouter(newRouter, cidrs, seenNames, fldPath.Index(i))...)
 		}
 	}
 

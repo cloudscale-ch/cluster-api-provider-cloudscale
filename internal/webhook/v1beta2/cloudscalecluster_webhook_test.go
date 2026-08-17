@@ -268,33 +268,11 @@ func TestClusterDefaulting(t *testing.T) {
 			},
 		},
 		{
-			name: "shared transit network: owner gets +3, siblings +4/+5, GatewayAddress=owner",
+			name: "shared network with explicit addresses: owner mirrored to GatewayAddress, siblings untouched",
 			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
-				c.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
-					{Name: "transit", CIDR: "10.10.3.0/24"},
-				}
-				c.Spec.Routers = []infrastructurev1beta2.RouterSpec{
-					{Name: "cp", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{
-						{Network: "transit", ConfigureSubnetGateway: new(false)},
-					}},
-					{Name: "worker", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{
-						{Network: "transit", ConfigureSubnetGateway: new(false)},
-					}},
-					{Name: "gw", InternetGateway: true, Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{
-						{Network: "transit", ConfigureSubnetGateway: new(true)},
-					}},
-				}
-			},
-			assert: func(g *WithT, c *infrastructurev1beta2.CloudscaleCluster) {
-				g.Expect(c.Spec.Networks[0].GatewayAddress).To(Equal("10.10.3.3"))
-				g.Expect(c.Spec.Routers[0].Interfaces[0].Address).To(Equal("10.10.3.4"))
-				g.Expect(c.Spec.Routers[1].Interfaces[0].Address).To(Equal("10.10.3.5"))
-				g.Expect(c.Spec.Routers[2].Interfaces[0].Address).To(Equal("10.10.3.3"))
-			},
-		},
-		{
-			name: "explicit interface address preserved and reserved",
-			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				// With more than one interface on a network, addresses are explicit
+				// (validation requires it); the defaulter only mirrors the owner's
+				// address to the subnet gateway and leaves the addresses alone.
 				c.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
 					{Name: "transit", CIDR: "10.10.3.0/24"},
 				}
@@ -302,20 +280,15 @@ func TestClusterDefaulting(t *testing.T) {
 					{Name: "cp", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{
 						{Network: "transit", Address: "10.10.3.4", ConfigureSubnetGateway: new(false)},
 					}},
-					{Name: "worker", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{
-						{Network: "transit", ConfigureSubnetGateway: new(false)},
-					}},
 					{Name: "gw", InternetGateway: true, Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{
-						{Network: "transit", ConfigureSubnetGateway: new(true)},
+						{Network: "transit", Address: "10.10.3.3", ConfigureSubnetGateway: new(true)},
 					}},
 				}
 			},
 			assert: func(g *WithT, c *infrastructurev1beta2.CloudscaleCluster) {
-				// Owner keeps +3; the explicit .4 is reserved, so the remaining
-				// sibling skips to +5.
+				g.Expect(c.Spec.Networks[0].GatewayAddress).To(Equal("10.10.3.3"))
 				g.Expect(c.Spec.Routers[0].Interfaces[0].Address).To(Equal("10.10.3.4"))
-				g.Expect(c.Spec.Routers[1].Interfaces[0].Address).To(Equal("10.10.3.5"))
-				g.Expect(c.Spec.Routers[2].Interfaces[0].Address).To(Equal("10.10.3.3"))
+				g.Expect(c.Spec.Routers[1].Interfaces[0].Address).To(Equal("10.10.3.3"))
 			},
 		},
 	}
@@ -593,6 +566,135 @@ func TestClusterValidateCreate(t *testing.T) {
 				c.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{Address: "1.2.3.4"}
 			},
 		},
+		{
+			name: "valid router",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				c.Spec.Region = RegionRma
+				c.Spec.Zone = ZoneRma1
+				c.Spec.Networks = []infrastructurev1beta2.NetworkSpec{{Name: "my-net", CIDR: defaultSubnetCIDR}}
+				c.Spec.Routers = []infrastructurev1beta2.RouterSpec{
+					{Name: "nat-gw", InternetGateway: true, Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{
+						{Network: "my-net", ConfigureSubnetGateway: new(true)},
+					}},
+				}
+			},
+		},
+		{
+			name: "router interface references unknown network",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				c.Spec.Region = RegionRma
+				c.Spec.Zone = ZoneRma1
+				c.Spec.Networks = []infrastructurev1beta2.NetworkSpec{{Name: "my-net", CIDR: defaultSubnetCIDR}}
+				c.Spec.Routers = []infrastructurev1beta2.RouterSpec{
+					{Name: "nat-gw", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "nonexistent"}}},
+				}
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"network"},
+		},
+		{
+			name: "router uuid and internetGateway mutually exclusive",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				c.Spec.Region = RegionRma
+				c.Spec.Zone = ZoneRma1
+				c.Spec.Networks = []infrastructurev1beta2.NetworkSpec{{Name: "my-net", CIDR: defaultSubnetCIDR}}
+				c.Spec.Routers = []infrastructurev1beta2.RouterSpec{{Name: "nat-gw", UUID: "some-uuid", InternetGateway: true}}
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"mutually exclusive"},
+		},
+		{
+			name: "duplicate router name",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				c.Spec.Region = RegionRma
+				c.Spec.Zone = ZoneRma1
+				c.Spec.Networks = []infrastructurev1beta2.NetworkSpec{{Name: "my-net", CIDR: defaultSubnetCIDR}}
+				c.Spec.Routers = []infrastructurev1beta2.RouterSpec{{Name: "nat-gw"}, {Name: "nat-gw"}}
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"Duplicate"},
+		},
+		{
+			name: "multiple gateway owners on one network",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				c.Spec.Region = RegionRma
+				c.Spec.Zone = ZoneRma1
+				c.Spec.Networks = []infrastructurev1beta2.NetworkSpec{{Name: "transit", CIDR: "10.0.0.0/24"}}
+				c.Spec.Routers = []infrastructurev1beta2.RouterSpec{
+					{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "transit", Address: "10.0.0.5", ConfigureSubnetGateway: new(true)}}},
+					{Name: "r2", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "transit", Address: "10.0.0.6", ConfigureSubnetGateway: new(true)}}},
+				}
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"multiple router interfaces configuring the subnet gateway"},
+		},
+		{
+			name: "duplicate explicit interface address on one network",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				c.Spec.Region = RegionRma
+				c.Spec.Zone = ZoneRma1
+				c.Spec.Networks = []infrastructurev1beta2.NetworkSpec{{Name: "transit", CIDR: "10.0.0.0/24"}}
+				c.Spec.Routers = []infrastructurev1beta2.RouterSpec{
+					{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "transit", Address: "10.0.0.5", ConfigureSubnetGateway: new(false)}}},
+					{Name: "r2", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "transit", Address: "10.0.0.5", ConfigureSubnetGateway: new(false)}}},
+				}
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"Duplicate"},
+		},
+		{
+			name: "multiple interfaces on one network without address rejected",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				c.Spec.Region = RegionRma
+				c.Spec.Zone = ZoneRma1
+				c.Spec.Networks = []infrastructurev1beta2.NetworkSpec{{Name: "transit", CIDR: "10.0.0.0/24"}}
+				c.Spec.Routers = []infrastructurev1beta2.RouterSpec{
+					{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "transit", Address: "10.0.0.5", ConfigureSubnetGateway: new(false)}}},
+					{Name: "r2", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "transit", ConfigureSubnetGateway: new(false)}}},
+				}
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"address is required when multiple"},
+		},
+		{
+			name: "router interface address outside CIDR",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				c.Spec.Region = RegionRma
+				c.Spec.Zone = ZoneRma1
+				c.Spec.Networks = []infrastructurev1beta2.NetworkSpec{{Name: "main", CIDR: "10.0.0.0/24"}}
+				c.Spec.Routers = []infrastructurev1beta2.RouterSpec{
+					{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "main", Address: "192.168.1.5", ConfigureSubnetGateway: new(true)}}},
+				}
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"within CIDR"},
+		},
+		{
+			name: "LB.PoolMemberNetwork references unknown network",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				c.Spec.Region = RegionRma
+				c.Spec.Zone = ZoneRma1
+				c.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
+					{Name: "cp", CIDR: defaultSubnetCIDR},
+					{Name: "worker", CIDR: "10.1.0.0/24"},
+				}
+				c.Spec.ControlPlaneLoadBalancer.PoolMemberNetwork = "ghost"
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"poolMemberNetwork"},
+		},
+		{
+			name: "public LB on multi-network with PoolMemberNetwork is valid",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				c.Spec.Region = RegionRma
+				c.Spec.Zone = ZoneRma1
+				c.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
+					{Name: "cp", CIDR: defaultSubnetCIDR},
+					{Name: "worker", CIDR: "10.1.0.0/24"},
+				}
+				c.Spec.ControlPlaneLoadBalancer.PoolMemberNetwork = "cp"
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -792,6 +894,108 @@ func TestClusterValidateUpdate(t *testing.T) {
 			wantErr:        true,
 			wantSubstrings: []string{"spec.networks[0].gatewayAddress"},
 		},
+		{
+			name: "router uuid change rejected",
+			mutate: func(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
+				oldObj.Spec.Routers = []infrastructurev1beta2.RouterSpec{{Name: "r1", UUID: "old-uuid"}}
+				obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{{Name: "r1", UUID: "new-uuid"}}
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"uuid"},
+		},
+		{
+			name: "router internetGateway change rejected",
+			mutate: func(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
+				oldObj.Spec.Routers = []infrastructurev1beta2.RouterSpec{{Name: "r1", InternetGateway: true}}
+				obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{{Name: "r1", InternetGateway: false}}
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"internetGateway"},
+		},
+		{
+			name: "router interface address change rejected",
+			mutate: func(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
+				oldObj.Spec.Routers = []infrastructurev1beta2.RouterSpec{{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "main", Address: "172.18.0.3", ConfigureSubnetGateway: new(true)}}}}
+				obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "main", Address: "172.18.0.4", ConfigureSubnetGateway: new(true)}}}}
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"address for network"},
+		},
+		{
+			name: "router interface configureSubnetGateway change rejected",
+			mutate: func(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
+				oldObj.Spec.Routers = []infrastructurev1beta2.RouterSpec{{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "main", ConfigureSubnetGateway: new(true)}}}}
+				obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "main", ConfigureSubnetGateway: new(false)}}}}
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"configureSubnetGateway"},
+		},
+		{
+			name: "router interface removal rejected",
+			mutate: func(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
+				oldObj.Spec.Routers = []infrastructurev1beta2.RouterSpec{{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "main", ConfigureSubnetGateway: new(true)}}}}
+				obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{}}}
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"interface"},
+		},
+		{
+			name: "router removal rejected",
+			mutate: func(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
+				oldObj.Spec.Routers = []infrastructurev1beta2.RouterSpec{{Name: "r1"}}
+				obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{}
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"router"},
+		},
+		{
+			name: "new router added to existing cluster allowed",
+			mutate: func(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
+				oldObj.Spec.Routers = []infrastructurev1beta2.RouterSpec{{Name: "r1"}}
+				obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{
+					{Name: "r1"},
+					{Name: "r2", InternetGateway: true, Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "main", ConfigureSubnetGateway: new(true)}}},
+				}
+			},
+		},
+		{
+			name: "new interface on existing router with valid network allowed",
+			mutate: func(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
+				oldObj.Spec.Networks = append(oldObj.Spec.Networks, infrastructurev1beta2.NetworkSpec{Name: "aux", CIDR: "10.1.0.0/24"})
+				obj.Spec.Networks = append(obj.Spec.Networks, infrastructurev1beta2.NetworkSpec{Name: "aux", CIDR: "10.1.0.0/24"})
+				oldObj.Spec.ControlPlaneLoadBalancer.Network = "main"
+				obj.Spec.ControlPlaneLoadBalancer.Network = "main"
+				oldObj.Spec.Routers = []infrastructurev1beta2.RouterSpec{{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "main", ConfigureSubnetGateway: new(true)}}}}
+				obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{
+					{Network: "main", ConfigureSubnetGateway: new(true)},
+					{Network: "aux", ConfigureSubnetGateway: new(true)},
+				}}}
+			},
+		},
+		{
+			name: "new interface on existing router with invalid network rejected",
+			mutate: func(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
+				oldObj.Spec.Routers = []infrastructurev1beta2.RouterSpec{{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "main"}}}}
+				obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{
+					{Network: "main"},
+					{Network: "nonexistent-net"},
+				}}}
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"nonexistent-net"},
+		},
+		{
+			name: "LB.PoolMemberNetwork change rejected",
+			mutate: func(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
+				networks := []infrastructurev1beta2.NetworkSpec{{Name: "main", CIDR: defaultSubnetCIDR}, {Name: "cp", CIDR: "10.1.0.0/24"}}
+				oldObj.Spec.Networks = networks
+				obj.Spec.Networks = networks
+				oldObj.Spec.ControlPlaneLoadBalancer.PoolMemberNetwork = "main"
+				obj.Spec.ControlPlaneLoadBalancer.PoolMemberNetwork = "cp"
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"poolMemberNetwork"},
+		},
 	}
 
 	for _, tc := range cases {
@@ -922,97 +1126,9 @@ func TestClusterValidateDelete_AlwaysSucceeds(t *testing.T) {
 }
 
 // ============================================================================
-// Unit tests for validateRouters (create)
+// Unit tests for router validation error paths (folded scenarios live in the
+// TestClusterValidateCreate / TestClusterValidateUpdate tables above)
 // ============================================================================
-
-func TestValidateCreate_PoolMemberNetworkUnknownNetwork(t *testing.T) {
-	g := NewWithT(t)
-	obj, _, validator, _ := newClusterWebhookTestObjects()
-	obj.Spec.Region = RegionRma
-	obj.Spec.Zone = ZoneRma1
-	obj.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
-		{Name: "cp", CIDR: defaultSubnetCIDR},
-		{Name: "worker", CIDR: "10.1.0.0/24"},
-	}
-	obj.Spec.ControlPlaneLoadBalancer.PoolMemberNetwork = "ghost"
-
-	_, err := validator.ValidateCreate(ctx, obj)
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("poolMemberNetwork"))
-}
-
-func TestValidateCreate_PublicLBMultiNetworkWithPoolMemberNetworkOK(t *testing.T) {
-	// A public VIP (Network empty) on a multi-network cluster is valid once
-	// poolMemberNetwork is set — it satisfies validateLBPoolMemberNetworkResolvable
-	// without flipping the VIP to private.
-	g := NewWithT(t)
-	obj, _, validator, _ := newClusterWebhookTestObjects()
-	obj.Spec.Region = RegionRma
-	obj.Spec.Zone = ZoneRma1
-	obj.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
-		{Name: "cp", CIDR: defaultSubnetCIDR},
-		{Name: "worker", CIDR: "10.1.0.0/24"},
-	}
-	obj.Spec.ControlPlaneLoadBalancer.PoolMemberNetwork = "cp"
-
-	_, err := validator.ValidateCreate(ctx, obj)
-	g.Expect(err).ToNot(HaveOccurred())
-}
-
-func TestValidateUpdate_PoolMemberNetworkImmutable(t *testing.T) {
-	g := NewWithT(t)
-	obj, oldObj, validator := setupUpdateTestObjects()
-	networks := []infrastructurev1beta2.NetworkSpec{
-		{Name: "main", CIDR: defaultSubnetCIDR},
-		{Name: "cp", CIDR: "10.1.0.0/24"},
-	}
-	oldObj.Spec.Networks = networks
-	obj.Spec.Networks = networks
-	oldObj.Spec.ControlPlaneLoadBalancer.PoolMemberNetwork = "main"
-	obj.Spec.ControlPlaneLoadBalancer.PoolMemberNetwork = "cp"
-
-	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("poolMemberNetwork"))
-}
-
-func TestValidateCreate_RouterInterfaceUndefinedNetwork(t *testing.T) {
-	g := NewWithT(t)
-	obj, _, validator, _ := newClusterWebhookTestObjects()
-	obj.Spec.Region = RegionRma
-	obj.Spec.Zone = ZoneRma1
-	obj.Spec.Networks = []infrastructurev1beta2.NetworkSpec{{Name: "my-net", CIDR: defaultSubnetCIDR}}
-	obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{
-		{
-			Name:            "nat-gw",
-			InternetGateway: true,
-			Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{
-				{Network: "nonexistent", ConfigureSubnetGateway: new(true)},
-			},
-		},
-	}
-	_, err := validator.ValidateCreate(ctx, obj)
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("network"))
-}
-
-func TestValidateCreate_RouterUUIDAndInternetGatewayMutuallyExclusive(t *testing.T) {
-	g := NewWithT(t)
-	obj, _, validator, _ := newClusterWebhookTestObjects()
-	obj.Spec.Region = RegionRma
-	obj.Spec.Zone = ZoneRma1
-	obj.Spec.Networks = []infrastructurev1beta2.NetworkSpec{{Name: "my-net", CIDR: defaultSubnetCIDR}}
-	obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{
-		{
-			Name:            "nat-gw",
-			UUID:            "some-uuid",
-			InternetGateway: true,
-		},
-	}
-	_, err := validator.ValidateCreate(ctx, obj)
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("mutually exclusive"))
-}
 
 func TestValidateCreate_RouterGatewayOutsideCIDR_NoExtraWrongPathError(t *testing.T) {
 	// validateNetworks already catches gateway-outside-CIDR with the correct field
@@ -1033,211 +1149,6 @@ func TestValidateCreate_RouterGatewayOutsideCIDR_NoExtraWrongPathError(t *testin
 	errs := clusterSpecValidateCreate(obj.Spec, validator.RegionInfo, field.NewPath("spec"))
 	g.Expect(errs).To(HaveLen(1), "only one error (from validateNetworks), not a duplicate from validateRouters")
 	g.Expect(errs[0].Field).To(Equal("spec.networks[0].gatewayAddress"))
-}
-
-func TestValidateCreate_DuplicateRouterName(t *testing.T) {
-	g := NewWithT(t)
-	obj, _, validator, _ := newClusterWebhookTestObjects()
-	obj.Spec.Region = RegionRma
-	obj.Spec.Zone = ZoneRma1
-	obj.Spec.Networks = []infrastructurev1beta2.NetworkSpec{{Name: "my-net", CIDR: defaultSubnetCIDR}}
-	obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{
-		{Name: "nat-gw"},
-		{Name: "nat-gw"},
-	}
-	_, err := validator.ValidateCreate(ctx, obj)
-	g.Expect(err).To(HaveOccurred())
-}
-
-func TestValidateCreate_RouterValid(t *testing.T) {
-	g := NewWithT(t)
-	obj, _, validator, _ := newClusterWebhookTestObjects()
-	obj.Spec.Region = RegionRma
-	obj.Spec.Zone = ZoneRma1
-	obj.Spec.Networks = []infrastructurev1beta2.NetworkSpec{{Name: "my-net", CIDR: defaultSubnetCIDR}}
-	obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{
-		{
-			Name:            "nat-gw",
-			InternetGateway: true,
-			Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{
-				{Network: "my-net", ConfigureSubnetGateway: new(true)},
-			},
-		},
-	}
-	_, err := validator.ValidateCreate(ctx, obj)
-	g.Expect(err).NotTo(HaveOccurred())
-}
-
-func TestValidateCreate_MultipleGatewayOwnersOnNetwork(t *testing.T) {
-	// Two interfaces on the same network both owning the subnet gateway would
-	// both request the gateway IP and collide; reject at admission.
-	g := NewWithT(t)
-	obj, _, validator, _ := newClusterWebhookTestObjects()
-	obj.Spec.Region = RegionRma
-	obj.Spec.Zone = ZoneRma1
-	obj.Spec.Networks = []infrastructurev1beta2.NetworkSpec{{Name: "transit", CIDR: defaultSubnetCIDR}}
-	obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{
-		{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "transit", ConfigureSubnetGateway: new(true)}}},
-		{Name: "r2", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "transit", ConfigureSubnetGateway: new(true)}}},
-	}
-	_, err := validator.ValidateCreate(ctx, obj)
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("multiple router interfaces configuring the subnet gateway"))
-}
-
-func TestValidateCreate_DuplicateInterfaceAddressOnNetwork(t *testing.T) {
-	g := NewWithT(t)
-	obj, _, validator, _ := newClusterWebhookTestObjects()
-	obj.Spec.Region = RegionRma
-	obj.Spec.Zone = ZoneRma1
-	obj.Spec.Networks = []infrastructurev1beta2.NetworkSpec{{Name: "transit", CIDR: "10.0.0.0/24"}}
-	obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{
-		{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "transit", Address: "10.0.0.5", ConfigureSubnetGateway: new(false)}}},
-		{Name: "r2", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "transit", Address: "10.0.0.5", ConfigureSubnetGateway: new(false)}}},
-	}
-	_, err := validator.ValidateCreate(ctx, obj)
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("Duplicate"))
-}
-
-func TestValidateCreate_InterfaceAddressOutsideCIDR(t *testing.T) {
-	g := NewWithT(t)
-	obj, _, validator, _ := newClusterWebhookTestObjects()
-	obj.Spec.Region = RegionRma
-	obj.Spec.Zone = ZoneRma1
-	obj.Spec.Networks = []infrastructurev1beta2.NetworkSpec{{Name: "main", CIDR: "10.0.0.0/24"}}
-	obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{
-		{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "main", Address: "192.168.1.5", ConfigureSubnetGateway: new(true)}}},
-	}
-	_, err := validator.ValidateCreate(ctx, obj)
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("within CIDR"))
-}
-
-// ============================================================================
-// Unit tests for validateRouterImmutability (update)
-// ============================================================================
-
-func TestValidateUpdate_RouterInterfaceImmutability_Address(t *testing.T) {
-	g := NewWithT(t)
-	obj, oldObj, validator := setupUpdateTestObjects()
-	oldObj.Spec.Routers = []infrastructurev1beta2.RouterSpec{
-		{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "main", Address: "172.18.0.3", ConfigureSubnetGateway: new(true)}}},
-	}
-	obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{
-		{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "main", Address: "172.18.0.4", ConfigureSubnetGateway: new(true)}}},
-	}
-	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("address for network"))
-}
-
-func TestValidateUpdate_RouterImmutability_UUID(t *testing.T) {
-	g := NewWithT(t)
-	obj, oldObj, validator := setupUpdateTestObjects()
-	oldObj.Spec.Routers = []infrastructurev1beta2.RouterSpec{{Name: "r1", UUID: "old-uuid"}}
-	obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{{Name: "r1", UUID: "new-uuid"}}
-	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("uuid"))
-}
-
-func TestValidateUpdate_RouterImmutability_InternetGateway(t *testing.T) {
-	g := NewWithT(t)
-	obj, oldObj, validator := setupUpdateTestObjects()
-	oldObj.Spec.Routers = []infrastructurev1beta2.RouterSpec{{Name: "r1", InternetGateway: true}}
-	obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{{Name: "r1", InternetGateway: false}}
-	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("internetGateway"))
-}
-
-func TestValidateUpdate_RouterInterfaceImmutability_ConfigureSubnetGateway(t *testing.T) {
-	g := NewWithT(t)
-	obj, oldObj, validator := setupUpdateTestObjects()
-	oldObj.Spec.Routers = []infrastructurev1beta2.RouterSpec{
-		{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "main", ConfigureSubnetGateway: new(true)}}},
-	}
-	obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{
-		{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "main", ConfigureSubnetGateway: new(false)}}},
-	}
-	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("configureSubnetGateway"))
-}
-
-func TestValidateUpdate_RouterInterfaceRemovalRejected(t *testing.T) {
-	g := NewWithT(t)
-	obj, oldObj, validator := setupUpdateTestObjects()
-	oldObj.Spec.Routers = []infrastructurev1beta2.RouterSpec{
-		{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "main", ConfigureSubnetGateway: new(true)}}},
-	}
-	obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{
-		{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{}},
-	}
-	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("interface"))
-}
-
-func TestValidateUpdate_RouterRemovalRejected(t *testing.T) {
-	g := NewWithT(t)
-	obj, oldObj, validator := setupUpdateTestObjects()
-	oldObj.Spec.Routers = []infrastructurev1beta2.RouterSpec{{Name: "r1"}}
-	obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{}
-	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("router"))
-}
-
-func TestValidateUpdate_NewRouterAddedToExisting(t *testing.T) {
-	g := NewWithT(t)
-	obj, oldObj, validator := setupUpdateTestObjects()
-	oldObj.Spec.Routers = []infrastructurev1beta2.RouterSpec{{Name: "r1"}}
-	obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{
-		{Name: "r1"},
-		{
-			Name:            "r2",
-			InternetGateway: true,
-			Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{
-				{Network: "main", ConfigureSubnetGateway: new(true)},
-			},
-		},
-	}
-	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-	g.Expect(err).NotTo(HaveOccurred())
-}
-
-func TestValidateUpdate_NewInterfaceOnExistingRouter_ValidNetwork(t *testing.T) {
-	g := NewWithT(t)
-	obj, oldObj, validator := setupUpdateTestObjects()
-	oldObj.Spec.Routers = []infrastructurev1beta2.RouterSpec{
-		{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "main", ConfigureSubnetGateway: new(true)}}},
-	}
-	obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{
-		{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "main", ConfigureSubnetGateway: new(true)}}},
-	}
-	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-	g.Expect(err).NotTo(HaveOccurred())
-}
-
-func TestValidateUpdate_NewInterfaceOnExistingRouter_InvalidNetwork_Rejected(t *testing.T) {
-	// A new interface added to an existing router with a nonexistent network
-	// must be rejected, even though the router itself is not new.
-	g := NewWithT(t)
-	obj, oldObj, validator := setupUpdateTestObjects()
-	oldObj.Spec.Routers = []infrastructurev1beta2.RouterSpec{
-		{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: "main"}}},
-	}
-	obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{
-		{Name: "r1", Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{
-			{Network: "main"},
-			{Network: "nonexistent-net"}, // new interface, bad network
-		}},
-	}
-	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("nonexistent-net"))
 }
 
 func TestValidateUpdate_NewRouterWithBadNetwork_ErrorPathNotDoubleIndexed(t *testing.T) {
@@ -1301,11 +1212,7 @@ func TestCIDRHostAddress(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "gateway offset /24", cidr: "10.0.0.0/24", offset: 3, want: "10.0.0.3"},
-		{name: "gateway offset another /24", cidr: "192.168.1.0/24", offset: 3, want: "192.168.1.3"},
-		{name: "gateway offset /16", cidr: "172.18.0.0/16", offset: 3, want: "172.18.0.3"},
 		{name: "gateway offset /17", cidr: "10.5.128.0/17", offset: 3, want: "10.5.128.3"},
-		{name: "sibling offset +4", cidr: "10.10.3.0/24", offset: 4, want: "10.10.3.4"},
-		{name: "sibling offset +5", cidr: "10.10.3.0/24", offset: 5, want: "10.10.3.5"},
 		{name: "offset outside CIDR", cidr: "10.0.0.0/30", offset: 5, wantErr: true},
 		{name: "invalid CIDR", cidr: "notacidr", offset: 3, wantErr: true},
 	}

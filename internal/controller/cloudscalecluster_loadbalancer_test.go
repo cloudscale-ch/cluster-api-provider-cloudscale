@@ -917,80 +917,43 @@ func threeNetworkStatus() []infrastructurev1beta2.NetworkStatus {
 	}
 }
 
-// TestGetPoolMemberSubnetID_PoolMemberNetworkOverridesVIPNetwork verifies that
-// an explicit PoolMemberNetwork wins over the VIP Network: the members attach to
-// the CP network even though the VIP sits on the access network (UC5).
-func TestGetPoolMemberSubnetID_PoolMemberNetworkOverridesVIPNetwork(t *testing.T) {
-	g := NewWithT(t)
+// TestGetPoolMemberSubnetID covers the VIP-network / pool-member-network
+// decoupling: an explicit PoolMemberNetwork always wins (even over a VIP Network
+// or a public VIP), otherwise it falls back to the VIP network and then the first
+// network. A referenced-but-unprovisioned member network surfaces an error.
+func TestGetPoolMemberSubnetID(t *testing.T) {
+	cases := []struct {
+		name              string
+		network           string
+		poolMemberNetwork string
+		wantSubnet        string
+		wantErrSubstring  string
+	}{
+		{name: "PoolMemberNetwork overrides VIP network", network: "access", poolMemberNetwork: "cp", wantSubnet: "subnet-cp"},
+		{name: "PoolMemberNetwork honoured with public VIP", network: "", poolMemberNetwork: "cp", wantSubnet: "subnet-cp"},
+		{name: "falls back to VIP network", network: "cp", wantSubnet: "subnet-cp"},
+		{name: "falls back to first network", wantSubnet: "subnet-access"},
+		{name: "unprovisioned member network errors", poolMemberNetwork: "not-yet", wantErrSubstring: "not-yet"},
+	}
 
-	clusterScope := newLBClusterScope()
-	clusterScope.CloudscaleCluster.Status.Networks = threeNetworkStatus()
-	clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Network = "access"
-	clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.PoolMemberNetwork = "cp"
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
 
-	subnetID, err := newTestReconciler().getPoolMemberSubnetID(clusterScope)
+			clusterScope := newLBClusterScope()
+			clusterScope.CloudscaleCluster.Status.Networks = threeNetworkStatus()
+			clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Network = tc.network
+			clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.PoolMemberNetwork = tc.poolMemberNetwork
 
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(subnetID).To(Equal("subnet-cp"))
-}
+			subnetID, err := newTestReconciler().getPoolMemberSubnetID(clusterScope)
 
-// TestGetPoolMemberSubnetID_PublicVIPWithPoolMemberNetwork verifies that with a
-// public VIP (Network empty) an explicit PoolMemberNetwork is honoured instead of
-// silently defaulting to networks[0] (UC5a).
-func TestGetPoolMemberSubnetID_PublicVIPWithPoolMemberNetwork(t *testing.T) {
-	g := NewWithT(t)
-
-	clusterScope := newLBClusterScope()
-	clusterScope.CloudscaleCluster.Status.Networks = threeNetworkStatus()
-	clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Network = ""
-	clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.PoolMemberNetwork = "cp"
-
-	subnetID, err := newTestReconciler().getPoolMemberSubnetID(clusterScope)
-
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(subnetID).To(Equal("subnet-cp"))
-}
-
-// TestGetPoolMemberSubnetID_PoolMemberNetworkNotProvisioned surfaces a clear
-// error while the referenced member network has no subnet yet.
-func TestGetPoolMemberSubnetID_PoolMemberNetworkNotProvisioned(t *testing.T) {
-	g := NewWithT(t)
-
-	clusterScope := newLBClusterScope()
-	clusterScope.CloudscaleCluster.Status.Networks = threeNetworkStatus()
-	clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.PoolMemberNetwork = "not-yet"
-
-	_, err := newTestReconciler().getPoolMemberSubnetID(clusterScope)
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("not-yet"))
-}
-
-// TestGetPoolMemberSubnetID_DefaultsToVIPNetworkThenFirst verifies the existing
-// fallback behaviour is unchanged when PoolMemberNetwork is unset.
-func TestGetPoolMemberSubnetID_DefaultsToVIPNetworkThenFirst(t *testing.T) {
-	t.Run("falls back to VIP network when only Network is set", func(t *testing.T) {
-		g := NewWithT(t)
-
-		clusterScope := newLBClusterScope()
-		clusterScope.CloudscaleCluster.Status.Networks = threeNetworkStatus()
-		clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Network = "cp"
-
-		subnetID, err := newTestReconciler().getPoolMemberSubnetID(clusterScope)
-
-		g.Expect(err).ToNot(HaveOccurred())
-		g.Expect(subnetID).To(Equal("subnet-cp"))
-	})
-
-	t.Run("falls back to first network when nothing is set", func(t *testing.T) {
-		g := NewWithT(t)
-
-		clusterScope := newLBClusterScope()
-		clusterScope.CloudscaleCluster.Status.Networks = threeNetworkStatus()
-
-		subnetID, err := newTestReconciler().getPoolMemberSubnetID(clusterScope)
-
-		g.Expect(err).ToNot(HaveOccurred())
-		g.Expect(subnetID).To(Equal("subnet-access"))
-	})
+			if tc.wantErrSubstring != "" {
+				g.Expect(err).To(HaveOccurred())
+				g.Expect(err.Error()).To(ContainSubstring(tc.wantErrSubstring))
+				return
+			}
+			g.Expect(err).ToNot(HaveOccurred())
+			g.Expect(subnetID).To(Equal(tc.wantSubnet))
+		})
+	}
 }

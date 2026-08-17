@@ -292,11 +292,12 @@ spec:
                             description: |-
                               Address is the IP requested for this router interface within the referenced
                               network's subnet. The cloudscale.ch API requires an explicit address per
-                              interface, so the admission webhook defaults this for managed (CIDR) networks:
-                              the ConfigureSubnetGateway owner gets network+3 (mirrored to the network's
-                              gatewayAddress), and additional interfaces on the same network get network+4,
-                              network+5, ... in order. It may be set explicitly to override the default.
-                              Immutable after creation.
+                              interface. For the common case of a single interface on a managed (CIDR)
+                              network, the admission webhook defaults it: the ConfigureSubnetGateway owner
+                              gets the network's gatewayAddress, or network+3 if unset (cloudscale.ch
+                              reserves .1 and .2 for DNS), and that value is mirrored to the network's
+                              gatewayAddress. When multiple router interfaces reference the same network,
+                              each must set this explicitly. Immutable after creation.
                             type: string
                           configureSubnetGateway:
                             default: true
