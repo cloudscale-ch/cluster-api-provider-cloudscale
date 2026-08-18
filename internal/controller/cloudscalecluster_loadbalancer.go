@@ -23,7 +23,7 @@ import (
 	"slices"
 	"time"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v10"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -513,8 +513,9 @@ func (r *CloudscaleClusterReconciler) getMemberSubnetCIDR(clusterScope *scope.Cl
 }
 
 // getPoolMemberSubnetID determines the subnet UUID for LB pool members.
-// If the LB is on a private network, use that network's subnet.
-// Otherwise (public LB), use the first network's subnet.
+// 1. .PoolMemberNetwork's subnet if specified
+// 2. .Network's subnet if specified
+// 3. first network's subnet
 func (r *CloudscaleClusterReconciler) getPoolMemberSubnetID(clusterScope *scope.ClusterScope) (string, error) {
 	if clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Network != "" {
 		return lbPrivateNetworkSubnetID(clusterScope)

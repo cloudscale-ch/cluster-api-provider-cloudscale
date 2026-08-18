@@ -109,10 +109,12 @@ For the prose architecture sketch see [`docs/development.md`](docs/development.m
 - The e2e overlay `test/infrastructure/cloudscale/clusterclass-quick-start/cluster-class.yaml`
   intentionally duplicates `templates/cluster-class.yaml`. Keep them in sync,
   but do not attempt to merge or deduplicate them — both copies are required.
+  The same applies to `clusterclass-router-nat/cluster-class.yaml` and
+  `templates/cluster-class-router-nat.yaml`; those two are byte-identical.
 
 ## Cloudscale SDK usage
 
-- Do not `import "github.com/cloudscale-ch/cloudscale-go-sdk/v9"` outside
+- Do not `import "github.com/cloudscale-ch/cloudscale-go-sdk/v10"` outside
   `internal/cloudscale/`. Controllers and webhooks talk to the SDK through
   the service interfaces on `cloudscale.Client`
   (`internal/cloudscale/client.go:32`).

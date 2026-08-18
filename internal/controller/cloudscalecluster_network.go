@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v10"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -102,7 +102,7 @@ func (r *CloudscaleClusterReconciler) reconcilePreExistingNetwork(ctx context.Co
 		return fmt.Errorf("pre-existing network %s has no subnets", netSpec.UUID)
 	}
 
-	r.setNetworkStatus(clusterScope, netSpec.Name, network.UUID, network.Subnets[0].UUID, network.Subnets[0].CIDR, false)
+	r.setNetworkStatus(clusterScope, netSpec.Name, network.UUID, network.Subnets[0].UUID, network.Subnets[0].CIDR, false, network.MTU)
 	clusterScope.Info("Discovered pre-existing network", "name", netSpec.Name, "networkID", network.UUID, "subnetID", network.Subnets[0].UUID, "cidr", network.Subnets[0].CIDR)
 
 	return nil
@@ -120,7 +120,7 @@ func (r *CloudscaleClusterReconciler) reconcileManagedNetwork(ctx context.Contex
 
 	tags := r.networkTags(clusterScope, netSpec.Name)
 
-	_, resolvedNetworkID, err := ensureResource(ctx, clusterScope,
+	network, resolvedNetworkID, err := ensureResource(ctx, clusterScope,
 		networkID,
 		fmt.Sprintf("network/%s", netSpec.Name),
 		clusterScope.CloudscaleClient.Networks,
@@ -136,12 +136,16 @@ func (r *CloudscaleClusterReconciler) reconcileManagedNetwork(ctx context.Contex
 		clusterScope.Info("Creating network", "name", netSpec.Name)
 		createCtx, cancel := context.WithTimeout(ctx, cloudscale.WriteTimeout)
 		defer cancel()
-		network, err := clusterScope.CloudscaleClient.Networks.Create(createCtx, &cloudscalesdk.NetworkCreateRequest{
+		req := &cloudscalesdk.NetworkCreateRequest{
 			Name:                 netSpec.Name,
 			AutoCreateIPV4Subnet: new(false),
 			Zone:                 clusterScope.CloudscaleCluster.Spec.Zone,
 			Tags:                 new(tags),
-		})
+		}
+		if netSpec.MTU > 0 {
+			req.MTU = netSpec.MTU
+		}
+		network, err = clusterScope.CloudscaleClient.Networks.Create(createCtx, req)
 		if err != nil {
 			if cloudscale.IsTimeoutError(err) {
 				clusterScope.Info("Network creation timed out, waiting before retry", "requeueAfter", createNetworkTimeoutRequeueAfter)
@@ -196,7 +200,7 @@ func (r *CloudscaleClusterReconciler) reconcileManagedNetwork(ctx context.Contex
 			"Created subnet %s (%s) with CIDR %s", netSpec.Name, subnet.UUID, netSpec.CIDR)
 	}
 
-	r.setNetworkStatus(clusterScope, netSpec.Name, resolvedNetworkID, resolvedSubnetID, netSpec.CIDR, true)
+	r.setNetworkStatus(clusterScope, netSpec.Name, resolvedNetworkID, resolvedSubnetID, netSpec.CIDR, true, network.MTU)
 	return ctrl.Result{}, nil
 }
 
@@ -276,13 +280,14 @@ func isLBPoolMembersError(err error) bool {
 }
 
 // setNetworkStatus updates or appends the network status entry for the given name.
-func (r *CloudscaleClusterReconciler) setNetworkStatus(clusterScope *scope.ClusterScope, name, networkID, subnetID, cidr string, managed bool) {
+func (r *CloudscaleClusterReconciler) setNetworkStatus(clusterScope *scope.ClusterScope, name, networkID, subnetID, cidr string, managed bool, mtu int) {
 	for i, ns := range clusterScope.CloudscaleCluster.Status.Networks {
 		if ns.Name == name {
 			clusterScope.CloudscaleCluster.Status.Networks[i].NetworkID = networkID
 			clusterScope.CloudscaleCluster.Status.Networks[i].SubnetID = subnetID
 			clusterScope.CloudscaleCluster.Status.Networks[i].CIDR = cidr
 			clusterScope.CloudscaleCluster.Status.Networks[i].Managed = managed
+			clusterScope.CloudscaleCluster.Status.Networks[i].MTU = mtu
 			return
 		}
 	}
@@ -292,7 +297,15 @@ func (r *CloudscaleClusterReconciler) setNetworkStatus(clusterScope *scope.Clust
 		SubnetID:  subnetID,
 		CIDR:      cidr,
 		Managed:   managed,
+		MTU:       mtu,
 	})
+}
+
+// setNetworkGatewayAddress records the configured subnet gateway IP in the network status entry.
+func (r *CloudscaleClusterReconciler) setNetworkGatewayAddress(clusterScope *scope.ClusterScope, networkName, gatewayAddress string) {
+	if ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus(networkName); ns != nil {
+		ns.GatewayAddress = gatewayAddress
+	}
 }
 
 // networkTags returns the tags for a specific named network, combining cluster ownership with network name.
