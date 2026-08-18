@@ -72,6 +72,14 @@ type CloudscaleClusterSpec struct {
 	// +optional
 	Networks []NetworkSpec `json:"networks,omitempty"`
 
+	// Routers define routers for this cluster.
+	// Each router can be attached to one or more networks via its interfaces.
+	// If empty, no router is provisioned.
+	// +listType=map
+	// +listMapKey=name
+	// +optional
+	Routers []RouterSpec `json:"routers,omitempty"`
+
 	// ControlPlaneLoadBalancer configures the load balancer for the control plane.
 	// +optional
 	ControlPlaneLoadBalancer LoadBalancerSpec `json:"controlPlaneLoadBalancer,omitzero"`
@@ -128,13 +136,81 @@ type NetworkSpec struct {
 	CIDR string `json:"cidr,omitempty"`
 
 	// GatewayAddress is the gateway IP address for the subnet.
-	// Only applicable when CIDR is set (managed network).
-	// By default, no gateway is configured on the subnet. This ensures
+	// Only applicable when CIDR is set (managed network). Immutable after creation.
+	// When no router interface references this network: By default, no gateway is configured on the subnet. This ensures
 	// that outbound internet traffic uses the public network interface.
-	// Set this to a specific IP address (e.g., "10.0.0.1") only if you have configured
-	// a NAT gateway or similar infrastructure on the private network.
+	// When a router interface references this network: the value is requested as the router interface's IP on the subnet.
+	// If empty, the webhook defaults this to a valid address.
 	// +optional
 	GatewayAddress string `json:"gatewayAddress,omitempty"`
+}
+
+// RouterSpec defines a router managed or adopted for this cluster.
+// Set UUID to adopt a pre-existing router; leave it empty to have CAPCS create one.
+type RouterSpec struct {
+	// Name identifies this router within the cluster.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`
+	// +kubebuilder:validation:MaxLength=63
+	Name string `json:"name"`
+
+	// UUID references a pre-existing router by UUID.
+	// CAPCS attaches and detaches the interfaces it created but does not create or delete
+	// the router, and leaves interfaces it did not create alone. Interfaces the router
+	// already carries must be adopted explicitly via interfaces[].uuid.
+	// Mutually exclusive with InternetGateway. Immutable after creation.
+	// +optional
+	UUID string `json:"uuid,omitempty"`
+
+	// InternetGateway enables SNAT for outbound internet access on a managed router.
+	// Only valid when UUID is not set. Immutable after creation.
+	// +optional
+	InternetGateway bool `json:"internetGateway,omitempty"`
+
+	// Interfaces lists the networks this router is attached to.
+	// A router attaches to any given network at most once.
+	// +listType=map
+	// +listMapKey=network
+	// +optional
+	Interfaces []RouterInterfaceSpec `json:"interfaces,omitempty"`
+}
+
+// RouterInterfaceSpec defines a single network attachment for a router.
+type RouterInterfaceSpec struct {
+	// Network references spec.networks[].name.
+	// +kubebuilder:validation:Required
+	Network string `json:"network"`
+
+	// UUID adopts a pre-existing interface of the router instead of attaching a new one.
+	// The interface must already be attached to the referenced network. CAPCS reads its
+	// address but never creates or detaches it.
+	// Only valid on an adopted router (spec.routers[].uuid set), since a router CAPCS
+	// creates has no pre-existing interfaces. Mutually exclusive with Address.
+	// Immutable after creation.
+	// +optional
+	UUID string `json:"uuid,omitempty"`
+
+	// Address is the IP requested for this router interface within the referenced
+	// network's subnet. The API requires an explicit address per interface, so the
+	// admission webhook defaults it: the interface with configureSubnetGateway=true gets
+	// the network's gatewayAddress, or the first free address in the network's CIDR if
+	// that is unset. Must be set explicitly when the network is referenced by uuid — its
+	// subnet is not known at admission time. Must be left empty when this interface is
+	// adopted by uuid: its address is whatever the pre-existing interface holds.
+	// If configureSubnetGateway=true, the controller writes the resulting value to status.networks[].gatewayAddress once
+	// the subnet gateway is configured. Immutable after creation.
+	// +optional
+	Address string `json:"address,omitempty"`
+
+	// ConfigureSubnetGateway, when true (default), sets the subnet's gatewayAddress
+	// to this router interface's assigned IP, making the router the default route for
+	// servers on that subnet.
+	// Set to false for transit/backbone networks where a different router (e.g. the
+	// internet-gateway router) owns the subnet gateway.
+	// Immutable after creation.
+	// +kubebuilder:default=true
+	// +optional
+	ConfigureSubnetGateway *bool `json:"configureSubnetGateway,omitempty"`
 }
 
 // LoadBalancerSpec defines the load balancer configuration for the control plane.
@@ -248,6 +324,12 @@ type CloudscaleClusterStatus struct {
 	// +optional
 	Networks []NetworkStatus `json:"networks,omitempty"`
 
+	// Routers track the provisioned state of each router defined in spec.routers.
+	// +listType=map
+	// +listMapKey=name
+	// +optional
+	Routers []RouterStatus `json:"routers,omitempty"`
+
 	// FloatingIP is the cloudscale.ch floating IP.
 	// +optional
 	FloatingIP string `json:"floatingIP,omitempty"`
@@ -300,6 +382,58 @@ type NetworkStatus struct {
 	// Managed indicates whether CAPCS manages this network's lifecycle.
 	// false for pre-existing networks (referenced by UUID), true for CAPCS-created networks (defined by CIDR).
 	Managed bool `json:"managed"`
+
+	// GatewayAddress is the subnet gateway IP that CAPCS has configured on the router interface.
+	// Empty until the router interface is attached and the subnet gateway is updated.
+	// +optional
+	GatewayAddress string `json:"gatewayAddress,omitempty"`
+}
+
+// RouterStatus tracks the provisioned state of a single router.
+type RouterStatus struct {
+	// Name matches spec.routers[].name.
+	Name string `json:"name"`
+
+	// RouterID is the router UUID.
+	// +optional
+	RouterID string `json:"routerID,omitempty"`
+
+	// Interfaces tracks this router's interfaces, at most one per network.
+	// +listType=map
+	// +listMapKey=network
+	// +optional
+	Interfaces []RouterInterfaceStatus `json:"interfaces,omitempty"`
+
+	// Managed indicates whether CAPCS manages this router's lifecycle.
+	// false for pre-existing routers (referenced by UUID), true for CAPCS-created routers.
+	Managed bool `json:"managed"`
+}
+
+// RouterInterfaceStatus tracks one router interface.
+type RouterInterfaceStatus struct {
+	// Network matches spec.networks[].name.
+	Network string `json:"network"`
+
+	// InterfaceID is the router interface UUID.
+	// Empty only while an attach is in flight: the entry is written before the create call,
+	// so an attach whose response was lost to a timeout is still recognized as CAPCS-created.
+	// +optional
+	InterfaceID string `json:"interfaceID,omitempty"`
+
+	// Managed indicates whether CAPCS created this interface, i.e. whether the spec entry
+	// left uuid empty. Interfaces adopted by uuid are never detached on teardown.
+	Managed bool `json:"managed"`
+}
+
+// GetInterfaceStatus returns the RouterInterfaceStatus for the given network name, or
+// nil if the router has no recorded interface on that network.
+func (rs *RouterStatus) GetInterfaceStatus(network string) *RouterInterfaceStatus {
+	for i := range rs.Interfaces {
+		if rs.Interfaces[i].Network == network {
+			return &rs.Interfaces[i]
+		}
+	}
+	return nil
 }
 
 // ClusterInitializationStatus contains v1beta2 initialization tracking for CloudscaleCluster.
@@ -315,6 +449,16 @@ func (s *CloudscaleClusterStatus) GetNetworkStatus(name string) *NetworkStatus {
 	for i := range s.Networks {
 		if s.Networks[i].Name == name {
 			return &s.Networks[i]
+		}
+	}
+	return nil
+}
+
+// GetRouterStatus returns the RouterStatus for the given router name, or nil if not found.
+func (s *CloudscaleClusterStatus) GetRouterStatus(name string) *RouterStatus {
+	for i := range s.Routers {
+		if s.Routers[i].Name == name {
+			return &s.Routers[i]
 		}
 	}
 	return nil

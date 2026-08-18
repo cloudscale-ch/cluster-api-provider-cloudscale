@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v10"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -293,6 +293,13 @@ func (r *CloudscaleClusterReconciler) setNetworkStatus(clusterScope *scope.Clust
 		CIDR:      cidr,
 		Managed:   managed,
 	})
+}
+
+// setNetworkGatewayAddress records the configured subnet gateway IP in the network status entry.
+func (r *CloudscaleClusterReconciler) setNetworkGatewayAddress(clusterScope *scope.ClusterScope, networkName, gatewayAddress string) {
+	if ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus(networkName); ns != nil {
+		ns.GatewayAddress = gatewayAddress
+	}
 }
 
 // networkTags returns the tags for a specific named network, combining cluster ownership with network name.

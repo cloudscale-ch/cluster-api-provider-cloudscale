@@ -1,0 +1,369 @@
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: ClusterClass
+metadata:
+  name: router-nat
+  namespace: "${NAMESPACE}"
+spec:
+  controlPlane:
+    templateRef:
+      apiVersion: controlplane.cluster.x-k8s.io/v1beta2
+      kind: KubeadmControlPlaneTemplate
+      name: router-nat-control-plane
+    machineInfrastructure:
+      templateRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+        kind: CloudscaleMachineTemplate
+        name: router-nat-machinetemplate
+    healthCheck:
+      checks:
+        nodeStartupTimeoutSeconds: 900
+        unhealthyNodeConditions:
+          - type: Ready
+            status: Unknown
+            timeoutSeconds: 300
+          - type: Ready
+            status: "False"
+            timeoutSeconds: 300
+      remediation:
+        triggerIf:
+          unhealthyLessThanOrEqualTo: 33%
+  infrastructure:
+    templateRef:
+      apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+      kind: CloudscaleClusterTemplate
+      name: router-nat-cluster
+  workers:
+    machineDeployments:
+      - class: worker
+        bootstrap:
+          templateRef:
+            apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
+            kind: KubeadmConfigTemplate
+            name: router-nat-worker
+        infrastructure:
+          templateRef:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+            kind: CloudscaleMachineTemplate
+            name: router-nat-machinetemplate
+        healthCheck:
+          checks:
+            nodeStartupTimeoutSeconds: 600
+            unhealthyNodeConditions:
+              - type: Ready
+                status: Unknown
+                timeoutSeconds: 300
+              - type: Ready
+                status: "False"
+                timeoutSeconds: 300
+          remediation:
+            triggerIf:
+              unhealthyInRange: "[0-2]"
+  variables:
+    - name: region
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: lpg
+          enum:
+            - lpg
+            - rma
+    - name: credentialsRefName
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: "${CLUSTER_NAME}-credentials"
+    - name: networkName
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: node-net
+    - name: networkCIDR
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: 10.10.0.0/24
+    - name: routerName
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: router
+    - name: cloudscaleControlPlaneMachineFlavor
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: flex-4-2
+    - name: cloudscaleControlPlaneMachineImage
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: custom:ubuntu-2404-kube-v1.36.0
+    - name: cloudscaleControlPlaneMachineRootVolumeSize
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: integer
+          default: 20
+    - name: cloudscaleWorkerMachineFlavor
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: flex-4-2
+    - name: cloudscaleWorkerMachineImage
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: custom:ubuntu-2404-kube-v1.36.0
+    - name: cloudscaleWorkerMachineRootVolumeSize
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: integer
+          default: 20
+    - name: cloudscaleSSHKeys
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: array
+          items:
+            type: string
+    - name: cloudscaleControlPlaneServerGroupName
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+    - name: cloudscaleWorkerServerGroupName
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+  patches:
+    - name: CloudscaleClusterTemplate
+      definitions:
+        - selector:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+            kind: CloudscaleClusterTemplate
+            matchResources:
+              infrastructureCluster: true
+          jsonPatches:
+            - op: replace
+              path: "/spec/template/spec/region"
+              valueFrom:
+                variable: region
+            - op: replace
+              path: "/spec/template/spec/credentialsRef/name"
+              valueFrom:
+                variable: credentialsRefName
+            # The whole list is replaced rather than its individual members, so networkName
+            # stays a single source of truth instead of a literal repeated per index.
+            - op: replace
+              path: "/spec/template/spec/networks"
+              valueFrom:
+                template: |
+                  - name: {{ .networkName }}
+                    cidr: {{ .networkCIDR }}
+            - op: replace
+              path: "/spec/template/spec/routers"
+              valueFrom:
+                template: |
+                  - name: {{ .routerName }}
+                    internetGateway: true
+                    interfaces:
+                      - network: {{ .networkName }}
+    - name: CloudscaleMachineTemplateControlPlane
+      definitions:
+        - selector:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+            kind: CloudscaleMachineTemplate
+            matchResources:
+              controlPlane: true
+          jsonPatches:
+            - op: replace
+              path: "/spec/template/spec/flavor"
+              valueFrom:
+                variable: cloudscaleControlPlaneMachineFlavor
+            - op: replace
+              path: "/spec/template/spec/image"
+              valueFrom:
+                variable: cloudscaleControlPlaneMachineImage
+            - op: replace
+              path: "/spec/template/spec/rootVolumeSize"
+              valueFrom:
+                variable: cloudscaleControlPlaneMachineRootVolumeSize
+            # Private only: no {type: public} entry, so the nodes reach the internet
+            # exclusively through the router's SNAT.
+            - op: replace
+              path: "/spec/template/spec/interfaces"
+              valueFrom:
+                template: |
+                  - network: {{ .networkName }}
+            - op: add
+              path: "/spec/template/spec/serverGroup"
+              valueFrom:
+                template: |
+                  name: {{ .cloudscaleControlPlaneServerGroupName }}
+    - name: CloudscaleMachineTemplateWorker
+      definitions:
+        - selector:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+            kind: CloudscaleMachineTemplate
+            matchResources:
+              machineDeploymentClass:
+                names:
+                  - worker
+          jsonPatches:
+            - op: replace
+              path: "/spec/template/spec/flavor"
+              valueFrom:
+                variable: cloudscaleWorkerMachineFlavor
+            - op: replace
+              path: "/spec/template/spec/image"
+              valueFrom:
+                variable: cloudscaleWorkerMachineImage
+            - op: replace
+              path: "/spec/template/spec/rootVolumeSize"
+              valueFrom:
+                variable: cloudscaleWorkerMachineRootVolumeSize
+            - op: replace
+              path: "/spec/template/spec/interfaces"
+              valueFrom:
+                template: |
+                  - network: {{ .networkName }}
+            - op: add
+              path: "/spec/template/spec/serverGroup"
+              valueFrom:
+                template: |
+                  name: {{ .cloudscaleWorkerServerGroupName }}
+    - name: KubeadmControlPlaneTemplate
+      definitions:
+        - selector:
+            apiVersion: controlplane.cluster.x-k8s.io/v1beta2
+            kind: KubeadmControlPlaneTemplate
+            matchResources:
+              controlPlane: true
+          jsonPatches:
+            - op: replace
+              path: "/spec/template/spec/kubeadmConfigSpec/users"
+              valueFrom:
+                template: |
+                  - name: capi
+                    groups: sudo
+                    shell: "/bin/bash"
+                    sudo: "ALL=(ALL) NOPASSWD:ALL"
+                    sshAuthorizedKeys: {{ .cloudscaleSSHKeys | toJson }}
+    - name: KubeadmConfigTemplate
+      definitions:
+        - selector:
+            apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
+            kind: KubeadmConfigTemplate
+            matchResources:
+              machineDeploymentClass:
+                names:
+                  - worker
+          jsonPatches:
+            - op: replace
+              path: "/spec/template/spec/users"
+              valueFrom:
+                template: |
+                  - name: capi
+                    groups: sudo
+                    shell: "/bin/bash"
+                    sudo: "ALL=(ALL) NOPASSWD:ALL"
+                    sshAuthorizedKeys: {{ .cloudscaleSSHKeys | toJson }}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+kind: CloudscaleClusterTemplate
+metadata:
+  name: router-nat-cluster
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    metadata:
+      labels: {}
+    spec:
+      # Every field below is overwritten by the CloudscaleClusterTemplate patches above, so
+      # nothing here reaches a cluster.
+      region: lpg
+      credentialsRef:
+        name: "${CLUSTER_NAME}-credentials"
+      networks:
+        - name: node-net
+          cidr: 10.10.0.0/24
+      routers:
+        - name: router
+          internetGateway: true
+          interfaces:
+            - network: node-net
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+kind: CloudscaleMachineTemplate
+metadata:
+  name: router-nat-machinetemplate
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      flavor: flex-4-2
+      image: custom:ubuntu-2404-kube-v1.36.0
+      rootVolumeSize: 20
+      interfaces:
+        - network: node-net
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1beta2
+kind: KubeadmControlPlaneTemplate
+metadata:
+  name: router-nat-control-plane
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      kubeadmConfigSpec:
+        initConfiguration:
+          nodeRegistration:
+            kubeletExtraArgs:
+              - name: cloud-provider
+                value: external
+        joinConfiguration:
+          nodeRegistration:
+            kubeletExtraArgs:
+              - name: cloud-provider
+                value: external
+        users:
+          - name: capi
+            groups: sudo
+            shell: "/bin/bash"
+            sudo: "ALL=(ALL) NOPASSWD:ALL"
+            sshAuthorizedKeys: []
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
+kind: KubeadmConfigTemplate
+metadata:
+  name: router-nat-worker
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      initConfiguration:
+        nodeRegistration:
+          kubeletExtraArgs:
+            - name: cloud-provider
+              value: external
+      joinConfiguration:
+        nodeRegistration:
+          kubeletExtraArgs:
+            - name: cloud-provider
+              value: external
+      users:
+        - name: capi
+          groups: sudo
+          shell: "/bin/bash"
+          sudo: "ALL=(ALL) NOPASSWD:ALL"
+          sshAuthorizedKeys: []

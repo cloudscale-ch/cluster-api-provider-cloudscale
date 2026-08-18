@@ -40,6 +40,7 @@ var _ = Describe("Workload cluster lifecycle", Label("lifecycle"), func() {
 				SkipCleanup:              skipCleanup,
 				InfrastructureProvider:   new("cloudscale-ch-cloudscale"),
 				Flavor:                   new(""),
+				ClusterName:              scenarioClusterName("lifecycle"),
 				ControlPlaneMachineCount: new(int64(1)),
 				WorkerMachineCount:       new(int64(1)),
 				PostMachinesProvisioned:  validateCloudscaleResources,
@@ -57,6 +58,7 @@ var _ = Describe("Workload cluster lifecycle", Label("lifecycle"), func() {
 				SkipCleanup:              skipCleanup,
 				InfrastructureProvider:   new("cloudscale-ch-cloudscale"),
 				Flavor:                   new("ha"),
+				ClusterName:              scenarioClusterName("ha"),
 				ControlPlaneMachineCount: new(int64(3)),
 				WorkerMachineCount:       new(int64(2)),
 				PostMachinesProvisioned:  validateCloudscaleResources,
@@ -76,6 +78,53 @@ var _ = Describe("Workload cluster-class topology", Label("topology"), func() {
 				SkipCleanup:              skipCleanup,
 				InfrastructureProvider:   new("cloudscale-ch-cloudscale"),
 				Flavor:                   new("topology"),
+				ClusterName:              scenarioClusterName("topology"),
+				ControlPlaneMachineCount: new(int64(1)),
+				WorkerMachineCount:       new(int64(1)),
+				PostMachinesProvisioned:  validateCloudscaleResources,
+			}
+		})
+	})
+})
+
+// Managed router tests use a router with internetGateway=true: nodes have no public
+// interface at all and reach the internet only through the router's SNAT. These are the only
+// specs that prove the router path end to end — if the router or its subnet gateway were
+// wrong, the nodes would never finish bootstrapping.
+var _ = Describe("Managed router NAT", Label("router-nat"), func() {
+	// Flat template: the network and router are spelled out in the CloudscaleCluster.
+	Context("With managed router providing NAT", func() {
+		capi_e2e.QuickStartSpec(ctx, func() capi_e2e.QuickStartSpecInput {
+			return capi_e2e.QuickStartSpecInput{
+				E2EConfig:                e2eConfig,
+				ClusterctlConfigPath:     clusterctlConfigPath,
+				BootstrapClusterProxy:    bootstrapClusterProxy,
+				ArtifactFolder:           artifactFolder,
+				SkipCleanup:              skipCleanup,
+				InfrastructureProvider:   new("cloudscale-ch-cloudscale"),
+				Flavor:                   new("router-nat"),
+				ClusterName:              scenarioClusterName("router-nat"),
+				ControlPlaneMachineCount: new(int64(1)),
+				WorkerMachineCount:       new(int64(1)),
+				PostMachinesProvisioned:  validateCloudscaleResources,
+			}
+		})
+	})
+
+	// Same topology via the router-nat ClusterClass. This additionally covers the
+	// CloudscaleClusterTemplate leaving the router interface address open for the
+	// CloudscaleCluster webhook to derive from the patched network CIDR.
+	Context("With managed router providing NAT via ClusterClass", func() {
+		capi_e2e.QuickStartSpec(ctx, func() capi_e2e.QuickStartSpecInput {
+			return capi_e2e.QuickStartSpecInput{
+				E2EConfig:                e2eConfig,
+				ClusterctlConfigPath:     clusterctlConfigPath,
+				BootstrapClusterProxy:    bootstrapClusterProxy,
+				ArtifactFolder:           artifactFolder,
+				SkipCleanup:              skipCleanup,
+				InfrastructureProvider:   new("cloudscale-ch-cloudscale"),
+				Flavor:                   new("topology-router-nat"),
+				ClusterName:              scenarioClusterName("topology-router-nat"),
 				ControlPlaneMachineCount: new(int64(1)),
 				WorkerMachineCount:       new(int64(1)),
 				PostMachinesProvisioned:  validateCloudscaleResources,
@@ -106,6 +155,7 @@ var _ = Describe("Pre-existing networking", Label("pre-existing-networking"), fu
 				SkipCleanup:              skipCleanup,
 				InfrastructureProvider:   new("cloudscale-ch-cloudscale"),
 				Flavor:                   new("pre-existing-network"),
+				ClusterName:              scenarioClusterName("pre-existing-net"),
 				ControlPlaneMachineCount: new(int64(1)),
 				WorkerMachineCount:       new(int64(1)),
 				PostMachinesProvisioned:  validateCloudscaleResources,
@@ -124,6 +174,7 @@ var _ = Describe("Pre-existing networking", Label("pre-existing-networking"), fu
 				SkipCleanup:              skipCleanup,
 				InfrastructureProvider:   new("cloudscale-ch-cloudscale"),
 				Flavor:                   new("public-lb-private-nodes"),
+				ClusterName:              scenarioClusterName("public-lb-private-nodes"),
 				ControlPlaneMachineCount: new(int64(1)),
 				WorkerMachineCount:       new(int64(1)),
 				PostMachinesProvisioned:  validateCloudscaleResources,
@@ -142,6 +193,7 @@ var _ = Describe("Pre-existing networking", Label("pre-existing-networking"), fu
 				SkipCleanup:              skipCleanup,
 				InfrastructureProvider:   new("cloudscale-ch-cloudscale"),
 				Flavor:                   new("fip"),
+				ClusterName:              scenarioClusterName("fip"),
 				ControlPlaneMachineCount: new(int64(1)),
 				WorkerMachineCount:       new(int64(1)),
 				PostMachinesProvisioned:  validateCloudscaleResources,

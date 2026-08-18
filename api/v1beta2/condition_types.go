@@ -30,6 +30,10 @@ const (
 	// True when the pause annotation is present on the resource or parent cluster.
 	PausedCondition = "Paused"
 
+	// RouterReadyCondition indicates all spec.routers are provisioned, active, and have their
+	// interfaces attached. Also set to True when no routers are defined.
+	RouterReadyCondition = "RouterReady"
+
 	// FloatingIPReadyCondition indicates whether the floating IP has been provisioned and assigned.
 	// Only applicable to CloudscaleCluster when spec.floatingIP is set.
 	FloatingIPReadyCondition = "FloatingIPReady"
@@ -64,6 +68,21 @@ const (
 
 	// LoadBalancerDeletingReason indicates the load balancer is being deleted.
 	LoadBalancerDeletingReason = "LoadBalancerDeleting"
+
+	// RouterProvisionedReason indicates all routers and their interfaces are provisioned.
+	RouterProvisionedReason = "RouterProvisioned"
+
+	// RouterNotReadyReason indicates a router exists but its status is not yet active.
+	RouterNotReadyReason = "RouterNotReady"
+
+	// RouterErrorReason indicates an error occurred during router operations.
+	RouterErrorReason = "RouterError"
+
+	// RouterDisabledReason indicates spec.routers is empty.
+	RouterDisabledReason = "RouterDisabled"
+
+	// RouterDeletingReason indicates routers are being deleted.
+	RouterDeletingReason = "RouterDeleting"
 
 	// FloatingIPProvisionedReason indicates the floating IP has been successfully provisioned and assigned.
 	FloatingIPProvisionedReason = "FloatingIPProvisioned"

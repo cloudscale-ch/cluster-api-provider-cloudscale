@@ -25,13 +25,14 @@ import (
 	"strings"
 	"time"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v10"
 	"golang.org/x/oauth2"
 )
 
 type Client struct {
 	Networks                   NetworkService
 	Subnets                    SubnetService
+	Routers                    RouterService
 	Regions                    RegionService
 	Servers                    ServerService
 	ServerGroups               ServerGroupService
@@ -109,6 +110,7 @@ func NewClient(token, version string, transport http.RoundTripper) *Client {
 	return &Client{
 		Networks:                   sdkClient.Networks,
 		Subnets:                    sdkClient.Subnets,
+		Routers:                    sdkClient.Routers,
 		Regions:                    sdkClient.Regions,
 		Servers:                    sdkClient.Servers,
 		ServerGroups:               sdkClient.ServerGroups,
