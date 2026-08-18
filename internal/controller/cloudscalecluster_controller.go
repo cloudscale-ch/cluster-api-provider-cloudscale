@@ -176,6 +176,14 @@ func (r *CloudscaleClusterReconciler) reconcileNormal(ctx context.Context, clust
 		return result, nil
 	}
 
+	result, err = r.reconcileRouters(ctx, clusterScope)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("reconciling routers: %w", err)
+	}
+	if !result.IsZero() {
+		return result, nil
+	}
+
 	lb, result, err := r.reconcileLoadBalancer(ctx, clusterScope)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("reconciling load balancer: %w", err)
@@ -241,6 +249,10 @@ func (r *CloudscaleClusterReconciler) reconcileDelete(ctx context.Context, clust
 		return ctrl.Result{}, fmt.Errorf("deleting server groups: %w", err)
 	}
 
+	if err := r.deleteRouters(ctx, clusterScope); err != nil {
+		return ctrl.Result{}, fmt.Errorf("deleting routers: %w", err)
+	}
+
 	if err := r.deleteNetwork(ctx, clusterScope); err != nil {
 		if errors.Is(err, errNetworkNotReady) {
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
@@ -296,8 +308,9 @@ func (r *CloudscaleClusterReconciler) reconcileControlPlaneEndpoint(clusterScope
 }
 
 // isInfrastructureProvisioned returns true if all cluster infrastructure is ready.
-// This includes all Networks+Subnets, Load Balancer (with pool and listener) if enabled,
-// Floating IP if configured, and Control Plane Endpoint.
+// This includes all Networks+Subnets, Routers (with all interfaces attached), Load
+// Balancer (with pool and listener) if enabled, Floating IP if configured, and
+// Control Plane Endpoint.
 func (r *CloudscaleClusterReconciler) isInfrastructureProvisioned(clusterScope *scope.ClusterScope) bool {
 	// All networks must have both network and subnet IDs
 	if len(clusterScope.CloudscaleCluster.Status.Networks) == 0 {
@@ -306,6 +319,34 @@ func (r *CloudscaleClusterReconciler) isInfrastructureProvisioned(clusterScope *
 	for _, ns := range clusterScope.CloudscaleCluster.Status.Networks {
 		if ns.NetworkID == "" || ns.SubnetID == "" {
 			return false
+		}
+	}
+
+	// All routers must be resolved and all their spec interfaces attached.
+	for _, routerSpec := range clusterScope.CloudscaleCluster.Spec.Routers {
+		rs := clusterScope.CloudscaleCluster.Status.GetRouterStatus(routerSpec.Name)
+		if rs == nil || rs.RouterID == "" {
+			return false
+		}
+		for _, ifaceSpec := range routerSpec.Interfaces {
+			iface := rs.GetInterfaceStatus(ifaceSpec.Network)
+			// interfaces are first created with an empty interfaceID in the status (see createRouterInterface)
+			// to avoid potential issues with timeouts during interface creation. An interface in status is only fully set up
+			// if there's an interfaceID set.
+			if iface == nil || iface.InterfaceID == "" {
+				return false
+			}
+			// When ConfigureSubnetGateway is true, the subnet gateway must be configured
+			if ptr.Deref(ifaceSpec.ConfigureSubnetGateway, true) {
+				ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus(ifaceSpec.Network)
+				if ns == nil || ns.GatewayAddress == "" {
+					return false
+				}
+				// If the spec has an address, verify the gateway matches it
+				if ifaceSpec.Address != "" && ns.GatewayAddress != ifaceSpec.Address {
+					return false
+				}
+			}
 		}
 	}
 
@@ -338,6 +379,7 @@ func (r *CloudscaleClusterReconciler) setReadyCondition(clusterScope *scope.Clus
 	// Check all sub-conditions
 	subConditions := []string{
 		infrastructurev1beta2.NetworkReadyCondition,
+		infrastructurev1beta2.RouterReadyCondition,
 		infrastructurev1beta2.LoadBalancerReadyCondition,
 		infrastructurev1beta2.FloatingIPReadyCondition,
 	}

@@ -42,7 +42,7 @@ jobs:
           TAG: e2e-weekly-${{ github.sha }}
         run: |
           make test-e2e \
-            GINKGO_LABEL_FILTER="ha || upgrade || self-hosted || kcp-remediation || topology || conformance || pre-existing-networking" \
+            GINKGO_LABEL_FILTER="ha || upgrade || self-hosted || kcp-remediation || topology || conformance || pre-existing-networking || router-nat" \
             KUBETEST_CONFIGURATION=./data/kubetest/conformance-fast.yaml
 
       - name: Install regctl
