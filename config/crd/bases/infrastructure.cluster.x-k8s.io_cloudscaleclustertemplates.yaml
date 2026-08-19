@@ -184,8 +184,19 @@ spec:
                             description: |-
                               Network places the LB VIP on a private network (internal LB).
                               References spec.networks[].name. Omit for a public LB.
-                              When multiple networks are defined this field is required so the LB
-                              pool members can be registered against a specific subnet.
+                              When multiple networks are defined, either this field or PoolMemberNetwork
+                              is required so the LB pool members can be registered against a specific subnet.
+                            type: string
+                          poolMemberNetwork:
+                            description: |-
+                              PoolMemberNetwork selects the network whose subnet the LB pool members are
+                              registered on (i.e. the network the control-plane machines attach to).
+                              References spec.networks[].name. When unset, the controller resolves the member
+                              subnet from Network, or from the first network if that is unset too; the field
+                              itself is left empty rather than defaulted. Set it when the control-plane nodes
+                              live on a different network than the VIP (Network), e.g. a public VIP with
+                              private control-plane nodes, or a private VIP on a dedicated access network.
+                              Strictly immutable: it cannot be changed, nor set after creation.
                             type: string
                         type: object
                       credentialsRef:
