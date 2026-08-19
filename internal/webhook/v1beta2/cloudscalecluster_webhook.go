@@ -302,6 +302,15 @@ func clusterSpecValidateCreate(spec infrastructurev1beta2.CloudscaleClusterSpec,
 		)...)
 	}
 
+	// Validate LB pool member network reference
+	if spec.ControlPlaneLoadBalancer.PoolMemberNetwork != "" {
+		allErrs = append(allErrs, validateNetworkReference(
+			spec.ControlPlaneLoadBalancer.PoolMemberNetwork,
+			spec.Networks,
+			fldPath.Child("controlPlaneLoadBalancer", "poolMemberNetwork"),
+		)...)
+	}
+
 	// Validate floating IP
 	if spec.FloatingIP != nil {
 		allErrs = append(allErrs, validateFloatingIP(spec.FloatingIP, fldPath.Child("floatingIP"))...)
@@ -377,6 +386,15 @@ func (v *CloudscaleClusterCustomValidator) ValidateUpdate(_ context.Context, old
 			newClusterSpec.ControlPlaneLoadBalancer.Network,
 			newClusterSpec.Networks,
 			field.NewPath("spec", "controlPlaneLoadBalancer", "network"),
+		)...)
+	}
+
+	// Validate LB pool member network reference (for new or existing)
+	if newClusterSpec.ControlPlaneLoadBalancer.PoolMemberNetwork != "" {
+		allErrs = append(allErrs, validateNetworkReference(
+			newClusterSpec.ControlPlaneLoadBalancer.PoolMemberNetwork,
+			newClusterSpec.Networks,
+			field.NewPath("spec", "controlPlaneLoadBalancer", "poolMemberNetwork"),
 		)...)
 	}
 
@@ -790,6 +808,9 @@ func validateFloatingIPRequiresLBOrPreExisting(spec infrastructurev1beta2.Clouds
 // validateLBImmutability forbids changes to LB fields that are baked into the LB at creation.
 // Algorithm, Flavor, APIServerPort and the HealthMonitor settings cannot be reissued
 // to an existing cloudscale.ch LB, so changing them in spec would silently lie to the user.
+// PoolMemberNetwork is stricter than the sibling Network field (immutable *once set*):
+// even setting it on a cluster that left it empty is forbidden, because the controller
+// does not migrate live pool members from one subnet to another.
 func validateLBImmutability(oldLB, newLB *infrastructurev1beta2.LoadBalancerSpec, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 
@@ -804,6 +825,7 @@ func validateLBImmutability(oldLB, newLB *infrastructurev1beta2.LoadBalancerSpec
 	forbidIfChanged("algorithm", oldLB.Algorithm, newLB.Algorithm)
 	forbidIfChanged("flavor", oldLB.Flavor, newLB.Flavor)
 	forbidIfChanged("apiServerPort", oldLB.APIServerPort, newLB.APIServerPort)
+	forbidIfChanged("poolMemberNetwork", oldLB.PoolMemberNetwork, newLB.PoolMemberNetwork)
 
 	hmPath := fldPath.Child("healthMonitor")
 	hmForbid := func(child string, oldV, newV int) {
@@ -838,17 +860,17 @@ func validateFloatingIPRequiresPublicLB(spec infrastructurev1beta2.CloudscaleClu
 	return allErrs
 }
 
-// validateLBPoolMemberNetworkResolvable requires controlPlaneLoadBalancer.network to be set
-// when there are multiple networks and the LB is public. Without an explicit network the
-// controller would default the LB pool members' subnet to networks[0], which silently
-// breaks clusters whose machines join a different network.
+// validateLBPoolMemberNetworkResolvable requires either controlPlaneLoadBalancer.network
+// or controlPlaneLoadBalancer.poolMemberNetwork to be set when there are multiple networks
+// and the LB is public. With neither, the controller falls back to networks[0] for the pool
+// members' subnet, which silently breaks clusters whose machines join a different network.
 func validateLBPoolMemberNetworkResolvable(spec infrastructurev1beta2.CloudscaleClusterSpec, fldPath *field.Path) field.ErrorList {
 	var allErrs = make(field.ErrorList, 0, 1)
 
 	if !ptr.Deref(spec.ControlPlaneLoadBalancer.Enabled, true) {
 		return nil
 	}
-	if spec.ControlPlaneLoadBalancer.Network != "" {
+	if spec.ControlPlaneLoadBalancer.Network != "" || spec.ControlPlaneLoadBalancer.PoolMemberNetwork != "" {
 		return nil
 	}
 	if len(spec.Networks) <= 1 {
@@ -859,7 +881,7 @@ func validateLBPoolMemberNetworkResolvable(spec infrastructurev1beta2.Cloudscale
 	// the error on one of them would point the user at an arbitrary half of the fix.
 	allErrs = append(allErrs, field.Required(
 		fldPath.Child("controlPlaneLoadBalancer"),
-		"must be set to one of spec.networks[].name when multiple networks are defined; the load balancer pool members need an explicit subnet to attach to"))
+		"controlPlaneLoadBalancer.network or controlPlaneLoadBalancer.poolMemberNetwork must be set to one of spec.networks[].name when multiple networks are defined; the load balancer pool members need an explicit subnet to attach to"))
 
 	return allErrs
 }

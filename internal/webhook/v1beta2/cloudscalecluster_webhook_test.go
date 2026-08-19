@@ -572,7 +572,31 @@ func TestClusterValidateCreate(t *testing.T) {
 				c.Spec.ControlPlaneLoadBalancer.Network = ""
 			},
 			wantErr:        true,
-			wantSubstrings: []string{"controlPlaneLoadBalancer"},
+			wantSubstrings: []string{"controlPlaneLoadBalancer.network", "controlPlaneLoadBalancer.poolMemberNetwork"},
+		},
+		{
+			name: "public LB with multiple networks accepts poolMemberNetwork instead",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				c.Spec.Region = RegionRma
+				c.Spec.Zone = ZoneRma1
+				c.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
+					{Name: "main", CIDR: defaultSubnetCIDR},
+					{Name: "aux", CIDR: "10.1.0.0/24"},
+				}
+				c.Spec.ControlPlaneLoadBalancer.Network = ""
+				c.Spec.ControlPlaneLoadBalancer.PoolMemberNetwork = "aux"
+			},
+		},
+		{
+			name: "LB.PoolMemberNetwork references unknown network",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				c.Spec.Region = RegionRma
+				c.Spec.Zone = ZoneRma1
+				c.Spec.Networks = []infrastructurev1beta2.NetworkSpec{{Name: "main", CIDR: defaultSubnetCIDR}}
+				c.Spec.ControlPlaneLoadBalancer.PoolMemberNetwork = "nope"
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"controlPlaneLoadBalancer.poolMemberNetwork"},
 		},
 		{
 			name: "LB.Network references unknown network",
@@ -1222,6 +1246,13 @@ func TestClusterValidateUpdate_LBFieldsImmutable(t *testing.T) {
 			errPath: "controlPlaneLoadBalancer.apiServerPort",
 		},
 		{
+			name: "PoolMemberNetwork",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				c.Spec.ControlPlaneLoadBalancer.PoolMemberNetwork = "aux"
+			},
+			errPath: "controlPlaneLoadBalancer.poolMemberNetwork",
+		},
+		{
 			name: "HealthMonitor.DelayS",
 			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
 				c.Spec.ControlPlaneLoadBalancer.HealthMonitor.DelayS = 10
@@ -1269,6 +1300,22 @@ func TestClusterValidateUpdate_LBFieldsImmutable(t *testing.T) {
 			g.Expect(err.Error()).To(ContainSubstring(tc.errPath))
 		})
 	}
+}
+
+// TestClusterValidateUpdate_PoolMemberNetworkStrictlyImmutable pins the stricter rule
+// for poolMemberNetwork: unlike the sibling network field (immutable *once set*), even
+// setting it on a cluster that left it empty is rejected. The controller does not move
+// live pool members between subnets.
+func TestClusterValidateUpdate_PoolMemberNetworkStrictlyImmutable(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj, validator := setupUpdateTestObjects()
+	oldObj.Spec.ControlPlaneLoadBalancer.PoolMemberNetwork = ""
+	obj.Spec.ControlPlaneLoadBalancer = *oldObj.Spec.ControlPlaneLoadBalancer.DeepCopy()
+	obj.Spec.ControlPlaneLoadBalancer.PoolMemberNetwork = "main"
+
+	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("controlPlaneLoadBalancer.poolMemberNetwork"))
 }
 
 // ============================================================================
