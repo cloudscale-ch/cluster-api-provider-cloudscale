@@ -22,7 +22,6 @@ import (
 
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/testutils"
@@ -40,10 +39,8 @@ func TestGetToken(t *testing.T) {
 		{
 			name: "valid secret with token",
 			secret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "cloudscale-credentials",
-					Namespace: "default",
-				},
+				Name:      "cloudscale-credentials",
+				Namespace: "default",
 				Data: map[string][]byte{
 					TokenKey: []byte("test-api-token"),
 				},
@@ -59,10 +56,8 @@ func TestGetToken(t *testing.T) {
 		{
 			name: "secret without token key",
 			secret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "cloudscale-credentials",
-					Namespace: "default",
-				},
+				Name:      "cloudscale-credentials",
+				Namespace: "default",
 				Data: map[string][]byte{
 					"wrong-key": []byte("test-api-token"),
 				},
@@ -78,10 +73,8 @@ func TestGetToken(t *testing.T) {
 		{
 			name: "secret with empty token",
 			secret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "cloudscale-credentials",
-					Namespace: "default",
-				},
+				Name:      "cloudscale-credentials",
+				Namespace: "default",
 				Data: map[string][]byte{
 					TokenKey: []byte(""),
 				},
@@ -108,10 +101,8 @@ func TestGetToken(t *testing.T) {
 		{
 			name: "uses cluster namespace when secretRef namespace is empty",
 			secret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "cloudscale-credentials",
-					Namespace: "my-cluster-ns",
-				},
+				Name:      "cloudscale-credentials",
+				Namespace: "my-cluster-ns",
 				Data: map[string][]byte{
 					TokenKey: []byte("test-api-token"),
 				},

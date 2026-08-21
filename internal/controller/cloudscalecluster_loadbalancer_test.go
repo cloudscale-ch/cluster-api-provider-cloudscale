@@ -579,13 +579,11 @@ func TestReconcileLBMembers_AddsMissingMember(t *testing.T) {
 	}
 
 	machine := &infrastructurev1beta2.CloudscaleMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "cp-machine-1",
-			Namespace: "default",
-			Labels: map[string]string{
-				clusterv1.ClusterNameLabel:         "test-cluster",
-				clusterv1.MachineControlPlaneLabel: "",
-			},
+		Name:      "cp-machine-1",
+		Namespace: "default",
+		Labels: map[string]string{
+			clusterv1.ClusterNameLabel:         "test-cluster",
+			clusterv1.MachineControlPlaneLabel: "",
 		},
 		Status: infrastructurev1beta2.CloudscaleMachineStatus{
 			Addresses: []clusterv1.MachineAddress{
@@ -664,13 +662,11 @@ func TestReconcileLBMembers_UpdatesChangedAddress(t *testing.T) {
 	}
 
 	machine := &infrastructurev1beta2.CloudscaleMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "cp-machine-1",
-			Namespace: "default",
-			Labels: map[string]string{
-				clusterv1.ClusterNameLabel:         "test-cluster",
-				clusterv1.MachineControlPlaneLabel: "",
-			},
+		Name:      "cp-machine-1",
+		Namespace: "default",
+		Labels: map[string]string{
+			clusterv1.ClusterNameLabel:         "test-cluster",
+			clusterv1.MachineControlPlaneLabel: "",
 		},
 		Status: infrastructurev1beta2.CloudscaleMachineStatus{
 			Addresses: []clusterv1.MachineAddress{
@@ -719,13 +715,11 @@ func TestReconcileLBMembers_NoopWhenInSync(t *testing.T) {
 	}
 
 	machine := &infrastructurev1beta2.CloudscaleMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "cp-machine-1",
-			Namespace: "default",
-			Labels: map[string]string{
-				clusterv1.ClusterNameLabel:         "test-cluster",
-				clusterv1.MachineControlPlaneLabel: "",
-			},
+		Name:      "cp-machine-1",
+		Namespace: "default",
+		Labels: map[string]string{
+			clusterv1.ClusterNameLabel:         "test-cluster",
+			clusterv1.MachineControlPlaneLabel: "",
 		},
 		Status: infrastructurev1beta2.CloudscaleMachineStatus{
 			Addresses: []clusterv1.MachineAddress{
@@ -755,13 +749,11 @@ func TestGetDesiredLoadBalancerMembers_SkipsMachinesWithoutIP(t *testing.T) {
 	g := NewWithT(t)
 
 	machineWithIP := &infrastructurev1beta2.CloudscaleMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "cp-machine-1",
-			Namespace: "default",
-			Labels: map[string]string{
-				clusterv1.ClusterNameLabel:         "test-cluster",
-				clusterv1.MachineControlPlaneLabel: "",
-			},
+		Name:      "cp-machine-1",
+		Namespace: "default",
+		Labels: map[string]string{
+			clusterv1.ClusterNameLabel:         "test-cluster",
+			clusterv1.MachineControlPlaneLabel: "",
 		},
 		Status: infrastructurev1beta2.CloudscaleMachineStatus{
 			Addresses: []clusterv1.MachineAddress{
@@ -770,13 +762,11 @@ func TestGetDesiredLoadBalancerMembers_SkipsMachinesWithoutIP(t *testing.T) {
 		},
 	}
 	machineWithoutIP := &infrastructurev1beta2.CloudscaleMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "cp-machine-2",
-			Namespace: "default",
-			Labels: map[string]string{
-				clusterv1.ClusterNameLabel:         "test-cluster",
-				clusterv1.MachineControlPlaneLabel: "",
-			},
+		Name:      "cp-machine-2",
+		Namespace: "default",
+		Labels: map[string]string{
+			clusterv1.ClusterNameLabel:         "test-cluster",
+			clusterv1.MachineControlPlaneLabel: "",
 		},
 		Status: infrastructurev1beta2.CloudscaleMachineStatus{
 			Addresses: nil, // no addresses yet
@@ -813,13 +803,11 @@ func TestGetDesiredLoadBalancerMembers_PicksAddressInMemberSubnet(t *testing.T) 
 	g := NewWithT(t)
 
 	machine := &infrastructurev1beta2.CloudscaleMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "cp-machine-1",
-			Namespace: "default",
-			Labels: map[string]string{
-				clusterv1.ClusterNameLabel:         "test-cluster",
-				clusterv1.MachineControlPlaneLabel: "",
-			},
+		Name:      "cp-machine-1",
+		Namespace: "default",
+		Labels: map[string]string{
+			clusterv1.ClusterNameLabel:         "test-cluster",
+			clusterv1.MachineControlPlaneLabel: "",
 		},
 		Status: infrastructurev1beta2.CloudscaleMachineStatus{
 			Addresses: []clusterv1.MachineAddress{

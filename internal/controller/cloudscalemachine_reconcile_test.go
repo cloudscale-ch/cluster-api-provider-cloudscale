@@ -30,7 +30,6 @@ import (
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -58,9 +57,9 @@ func TestMachineReconcileNormal_ServerRunning_SetsProvisioned(t *testing.T) {
 	serverService := &testutils.MockServerService{
 		GetFn: func(ctx context.Context, id string) (*cloudscalesdk.Server, error) {
 			return &cloudscalesdk.Server{
-				UUID:          id,
-				Status:        "running",
-				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
+				UUID:   id,
+				Status: "running",
+				Zone:   cloudscalesdk.ZoneStub{Slug: "rma1"},
 				Interfaces: []cloudscalesdk.Interface{
 					{
 						Type: "private",
@@ -256,11 +255,9 @@ func TestMachineSetReadyCondition(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			g := NewWithT(t)
 			machine := &infrastructurev1beta2.CloudscaleMachine{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:       "test-machine",
-					Namespace:  "default",
-					Generation: 1,
-				},
+				Name:       "test-machine",
+				Namespace:  "default",
+				Generation: 1,
 			}
 			if tc.serverReadyCond != nil {
 				conditions.Set(machine, *tc.serverReadyCond)
@@ -287,7 +284,7 @@ func TestMachineReconcile_ResourceNotFound(t *testing.T) {
 	r := newTestMachineReconciler()
 
 	result, err := r.Reconcile(context.Background(), reconcile.Request{
-		NamespacedName: types.NamespacedName{Name: "nonexistent", Namespace: "default"},
+		Name: "nonexistent", Namespace: "default",
 	})
 
 	g.Expect(err).ToNot(HaveOccurred())
@@ -300,10 +297,8 @@ func TestMachineReconcile_NoOwnerMachine(t *testing.T) {
 	g := NewWithT(t)
 
 	machine := &infrastructurev1beta2.CloudscaleMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-machine",
-			Namespace: "default",
-		},
+		Name:      "test-machine",
+		Namespace: "default",
 		Spec: infrastructurev1beta2.CloudscaleMachineSpec{
 			Flavor: "flex-8-4",
 			Image:  "ubuntu-24.04",
@@ -313,7 +308,7 @@ func TestMachineReconcile_NoOwnerMachine(t *testing.T) {
 	r := newTestMachineReconciler(machine)
 
 	result, err := r.Reconcile(context.Background(), reconcile.Request{
-		NamespacedName: types.NamespacedName{Name: machine.Name, Namespace: machine.Namespace},
+		Name: machine.Name, Namespace: machine.Namespace,
 	})
 
 	g.Expect(err).ToNot(HaveOccurred())

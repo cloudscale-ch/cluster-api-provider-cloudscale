@@ -120,12 +120,8 @@ func (r *CloudscaleClusterReconciler) reconcileManagedFloatingIP(ctx context.Con
 
 	req := &cloudscalesdk.FloatingIPCreateRequest{
 		IPVersion: ipVersion,
-		RegionalResourceRequest: cloudscalesdk.RegionalResourceRequest{
-			Region: clusterScope.CloudscaleCluster.Spec.Region,
-		},
-		TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-			Tags: new(tags),
-		},
+		Region:    clusterScope.CloudscaleCluster.Spec.Region,
+		Tags:      new(tags),
 	}
 
 	// Assign to LB or CP server.

@@ -73,10 +73,6 @@ func StartEnvTest(
 		_ = env.Stop()
 		return nil, nil, nil, fmt.Errorf("failed to create client: %w", err)
 	}
-	if k8sClient == nil {
-		_ = env.Stop()
-		return nil, nil, nil, fmt.Errorf("k8s client is nil")
-	}
 
 	return env, cfg, k8sClient, nil
 }

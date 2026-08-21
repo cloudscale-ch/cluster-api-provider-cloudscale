@@ -22,7 +22,6 @@ import (
 
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -39,7 +38,7 @@ func TestCloudscaleClusterReconciler_Reconcile_EntryPoint(t *testing.T) {
 		r := &CloudscaleClusterReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
 
 		_, err := r.Reconcile(context.Background(), reconcile.Request{
-			NamespacedName: types.NamespacedName{Name: "nonexistent", Namespace: "default"},
+			Name: "nonexistent", Namespace: "default",
 		})
 		g.Expect(err).NotTo(HaveOccurred())
 	})
@@ -49,7 +48,7 @@ func TestCloudscaleClusterReconciler_Reconcile_EntryPoint(t *testing.T) {
 		ctx := context.Background()
 
 		resource := &infrastructurev1beta2.CloudscaleCluster{
-			ObjectMeta: metav1.ObjectMeta{Name: "no-owner-cluster", Namespace: "default"},
+			Name: "no-owner-cluster", Namespace: "default",
 			Spec: infrastructurev1beta2.CloudscaleClusterSpec{
 				Region:         "rma",
 				CredentialsRef: infrastructurev1beta2.CloudscaleCredentialsReference{Name: "cloudscale-credentials"},
@@ -62,7 +61,7 @@ func TestCloudscaleClusterReconciler_Reconcile_EntryPoint(t *testing.T) {
 
 		r := &CloudscaleClusterReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
 		result, err := r.Reconcile(ctx, reconcile.Request{
-			NamespacedName: types.NamespacedName{Name: resource.Name, Namespace: resource.Namespace},
+			Name: resource.Name, Namespace: resource.Namespace,
 		})
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(result.IsZero()).To(BeTrue())
@@ -296,8 +295,8 @@ func TestSetReadyCondition(t *testing.T) {
 			g := NewWithT(t)
 			clusterScope := &scope.ClusterScope{
 				CloudscaleCluster: &infrastructurev1beta2.CloudscaleCluster{
-					ObjectMeta: metav1.ObjectMeta{Name: "test-cluster", Namespace: "default", Generation: 1},
-					Status:     infrastructurev1beta2.CloudscaleClusterStatus{Conditions: tc.subConditions},
+					Name: "test-cluster", Namespace: "default", Generation: 1,
+					Status: infrastructurev1beta2.CloudscaleClusterStatus{Conditions: tc.subConditions},
 				},
 			}
 

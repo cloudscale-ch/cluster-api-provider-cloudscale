@@ -98,12 +98,10 @@ func (r *CloudscaleMachineReconciler) reconcileServerGroup(ctx context.Context, 
 
 	// Create new server group with cluster-level tags
 	req := &cloudscalesdk.ServerGroupRequest{
-		Name:                 groupName,
-		Type:                 "anti-affinity",
-		ZonalResourceRequest: cloudscalesdk.ZonalResourceRequest{Zone: zone},
-		TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-			Tags: new(clusterOwnershipTags(machineScope.CloudscaleCluster)),
-		},
+		Name: groupName,
+		Type: "anti-affinity",
+		Zone: zone,
+		Tags: new(clusterOwnershipTags(machineScope.CloudscaleCluster)),
 	}
 
 	createCtx, cancelCreate := context.WithTimeout(ctx, cloudscale.WriteTimeout)

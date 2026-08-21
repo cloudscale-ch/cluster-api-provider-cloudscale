@@ -201,12 +201,8 @@ func (r *CloudscaleClusterReconciler) reconcileLB(ctx context.Context, clusterSc
 	req := &cloudscalesdk.LoadBalancerRequest{
 		Name:   fmt.Sprintf("%s-cp-lb", clusterScope.CloudscaleCluster.Name),
 		Flavor: lbSpec.Flavor,
-		ZonalResourceRequest: cloudscalesdk.ZonalResourceRequest{
-			Zone: zone,
-		},
-		TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-			Tags: new(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
-		},
+		Zone:   zone,
+		Tags:   new(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
 	}
 
 	// Place LB on a private network if specified, otherwise public VIP
@@ -266,9 +262,7 @@ func (r *CloudscaleClusterReconciler) reconcileLBPool(ctx context.Context, clust
 		LoadBalancer: clusterScope.CloudscaleCluster.Status.LoadBalancerID,
 		Algorithm:    algorithm,
 		Protocol:     "tcp",
-		TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-			Tags: new(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
-		},
+		Tags:         new(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
 	}
 
 	clusterScope.Info("Creating load balancer pool", "algorithm", algorithm)
@@ -314,9 +308,7 @@ func (r *CloudscaleClusterReconciler) reconcileLBListener(ctx context.Context, c
 		Pool:         clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID,
 		Protocol:     "tcp",
 		ProtocolPort: apiServerPort,
-		TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-			Tags: new(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
-		},
+		Tags:         new(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
 	}
 
 	clusterScope.Info("Creating load balancer listener", "port", apiServerPort)
@@ -367,9 +359,7 @@ func (r *CloudscaleClusterReconciler) reconcileLBHealthMonitor(ctx context.Conte
 		TimeoutS:      healthMonitorSpec.TimeoutS,
 		UpThreshold:   healthMonitorSpec.UpThreshold,
 		DownThreshold: healthMonitorSpec.DownThreshold,
-		TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-			Tags: new(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
-		},
+		Tags:          new(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
 	}
 
 	clusterScope.Info("Creating load balancer health monitor", "type", "tcp", "pool", clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID, "spec", healthMonitorSpec)
@@ -489,9 +479,7 @@ func (r *CloudscaleClusterReconciler) getDesiredLoadBalancerMembers(ctx context.
 			Name:         machine.Name,
 			Subnet:       memberSubnetID,
 			ProtocolPort: int(clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.APIServerPort),
-			TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-				Tags: new(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
-			},
+			Tags:         new(clusterOwnershipTags(clusterScope.CloudscaleCluster)),
 		}
 		hasAddr := false
 		for _, addr := range machine.Status.Addresses {

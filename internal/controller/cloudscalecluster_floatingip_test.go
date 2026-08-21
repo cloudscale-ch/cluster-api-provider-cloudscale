@@ -499,13 +499,11 @@ func TestGetFloatingIPTarget_LBDisabled_FindsCPServer(t *testing.T) {
 	g := NewWithT(t)
 
 	cpMachine := &infrastructurev1beta2.CloudscaleMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "cp-machine-0",
-			Namespace: "default",
-			Labels: map[string]string{
-				clusterv1.ClusterNameLabel:         "test-cluster",
-				clusterv1.MachineControlPlaneLabel: "",
-			},
+		Name:      "cp-machine-0",
+		Namespace: "default",
+		Labels: map[string]string{
+			clusterv1.ClusterNameLabel:         "test-cluster",
+			clusterv1.MachineControlPlaneLabel: "",
 		},
 		Status: infrastructurev1beta2.CloudscaleMachineStatus{
 			ServerID: "cp-server-uuid",

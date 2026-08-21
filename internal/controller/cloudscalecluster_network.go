@@ -139,12 +139,8 @@ func (r *CloudscaleClusterReconciler) reconcileManagedNetwork(ctx context.Contex
 		network, err := clusterScope.CloudscaleClient.Networks.Create(createCtx, &cloudscalesdk.NetworkCreateRequest{
 			Name:                 netSpec.Name,
 			AutoCreateIPV4Subnet: new(false),
-			ZonalResourceRequest: cloudscalesdk.ZonalResourceRequest{
-				Zone: clusterScope.CloudscaleCluster.Spec.Zone,
-			},
-			TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-				Tags: new(tags),
-			},
+			Zone:                 clusterScope.CloudscaleCluster.Spec.Zone,
+			Tags:                 new(tags),
 		})
 		if err != nil {
 			if cloudscale.IsTimeoutError(err) {
@@ -185,9 +181,7 @@ func (r *CloudscaleClusterReconciler) reconcileManagedNetwork(ctx context.Contex
 			Network:        resolvedNetworkID,
 			CIDR:           netSpec.CIDR,
 			GatewayAddress: netSpec.GatewayAddress,
-			TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-				Tags: new(tags),
-			},
+			Tags:           new(tags),
 		})
 		if err != nil {
 			if cloudscale.IsTimeoutError(err) {
