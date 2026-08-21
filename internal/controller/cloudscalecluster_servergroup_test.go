@@ -23,7 +23,6 @@ import (
 
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
 	. "github.com/onsi/gomega"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/events"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
@@ -162,12 +161,10 @@ func TestDeleteServerGroups_OwnedServerPresent_SkipsDeletion(t *testing.T) {
 	clusterScope := testutils.NewClusterScopeOpts(testutils.WithServerGroupService(serverGroupService))
 	fakeClient := testutils.NewFakeClient(
 		&infrastructurev1beta2.CloudscaleMachine{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "machine-1",
-				Namespace: "default",
-				Labels: map[string]string{
-					clusterv1.ClusterNameLabel: "test-cluster",
-				},
+			Name:      "machine-1",
+			Namespace: "default",
+			Labels: map[string]string{
+				clusterv1.ClusterNameLabel: "test-cluster",
 			},
 			Status: infrastructurev1beta2.CloudscaleMachineStatus{
 				ServerID: "server-123",
@@ -204,12 +201,10 @@ func TestDeleteServerGroups_ForeignServers_Skips(t *testing.T) {
 
 	clusterScope := testutils.NewClusterScopeOpts(testutils.WithServerGroupService(serverGroupService))
 	fakeClient := testutils.NewFakeClient(&infrastructurev1beta2.CloudscaleMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "machine-1",
-			Namespace: "default",
-			Labels: map[string]string{
-				clusterv1.ClusterNameLabel: "test-cluster",
-			},
+		Name:      "machine-1",
+		Namespace: "default",
+		Labels: map[string]string{
+			clusterv1.ClusterNameLabel: "test-cluster",
 		},
 		Status: infrastructurev1beta2.CloudscaleMachineStatus{
 			ServerID: "server-123",

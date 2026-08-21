@@ -352,10 +352,8 @@ func (r *CloudscaleMachineReconciler) cloudscaleClusterToCloudscaleMachines(ctx 
 				continue
 			}
 			requests = append(requests, ctrl.Request{
-				NamespacedName: client.ObjectKey{
-					Namespace: machine.Namespace,
-					Name:      machine.Spec.InfrastructureRef.Name,
-				},
+				Namespace: machine.Namespace,
+				Name:      machine.Spec.InfrastructureRef.Name,
 			})
 		}
 		return requests

@@ -149,13 +149,11 @@ func (r *CloudscaleMachineReconciler) reconcileServer(ctx context.Context, machi
 
 	// Build server request
 	req := &cloudscalesdk.ServerRequest{
-		Name:   machineScope.Name(),
-		Flavor: machineScope.CloudscaleMachine.Spec.Flavor,
-		Image:  machineScope.CloudscaleMachine.Spec.Image,
-		Zone:   zone,
-		TaggedResourceRequest: cloudscalesdk.TaggedResourceRequest{
-			Tags: r.machineCreateTags(machineScope),
-		},
+		Name:       machineScope.Name(),
+		Flavor:     machineScope.CloudscaleMachine.Spec.Flavor,
+		Image:      machineScope.CloudscaleMachine.Spec.Image,
+		Zone:       zone,
+		Tags:       r.machineCreateTags(machineScope),
 		UserData:   bootstrapData,
 		Interfaces: interfaces,
 		UseIPV6:    ipFamilyToUseIPV6(ipFamily),

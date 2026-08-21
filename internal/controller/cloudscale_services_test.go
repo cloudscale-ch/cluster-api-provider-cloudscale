@@ -24,7 +24,6 @@ import (
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
 	"github.com/go-logr/logr"
 	. "github.com/onsi/gomega"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/scope"
@@ -59,10 +58,8 @@ func testClusterScope() *scope.ClusterScope {
 	return &scope.ClusterScope{
 		Logger: logr.Discard(),
 		CloudscaleCluster: &infrastructurev1beta2.CloudscaleCluster{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-cluster",
-				Namespace: "default",
-			},
+			Name:      "test-cluster",
+			Namespace: "default",
 		},
 	}
 }

@@ -23,7 +23,6 @@ import (
 	"github.com/go-logr/logr"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -32,10 +31,8 @@ import (
 
 func newTestMachine() *clusterv1.Machine {
 	return &clusterv1.Machine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-machine",
-			Namespace: "test-namespace",
-		},
+		Name:      "test-machine",
+		Namespace: "test-namespace",
 		Spec: clusterv1.MachineSpec{
 			ClusterName: "test-cluster",
 		},
@@ -44,10 +41,8 @@ func newTestMachine() *clusterv1.Machine {
 
 func newTestCloudscaleMachine() *infrastructurev1beta2.CloudscaleMachine {
 	return &infrastructurev1beta2.CloudscaleMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-machine",
-			Namespace: "test-namespace",
-		},
+		Name:      "test-machine",
+		Namespace: "test-namespace",
 		Spec: infrastructurev1beta2.CloudscaleMachineSpec{
 			Flavor: "flex-8-4",
 			Image:  "ubuntu-24.04",
@@ -152,8 +147,8 @@ func TestMachineScope_GetBootstrapData(t *testing.T) {
 			name:       "happy path",
 			secretName: new("bootstrap-secret"),
 			secret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{Name: "bootstrap-secret", Namespace: "test-namespace"},
-				Data:       map[string][]byte{"value": []byte("#cloud-config\nruncmd:\n  - echo hello")},
+				Name: "bootstrap-secret", Namespace: "test-namespace",
+				Data: map[string][]byte{"value": []byte("#cloud-config\nruncmd:\n  - echo hello")},
 			},
 			wantData: "#cloud-config\nruncmd:\n  - echo hello",
 		},
@@ -171,8 +166,8 @@ func TestMachineScope_GetBootstrapData(t *testing.T) {
 			name:       "missing value key",
 			secretName: new("bootstrap-secret"),
 			secret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{Name: "bootstrap-secret", Namespace: "test-namespace"},
-				Data:       map[string][]byte{"other-key": []byte("some data")},
+				Name: "bootstrap-secret", Namespace: "test-namespace",
+				Data: map[string][]byte{"other-key": []byte("some data")},
 			},
 			wantErrSub: "missing 'value' key",
 		},

@@ -22,9 +22,7 @@ import (
 
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -51,10 +49,8 @@ func TestCloudscaleMachineTemplateReconciler_Reconcile(t *testing.T) {
 		{
 			name: "populates status.capacity with cpu and memory",
 			template: &infrastructurev1beta2.CloudscaleMachineTemplate{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-template",
-					Namespace: "default",
-				},
+				Name:      "test-template",
+				Namespace: "default",
 				Spec: infrastructurev1beta2.CloudscaleMachineTemplateSpec{
 					Template: infrastructurev1beta2.CloudscaleMachineTemplateResource{
 						Spec: infrastructurev1beta2.CloudscaleMachineSpec{
@@ -73,10 +69,8 @@ func TestCloudscaleMachineTemplateReconciler_Reconcile(t *testing.T) {
 		{
 			name: "populates GPU for gpu flavor",
 			template: &infrastructurev1beta2.CloudscaleMachineTemplate{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-template",
-					Namespace: "default",
-				},
+				Name:      "test-template",
+				Namespace: "default",
 				Spec: infrastructurev1beta2.CloudscaleMachineTemplateSpec{
 					Template: infrastructurev1beta2.CloudscaleMachineTemplateResource{
 						Spec: infrastructurev1beta2.CloudscaleMachineSpec{
@@ -96,10 +90,8 @@ func TestCloudscaleMachineTemplateReconciler_Reconcile(t *testing.T) {
 		{
 			name: "unknown flavor does not populate capacity",
 			template: &infrastructurev1beta2.CloudscaleMachineTemplate{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-template",
-					Namespace: "default",
-				},
+				Name:      "test-template",
+				Namespace: "default",
 				Spec: infrastructurev1beta2.CloudscaleMachineTemplateSpec{
 					Template: infrastructurev1beta2.CloudscaleMachineTemplateResource{
 						Spec: infrastructurev1beta2.CloudscaleMachineSpec{
@@ -115,10 +107,8 @@ func TestCloudscaleMachineTemplateReconciler_Reconcile(t *testing.T) {
 		{
 			name: "nil FlavorInfo does not populate capacity",
 			template: &infrastructurev1beta2.CloudscaleMachineTemplate{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-template",
-					Namespace: "default",
-				},
+				Name:      "test-template",
+				Namespace: "default",
 				Spec: infrastructurev1beta2.CloudscaleMachineTemplateSpec{
 					Template: infrastructurev1beta2.CloudscaleMachineTemplateResource{
 						Spec: infrastructurev1beta2.CloudscaleMachineSpec{
@@ -152,10 +142,8 @@ func TestCloudscaleMachineTemplateReconciler_Reconcile(t *testing.T) {
 
 			// Reconcile
 			req := ctrl.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      tt.template.Name,
-					Namespace: tt.template.Namespace,
-				},
+				Name:      tt.template.Name,
+				Namespace: tt.template.Namespace,
 			}
 			_, err := reconciler.Reconcile(context.Background(), req)
 			g.Expect(err).NotTo(HaveOccurred())
@@ -208,10 +196,8 @@ func TestCloudscaleMachineTemplateReconciler_Reconcile_NotFound(t *testing.T) {
 	}
 
 	req := ctrl.Request{
-		NamespacedName: types.NamespacedName{
-			Name:      "nonexistent",
-			Namespace: "default",
-		},
+		Name:      "nonexistent",
+		Namespace: "default",
 	}
 	result, err := reconciler.Reconcile(context.Background(), req)
 	g.Expect(err).NotTo(HaveOccurred())
