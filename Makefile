@@ -26,6 +26,19 @@ CONTAINER_TOOL ?= docker
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
+# Host OS/ARCH used to namespace tool binaries so a shared ./bin (e.g. host tree
+# mounted into a Linux sandbox) never mixes incompatible binaries.
+HOST_PLATFORM := $(shell go env GOOS)-$(shell go env GOARCH)
+
+## Location to install dependencies to (per-platform to keep host & sandbox separate)
+LOCALBIN := $(shell pwd)/bin/$(HOST_PLATFORM)
+$(LOCALBIN):
+	mkdir -p "$(LOCALBIN)"
+
+# envtest self-namespaces assets under k8s/<ver>-<os>-<arch>, so they can share the
+# top-level bin/ without the per-platform subdir (avoids bin/<platform>/k8s/<ver>-<platform>).
+ENVTEST_BINDIR := $(shell pwd)/bin
+
 .PHONY: all
 all: build
 
@@ -66,7 +79,7 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: manifests generate fmt vet setup-envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
+	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(ENVTEST_BINDIR)" -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
@@ -85,14 +98,6 @@ govulncheck: govulncheck-tool ## Run govulncheck to scan for known, reachable vu
 	"$(GOVULNCHECK)" ./...
 
 ##@ Dependencies
-
-## Location to install dependencies to
-LOCALBIN := $(shell pwd)/bin
-$(LOCALBIN):
-	mkdir -p "$(LOCALBIN)"
-
-# Host OS/ARCH used to namespace tool binaries in $(LOCALBIN)
-HOST_PLATFORM := $(shell go env GOOS)-$(shell go env GOARCH)
 
 ## Tool Binaries
 KUBECTL ?= kubectl
@@ -421,7 +426,7 @@ $(CONTROLLER_GEN): $(LOCALBIN)
 .PHONY: setup-envtest
 setup-envtest: envtest ## Download the binaries required for ENVTEST in the local bin directory.
 	@echo "Setting up envtest binaries for Kubernetes version $(ENVTEST_K8S_VERSION)..."
-	@"$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path || { \
+	@"$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(ENVTEST_BINDIR)" -p path >/dev/null || { \
 		echo "Error: Failed to set up envtest binaries for version $(ENVTEST_K8S_VERSION)."; \
 		exit 1; \
 	}
@@ -435,11 +440,6 @@ $(ENVTEST): $(LOCALBIN)
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
-	@test -f .custom-gcl.yml && { \
-		echo "Building custom golangci-lint with plugins..." && \
-		$(GOLANGCI_LINT) custom --destination $(LOCALBIN) --name golangci-lint-custom && \
-		mv -f $(LOCALBIN)/golangci-lint-custom $(GOLANGCI_LINT); \
-	} || true
 
 .PHONY: govulncheck-tool
 govulncheck-tool: $(GOVULNCHECK) ## Download govulncheck locally if necessary.
@@ -451,15 +451,15 @@ $(GOVULNCHECK): $(LOCALBIN)
 # $2 - package url which can be installed
 # $3 - specific version of package
 define go-install-tool
-@[ -f "$(1)-$(3)-$(HOST_PLATFORM)" ] && [ "$$(readlink -- "$(1)" 2>/dev/null)" = "$(1)-$(3)-$(HOST_PLATFORM)" ] || { \
+@[ -f "$(1)-$(3)" ] && [ "$$(readlink -- "$(1)" 2>/dev/null)" = "$(1)-$(3)" ] || { \
 set -e; \
 package=$(2)@$(3) ;\
-echo "Downloading $${package} ($(HOST_PLATFORM))" ;\
+echo "Downloading $${package}" ;\
 rm -f "$(1)" ;\
 GOBIN="$(LOCALBIN)" go install $${package} ;\
-mv "$(LOCALBIN)/$$(basename "$(1)")" "$(1)-$(3)-$(HOST_PLATFORM)" ;\
+mv "$(LOCALBIN)/$$(basename "$(1)")" "$(1)-$(3)" ;\
 } ;\
-ln -sf "$$(realpath "$(1)-$(3)-$(HOST_PLATFORM)")" "$(1)"
+ln -sf "$$(realpath "$(1)-$(3)")" "$(1)"
 endef
 
 define gomodver
