@@ -1,5 +1,5 @@
 # BUILDPLATFORM is a predefined BuildKit arg. For a single-platform `docker build` it resolves to the host and is a no-op.
-FROM --platform=${BUILDPLATFORM} golang:1.26.5 AS builder
+FROM --platform=${BUILDPLATFORM} golang:1.26.6 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
