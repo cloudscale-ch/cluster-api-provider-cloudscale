@@ -1,4 +1,4 @@
-name: E2E Tests (Biweekly Conformance)
+name: Cluster API Provider E2E Tests (Biweekly Conformance)
 
 permissions: {}
 
