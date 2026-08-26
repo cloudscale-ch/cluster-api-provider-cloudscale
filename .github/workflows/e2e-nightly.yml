@@ -1,4 +1,4 @@
-name: Cluster API Provider E2E Tests (Nightly)
+name: Cluster API Provider Nightly E2E Tests
 
 permissions: {}
 
