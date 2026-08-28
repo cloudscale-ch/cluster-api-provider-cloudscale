@@ -769,9 +769,7 @@ func TestReconcileNetwork_PreExistingFetchesData(t *testing.T) {
 			getFn: func(ctx context.Context, id string) (*cloudscalesdk.Network, error) {
 				return &cloudscalesdk.Network{
 					UUID: "pre-existing-uuid",
-					ZonalResource: cloudscalesdk.ZonalResource{
-						Zone: cloudscalesdk.ZoneStub{Slug: "rma1"},
-					},
+					Zone: cloudscalesdk.ZoneStub{Slug: "rma1"},
 					Subnets: []cloudscalesdk.SubnetStub{
 						{UUID: "pre-existing-subnet-uuid", CIDR: "192.168.0.0/24"},
 					},
@@ -787,9 +785,7 @@ func TestReconcileNetwork_PreExistingFetchesData(t *testing.T) {
 			getFn: func(ctx context.Context, id string) (*cloudscalesdk.Network, error) {
 				return &cloudscalesdk.Network{
 					UUID: "pre-existing-uuid",
-					ZonalResource: cloudscalesdk.ZonalResource{
-						Zone: cloudscalesdk.ZoneStub{Slug: "rma1"},
-					},
+					Zone: cloudscalesdk.ZoneStub{Slug: "rma1"},
 					Subnets: []cloudscalesdk.SubnetStub{
 						{UUID: "discovered-subnet-uuid"},
 					},
@@ -867,9 +863,7 @@ func TestReconcileNetwork_PreExistingZoneMismatchErrors(t *testing.T) {
 		GetFn: func(ctx context.Context, id string) (*cloudscalesdk.Network, error) {
 			return &cloudscalesdk.Network{
 				UUID: "pre-existing-uuid",
-				ZonalResource: cloudscalesdk.ZonalResource{
-					Zone: cloudscalesdk.ZoneStub{Slug: "lpg1"},
-				},
+				Zone: cloudscalesdk.ZoneStub{Slug: "lpg1"},
 				Subnets: []cloudscalesdk.SubnetStub{
 					{UUID: "discovered-subnet-uuid"},
 				},
@@ -898,10 +892,8 @@ func TestReconcileNetwork_PreExistingNoSubnetsErrors(t *testing.T) {
 	networkService := &testutils.MockNetworkService{
 		GetFn: func(ctx context.Context, id string) (*cloudscalesdk.Network, error) {
 			return &cloudscalesdk.Network{
-				UUID: "pre-existing-uuid",
-				ZonalResource: cloudscalesdk.ZonalResource{
-					Zone: cloudscalesdk.ZoneStub{Slug: "rma1"},
-				},
+				UUID:    "pre-existing-uuid",
+				Zone:    cloudscalesdk.ZoneStub{Slug: "rma1"},
 				Subnets: []cloudscalesdk.SubnetStub{},
 			}, nil
 		},

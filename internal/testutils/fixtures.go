@@ -2,7 +2,6 @@ package testutils
 
 import (
 	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
@@ -14,13 +13,11 @@ import (
 // with the given ServerID. Used heavily by the FIP and LB controller tests.
 func NewControlPlaneMachine(name, serverID string) *infrastructurev1beta2.CloudscaleMachine {
 	m := &infrastructurev1beta2.CloudscaleMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: "default",
-			Labels: map[string]string{
-				clusterv1.ClusterNameLabel:         "test-cluster",
-				clusterv1.MachineControlPlaneLabel: "",
-			},
+		Name:      name,
+		Namespace: "default",
+		Labels: map[string]string{
+			clusterv1.ClusterNameLabel:         "test-cluster",
+			clusterv1.MachineControlPlaneLabel: "",
 		},
 		Status: infrastructurev1beta2.CloudscaleMachineStatus{
 			ServerID: serverID,

@@ -44,10 +44,10 @@ func TestReconcileServer_CreatesServer(t *testing.T) {
 		CreateFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
 			capturedReq = req
 			return &cloudscalesdk.Server{
-				UUID:          "server-uuid-123",
-				Name:          req.Name,
-				Status:        "running",
-				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
+				UUID:   "server-uuid-123",
+				Name:   req.Name,
+				Status: "running",
+				Zone:   cloudscalesdk.ZoneStub{Slug: "rma1"},
 				Interfaces: []cloudscalesdk.Interface{
 					{
 						Type: "private",
@@ -89,10 +89,10 @@ func TestReconcileServer_SetsProviderID(t *testing.T) {
 		},
 		CreateFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
 			return &cloudscalesdk.Server{
-				UUID:          "server-uuid-456",
-				Name:          req.Name,
-				Status:        "running",
-				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
+				UUID:   "server-uuid-456",
+				Name:   req.Name,
+				Status: "running",
+				Zone:   cloudscalesdk.ZoneStub{Slug: "rma1"},
 			}, nil
 		},
 	}
@@ -118,10 +118,10 @@ func TestReconcileServer_SetsAddresses(t *testing.T) {
 		},
 		CreateFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
 			return &cloudscalesdk.Server{
-				UUID:          "server-uuid-789",
-				Name:          req.Name,
-				Status:        "running",
-				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
+				UUID:   "server-uuid-789",
+				Name:   req.Name,
+				Status: "running",
+				Zone:   cloudscalesdk.ZoneStub{Slug: "rma1"},
 				Interfaces: []cloudscalesdk.Interface{
 					{
 						Type: "public",
@@ -158,9 +158,9 @@ func TestReconcileServer_FindsExistingByTag(t *testing.T) {
 		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
 			return []cloudscalesdk.Server{
 				{
-					UUID:          "found-server-uuid",
-					Status:        "running",
-					ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
+					UUID:   "found-server-uuid",
+					Status: "running",
+					Zone:   cloudscalesdk.ZoneStub{Slug: "rma1"},
 				},
 			}, nil
 		},
@@ -188,14 +188,14 @@ func TestReconcileServer_ErrorsOnMultipleByTag(t *testing.T) {
 		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Server, error) {
 			return []cloudscalesdk.Server{
 				{
-					UUID:          "server-uuid-1",
-					Status:        "running",
-					ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
+					UUID:   "server-uuid-1",
+					Status: "running",
+					Zone:   cloudscalesdk.ZoneStub{Slug: "rma1"},
 				},
 				{
-					UUID:          "server-uuid-2",
-					Status:        "running",
-					ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
+					UUID:   "server-uuid-2",
+					Status: "running",
+					Zone:   cloudscalesdk.ZoneStub{Slug: "rma1"},
 				},
 			}, nil
 		},
@@ -301,9 +301,9 @@ func TestReconcileServer_SetsServerStatusCondition(t *testing.T) {
 			serverService := &testutils.MockServerService{
 				GetFn: func(ctx context.Context, id string) (*cloudscalesdk.Server, error) {
 					return &cloudscalesdk.Server{
-						UUID:          id,
-						Status:        tc.serverStatus,
-						ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
+						UUID:   id,
+						Status: tc.serverStatus,
+						Zone:   cloudscalesdk.ZoneStub{Slug: "rma1"},
 					}, nil
 				},
 			}
@@ -340,9 +340,9 @@ func TestReconcileServer_ProvisionedNotModified(t *testing.T) {
 	serverService := &testutils.MockServerService{
 		GetFn: func(ctx context.Context, id string) (*cloudscalesdk.Server, error) {
 			return &cloudscalesdk.Server{
-				UUID:          id,
-				Status:        "changing",
-				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
+				UUID:   id,
+				Status: "changing",
+				Zone:   cloudscalesdk.ZoneStub{Slug: "rma1"},
 			}, nil
 		},
 		CreateFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
@@ -390,10 +390,10 @@ func TestReconcileServer_SetsServerGroupInRequest(t *testing.T) {
 		CreateFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
 			capturedReq = req
 			return &cloudscalesdk.Server{
-				UUID:          "server-uuid-sg",
-				Name:          req.Name,
-				Status:        "running",
-				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
+				UUID:   "server-uuid-sg",
+				Name:   req.Name,
+				Status: "running",
+				Zone:   cloudscalesdk.ZoneStub{Slug: "rma1"},
 			}, nil
 		},
 	}
@@ -425,10 +425,10 @@ func TestReconcileServer_NoServerGroupWhenStatusEmpty(t *testing.T) {
 		CreateFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
 			capturedReq = req
 			return &cloudscalesdk.Server{
-				UUID:          "server-uuid-no-sg",
-				Name:          req.Name,
-				Status:        "running",
-				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
+				UUID:   "server-uuid-no-sg",
+				Name:   req.Name,
+				Status: "running",
+				Zone:   cloudscalesdk.ZoneStub{Slug: "rma1"},
 			}, nil
 		},
 	}
@@ -654,10 +654,10 @@ func TestReconcileServer_SetsUseIPV6DualStack(t *testing.T) {
 		CreateFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
 			capturedReq = req
 			return &cloudscalesdk.Server{
-				UUID:          "server-uuid-ipv6",
-				Name:          req.Name,
-				Status:        "running",
-				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
+				UUID:   "server-uuid-ipv6",
+				Name:   req.Name,
+				Status: "running",
+				Zone:   cloudscalesdk.ZoneStub{Slug: "rma1"},
 			}, nil
 		},
 	}
@@ -691,10 +691,10 @@ func TestReconcileServer_SetsUseIPV6IPv4Only(t *testing.T) {
 		CreateFn: func(ctx context.Context, req *cloudscalesdk.ServerRequest) (*cloudscalesdk.Server, error) {
 			capturedReq = req
 			return &cloudscalesdk.Server{
-				UUID:          "server-uuid-ipv4",
-				Name:          req.Name,
-				Status:        "running",
-				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
+				UUID:   "server-uuid-ipv4",
+				Name:   req.Name,
+				Status: "running",
+				Zone:   cloudscalesdk.ZoneStub{Slug: "rma1"},
 			}, nil
 		},
 	}

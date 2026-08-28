@@ -65,10 +65,10 @@ func TestReconcileServerGroup_FindsExisting_SetsStatusID(t *testing.T) {
 		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
 			return []cloudscalesdk.ServerGroup{
 				{
-					UUID:          "existing-group-uuid",
-					Name:          "test-group",
-					Type:          "anti-affinity",
-					ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
+					UUID: "existing-group-uuid",
+					Name: "test-group",
+					Type: "anti-affinity",
+					Zone: cloudscalesdk.ZoneStub{Slug: "rma1"},
 				},
 			}, nil
 		},
@@ -102,20 +102,20 @@ func TestReconcileServerGroup_SkipsNonMatchingName(t *testing.T) {
 		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
 			return []cloudscalesdk.ServerGroup{
 				{
-					UUID:          "other-group-uuid",
-					Name:          "different-group",
-					Type:          "anti-affinity",
-					ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
+					UUID: "other-group-uuid",
+					Name: "different-group",
+					Type: "anti-affinity",
+					Zone: cloudscalesdk.ZoneStub{Slug: "rma1"},
 				},
 			}, nil
 		},
 		CreateFn: func(ctx context.Context, req *cloudscalesdk.ServerGroupRequest) (*cloudscalesdk.ServerGroup, error) {
 			createCalled = true
 			return &cloudscalesdk.ServerGroup{
-				UUID:          "new-group-uuid",
-				Name:          req.Name,
-				Type:          req.Type,
-				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
+				UUID: "new-group-uuid",
+				Name: req.Name,
+				Type: req.Type,
+				Zone: cloudscalesdk.ZoneStub{Slug: "rma1"},
 			}, nil
 		},
 	}
@@ -140,20 +140,20 @@ func TestReconcileServerGroup_SkipsNonMatchingZone(t *testing.T) {
 		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.ServerGroup, error) {
 			return []cloudscalesdk.ServerGroup{
 				{
-					UUID:          "other-zone-group-uuid",
-					Name:          "test-group",
-					Type:          "anti-affinity",
-					ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "lpg1"}},
+					UUID: "other-zone-group-uuid",
+					Name: "test-group",
+					Type: "anti-affinity",
+					Zone: cloudscalesdk.ZoneStub{Slug: "lpg1"},
 				},
 			}, nil
 		},
 		CreateFn: func(ctx context.Context, req *cloudscalesdk.ServerGroupRequest) (*cloudscalesdk.ServerGroup, error) {
 			createCalled = true
 			return &cloudscalesdk.ServerGroup{
-				UUID:          "new-group-uuid",
-				Name:          req.Name,
-				Type:          req.Type,
-				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
+				UUID: "new-group-uuid",
+				Name: req.Name,
+				Type: req.Type,
+				Zone: cloudscalesdk.ZoneStub{Slug: "rma1"},
 			}, nil
 		},
 	}
@@ -181,10 +181,10 @@ func TestReconcileServerGroup_CreatesNew_SetsStatusID(t *testing.T) {
 		CreateFn: func(ctx context.Context, req *cloudscalesdk.ServerGroupRequest) (*cloudscalesdk.ServerGroup, error) {
 			capturedReq = req
 			return &cloudscalesdk.ServerGroup{
-				UUID:          "created-group-uuid",
-				Name:          req.Name,
-				Type:          req.Type,
-				ZonalResource: cloudscalesdk.ZonalResource{Zone: cloudscalesdk.ZoneStub{Slug: "rma1"}},
+				UUID: "created-group-uuid",
+				Name: req.Name,
+				Type: req.Type,
+				Zone: cloudscalesdk.ZoneStub{Slug: "rma1"},
 			}, nil
 		},
 	}

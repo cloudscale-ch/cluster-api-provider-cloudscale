@@ -3,7 +3,6 @@ package testutils
 import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
@@ -19,16 +18,12 @@ func NewClusterScopeOpts(opts ...ClusterScopeOption) *scope.ClusterScope {
 	clusterScope := &scope.ClusterScope{
 		Logger: logr.Discard(),
 		Cluster: &clusterv1.Cluster{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-cluster",
-				Namespace: "default",
-			},
+			Name:      "test-cluster",
+			Namespace: "default",
 		},
 		CloudscaleCluster: &infrastructurev1beta2.CloudscaleCluster{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-cluster",
-				Namespace: "default",
-			},
+			Name:      "test-cluster",
+			Namespace: "default",
 			Spec: infrastructurev1beta2.CloudscaleClusterSpec{
 				Region: "rma",
 				Zone:   "rma1",
@@ -168,10 +163,8 @@ type MachineScopeOption func(*scope.MachineScope)
 // NewMachineScope builds a MachineScope with opinionated defaults and optional overrides.
 func NewMachineScope(serverService cloudscale.ServerService, opts ...MachineScopeOption) *scope.MachineScope {
 	cloudscaleMachine := &infrastructurev1beta2.CloudscaleMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-machine",
-			Namespace: "default",
-		},
+		Name:      "test-machine",
+		Namespace: "default",
 		Spec: infrastructurev1beta2.CloudscaleMachineSpec{
 			Flavor: "flex-8-4",
 			Image:  "ubuntu-24.04",
@@ -179,20 +172,16 @@ func NewMachineScope(serverService cloudscale.ServerService, opts ...MachineScop
 	}
 
 	bootstrapSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "bootstrap-secret",
-			Namespace: "default",
-		},
+		Name:      "bootstrap-secret",
+		Namespace: "default",
 		Data: map[string][]byte{
 			"value": []byte("#!/bin/bash\necho 'bootstrap script'"),
 		},
 	}
 
 	cloudscaleCluster := &infrastructurev1beta2.CloudscaleCluster{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-cluster",
-			Namespace: "default",
-		},
+		Name:      "test-cluster",
+		Namespace: "default",
 		Spec: infrastructurev1beta2.CloudscaleClusterSpec{
 			Region: "rma",
 			Zone:   "rma1",
@@ -210,16 +199,12 @@ func NewMachineScope(serverService cloudscale.ServerService, opts ...MachineScop
 		Client: fakeClient,
 		Logger: logr.Discard(),
 		Cluster: &clusterv1.Cluster{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-cluster",
-				Namespace: "default",
-			},
+			Name:      "test-cluster",
+			Namespace: "default",
 		},
 		Machine: &clusterv1.Machine{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-machine",
-				Namespace: "default",
-			},
+			Name:      "test-machine",
+			Namespace: "default",
 			Spec: clusterv1.MachineSpec{
 				Bootstrap: clusterv1.Bootstrap{
 					DataSecretName: new("bootstrap-secret"),
