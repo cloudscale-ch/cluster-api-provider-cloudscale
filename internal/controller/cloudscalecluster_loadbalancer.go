@@ -23,7 +23,7 @@ import (
 	"slices"
 	"time"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v10"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -207,7 +207,7 @@ func (r *CloudscaleClusterReconciler) reconcileLB(ctx context.Context, clusterSc
 
 	// Place LB on a private network if specified, otherwise public VIP
 	if lbSpec.Network != "" {
-		subnetID, err := lbPrivateNetworkSubnetID(clusterScope)
+		subnetID, err := safeUseSubnet(clusterScope, clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Network)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -513,11 +513,18 @@ func (r *CloudscaleClusterReconciler) getMemberSubnetCIDR(clusterScope *scope.Cl
 }
 
 // getPoolMemberSubnetID determines the subnet UUID for LB pool members.
-// If the LB is on a private network, use that network's subnet.
-// Otherwise (public LB), use the first network's subnet.
+// 1. .PoolMemberNetwork's subnet if specified
+// 2. .Network's subnet if specified
+// 3. first network's subnet
 func (r *CloudscaleClusterReconciler) getPoolMemberSubnetID(clusterScope *scope.ClusterScope) (string, error) {
-	if clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Network != "" {
-		return lbPrivateNetworkSubnetID(clusterScope)
+	lbSpec := clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer
+
+	if lbSpec.PoolMemberNetwork != "" {
+		return safeUseSubnet(clusterScope, lbSpec.PoolMemberNetwork)
+	}
+
+	if lbSpec.Network != "" {
+		return safeUseSubnet(clusterScope, lbSpec.Network)
 	}
 
 	networks := clusterScope.CloudscaleCluster.Status.Networks
@@ -530,14 +537,11 @@ func (r *CloudscaleClusterReconciler) getPoolMemberSubnetID(clusterScope *scope.
 	return networks[0].SubnetID, nil
 }
 
-// lbPrivateNetworkSubnetID returns the subnet UUID of the private network that the LB
-// VIP is placed on (spec.controlPlaneLoadBalancer.network). Caller must verify that
-// spec.controlPlaneLoadBalancer.network is non-empty before calling.
-func lbPrivateNetworkSubnetID(clusterScope *scope.ClusterScope) (string, error) {
-	name := clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Network
-	ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus(name)
+// safeUseSubnet returns the subnetID of the specified network (by name) only if the network is already successfully provisioned.
+func safeUseSubnet(clusterScope *scope.ClusterScope, networkName string) (string, error) {
+	ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus(networkName)
 	if ns == nil || ns.SubnetID == "" {
-		return "", fmt.Errorf("network %q not yet provisioned for LB VIP placement", name)
+		return "", fmt.Errorf("network %q not yet provisioned", networkName)
 	}
 	return ns.SubnetID, nil
 }

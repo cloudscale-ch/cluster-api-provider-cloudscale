@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v10"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
@@ -889,4 +889,52 @@ func TestDeleteLoadBalancerMember_RemovesFromStatus(t *testing.T) {
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(clusterScope.CloudscaleCluster.Status.LoadBalancerMemberIDs).To(Equal([]string{"keep-uuid"}))
+}
+
+// ============================================================================
+// Tests for getPoolMemberSubnetID
+// ============================================================================
+
+func TestGetPoolMemberSubnetID(t *testing.T) {
+	cases := []struct {
+		name              string
+		lbNetwork         string
+		poolMemberNetwork string
+		want              string
+		wantErr           string
+	}{
+		{name: "poolMemberNetwork wins over network", lbNetwork: "vip", poolMemberNetwork: "nodes", want: "subnet-nodes"},
+		{name: "poolMemberNetwork with public VIP", poolMemberNetwork: "nodes", want: "subnet-nodes"},
+		{name: "falls back to network", lbNetwork: "vip", want: "subnet-vip"},
+		{name: "falls back to first network", want: "subnet-vip"},
+		{name: "unprovisioned poolMemberNetwork errors", poolMemberNetwork: "missing", wantErr: "not yet provisioned"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+
+			clusterScope := newLBClusterScope()
+			clusterScope.CloudscaleCluster.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
+				{Name: "vip", CIDR: "10.0.0.0/24"},
+				{Name: "nodes", CIDR: "10.1.0.0/24"},
+			}
+			clusterScope.CloudscaleCluster.Status.Networks = []infrastructurev1beta2.NetworkStatus{
+				{Name: "vip", NetworkID: "net-vip", SubnetID: "subnet-vip", CIDR: "10.0.0.0/24", Managed: true},
+				{Name: "nodes", NetworkID: "net-nodes", SubnetID: "subnet-nodes", CIDR: "10.1.0.0/24", Managed: true},
+			}
+			clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Network = tc.lbNetwork
+			clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.PoolMemberNetwork = tc.poolMemberNetwork
+
+			subnetID, err := newTestReconciler().getPoolMemberSubnetID(clusterScope)
+
+			if tc.wantErr != "" {
+				g.Expect(err).To(HaveOccurred())
+				g.Expect(err.Error()).To(ContainSubstring(tc.wantErr))
+				return
+			}
+			g.Expect(err).ToNot(HaveOccurred())
+			g.Expect(subnetID).To(Equal(tc.want))
+		})
+	}
 }

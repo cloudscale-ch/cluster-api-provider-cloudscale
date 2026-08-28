@@ -29,7 +29,7 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
-	"github.com/cloudscale-ch/cloudscale-go-sdk/v9/instrumentation"
+	"github.com/cloudscale-ch/cloudscale-go-sdk/v10/instrumentation"
 	"go.opentelemetry.io/otel"
 	"golang.org/x/sync/errgroup"
 	"k8s.io/apimachinery/pkg/runtime"

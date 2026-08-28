@@ -19,7 +19,7 @@ package cloudscale
 import (
 	"context"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v10"
 )
 
 type NetworkService interface {
@@ -34,6 +34,16 @@ type SubnetService interface {
 	Get(ctx context.Context, id string) (*cloudscalesdk.Subnet, error)
 	List(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Subnet, error)
 	Delete(ctx context.Context, id string) error
+	Update(ctx context.Context, id string, req *cloudscalesdk.SubnetUpdateRequest) error
+}
+
+type RouterService interface {
+	Create(ctx context.Context, req *cloudscalesdk.RouterCreateRequest) (*cloudscalesdk.Router, error)
+	Get(ctx context.Context, id string) (*cloudscalesdk.Router, error)
+	List(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Router, error)
+	Delete(ctx context.Context, id string) error
+	CreateInterface(ctx context.Context, routerUUID string, req cloudscalesdk.CreateInterfaceRequest) (*cloudscalesdk.RouterInterface, error)
+	DeleteInterface(ctx context.Context, routerUUID, interfaceUUID string) error
 }
 
 type RegionService interface {

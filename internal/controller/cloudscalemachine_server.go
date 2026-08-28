@@ -22,7 +22,7 @@ import (
 	"maps"
 	"time"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v10"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -303,7 +303,7 @@ func (r *CloudscaleMachineReconciler) machineLookupTag(machineScope *scope.Machi
 // If spec.interfaces is empty, defaults to the first cluster network + a public interface
 // (runtime cross-resource resolution that the webhook cannot do).
 // Returns the interface requests and the IPFamily from the public interface (if any).
-func (r *CloudscaleMachineReconciler) buildInterfaceRequests(machineScope *scope.MachineScope) (*[]cloudscalesdk.InterfaceRequest, *infrastructurev1beta2.IPFamily, error) {
+func (r *CloudscaleMachineReconciler) buildInterfaceRequests(machineScope *scope.MachineScope) (*[]cloudscalesdk.ServerInterfaceRequest, *infrastructurev1beta2.IPFamily, error) {
 	ifaceSpecs := machineScope.CloudscaleMachine.Spec.Interfaces
 
 	// Runtime default: first cluster network + public DualStack interface
@@ -312,19 +312,19 @@ func (r *CloudscaleMachineReconciler) buildInterfaceRequests(machineScope *scope
 			return nil, nil, fmt.Errorf("cluster has no networks provisioned yet")
 		}
 		firstNetwork := machineScope.CloudscaleCluster.Status.Networks[0]
-		return &[]cloudscalesdk.InterfaceRequest{
+		return &[]cloudscalesdk.ServerInterfaceRequest{
 			{Network: InterfaceTypePublic},
 			{Network: firstNetwork.NetworkID},
 		}, nil, nil
 	}
 
 	// Build from spec
-	reqs := make([]cloudscalesdk.InterfaceRequest, 0, len(ifaceSpecs))
+	reqs := make([]cloudscalesdk.ServerInterfaceRequest, 0, len(ifaceSpecs))
 	var ipFamily *infrastructurev1beta2.IPFamily
 	for _, iface := range ifaceSpecs {
 		switch {
 		case iface.Type == InterfaceTypePublic:
-			reqs = append(reqs, cloudscalesdk.InterfaceRequest{Network: InterfaceTypePublic})
+			reqs = append(reqs, cloudscalesdk.ServerInterfaceRequest{Network: InterfaceTypePublic})
 			ipFamily = iface.IPFamily
 		case iface.Network != "":
 			ns := machineScope.CloudscaleCluster.Status.GetNetworkStatus(iface.Network)
@@ -334,7 +334,7 @@ func (r *CloudscaleMachineReconciler) buildInterfaceRequests(machineScope *scope
 			if ns.NetworkID == "" {
 				return nil, nil, fmt.Errorf("network %q not yet provisioned", iface.Network)
 			}
-			reqs = append(reqs, cloudscalesdk.InterfaceRequest{Network: ns.NetworkID})
+			reqs = append(reqs, cloudscalesdk.ServerInterfaceRequest{Network: ns.NetworkID})
 		default:
 			return nil, nil, fmt.Errorf("interface must have either type or network set")
 		}

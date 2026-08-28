@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"time"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v10"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"

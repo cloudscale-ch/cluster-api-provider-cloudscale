@@ -119,7 +119,9 @@ Set them in your shell, or keep them in `clusterctl.yaml` alongside the token.
 | `fip`                     | Pre-existing             | Floating IP, IPv4      | Public + cluster  | `CLOUDSCALE_NETWORK_UUID`                            |
 | `pre-existing-network`    | Pre-existing             | Public LB, DualStack   | Public + cluster  | `CLOUDSCALE_NETWORK_UUID`                            |
 | `public-lb-private-nodes` | Pre-existing + NAT       | Public LB              | Private only      | `CLOUDSCALE_NETWORK_UUID`, with a NAT gateway set up |
+| `router-nat`              | Managed + managed router | Public LB              | Private only      | —                                                    |
 | `topology`                | Managed, `172.18.0.0/24` | Public LB, DualStack   | Public + cluster  | `CLUSTER_TOPOLOGY=true` feature gate                 |
+| `topology-router-nat`     | Managed + managed router | Public LB              | Private only      | `CLUSTER_TOPOLOGY=true` feature gate                 |
 
 These flavors just show possible configurations. You're encouraged to copy and adjust them to your needs.
 
@@ -151,6 +153,38 @@ IP, no pre-existing network, no private load balancer, and pod/service CIDRs are
 `192.168.0.0/16` / `10.96.0.0/12`. Adjust the template for your use-case.
 
 Use `--flavor topology` in the next step if you did use ClusterClass.
+
+### Using the router-nat ClusterClass
+
+The `topology-router-nat` flavor is the ClusterClass equivalent of `router-nat`: nodes have
+no public interface and reach the internet only through a managed router doing SNAT. It
+references the separate `router-nat` ClusterClass in `templates/cluster-class-router-nat.yaml`,
+which must likewise be applied once per namespace:
+
+```bash
+clusterctl generate yaml \
+  --from https://raw.githubusercontent.com/cloudscale-ch/cluster-api-provider-cloudscale/main/templates/cluster-class-router-nat.yaml \
+  | kubectl apply -f -
+```
+
+On top of the `quick-start` variables it adds three:
+
+| Variable      | Default        | Purpose                                                                                                                                                                      |
+|---------------|----------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `networkName` | `node-net`     | Logical name of the cluster's private network. Patched into the router interface and into every machine's interface list, so it stays consistent across the three templates. |
+| `networkCIDR` | `10.10.0.0/24` | Subnet of that network. The router interface address is derived from it per cluster, so changing the CIDR moves the address with it.                                         |
+| `routerName`  | `router`       | Name of the managed router.                                                                                                                                                  |
+
+The shipped `topology-router-nat` template sets `networkName` and `routerName` from the
+cluster name, so clusters sharing the class stay distinguishable in the cloudscale.ch control
+panel. Give each cluster its own `networkCIDR` if you intend to route between them.
+
+Caveat: these three variables and the router's `internetGateway` are **create-time only**.
+Networks and routers are immutable once a cluster exists, so changing them on a live `Cluster`
+leaves it with `TopologyReconciled=False` and a `Forbidden` error from the CAPCS admission
+webhook. Create a new cluster instead.
+
+Use `--flavor topology-router-nat` in the next step for this variant.
 
 ## 7. Generate and apply the workload cluster
 

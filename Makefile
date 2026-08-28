@@ -162,9 +162,12 @@ E2E_CLUSTER_TEMPLATES := cluster-template \
 	cluster-template-md-remediation \
 	cluster-template-pre-existing-network \
 	cluster-template-public-lb-private-nodes \
+	cluster-template-router-nat \
 	cluster-template-topology \
+	cluster-template-topology-router-nat \
 	cluster-template-upgrades \
-	clusterclass-quick-start
+	clusterclass-quick-start \
+	clusterclass-router-nat
 
 .PHONY: generate-e2e-templates
 generate-e2e-templates: $(KUSTOMIZE) generate-e2e-cni generate-e2e-ccm ## Generate e2e cluster templates using kustomize overlays
@@ -279,6 +282,19 @@ test-e2e-topology: $(GINKGO) generate-e2e-templates generate-e2e-config docker-b
 		--label-filter="topology" \
 		--timeout=90m \
 		--output-dir="$(E2E_ARTIFACTS_FOLDER)" --junit-report="junit.e2e_topology.xml" \
+		./test/e2e -- \
+		-e2e.config=$(E2E_CONF_FILE) \
+		-e2e.artifacts-folder=$(E2E_ARTIFACTS_FOLDER) \
+		-e2e.skip-resource-cleanup=$(SKIP_RESOURCE_CLEANUP) \
+		-e2e.use-existing-cluster=$(USE_EXISTING_CLUSTER)
+
+.PHONY: test-e2e-router-nat
+test-e2e-router-nat: $(GINKGO) generate-e2e-templates generate-e2e-config docker-build ## Run managed-router NAT e2e tests
+	$(GINKGO) -v --trace --tags=e2e \
+		--nodes=$(GINKGO_NODES) \
+		--label-filter="router-nat" \
+		--timeout=90m \
+		--output-dir="$(E2E_ARTIFACTS_FOLDER)" --junit-report="junit.e2e_router_nat.xml" \
 		./test/e2e -- \
 		-e2e.config=$(E2E_CONF_FILE) \
 		-e2e.artifacts-folder=$(E2E_ARTIFACTS_FOLDER) \
