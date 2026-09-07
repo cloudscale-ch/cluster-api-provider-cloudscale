@@ -100,6 +100,18 @@ func TestClusterTemplateDefaulting_ExplicitNetworksNotOverridden(t *testing.T) {
 	g.Expect(obj.Spec.Template.Spec.Networks[0].CIDR).To(Equal("10.1.0.0/16"))
 }
 
+// Router interface addresses must not be defaulted on the template.
+func TestClusterTemplateDefaulting_RouterAddressesNotDefaulted(t *testing.T) {
+	g := NewWithT(t)
+	obj, _, _, defaulter := newClusterTemplateWebhookTestObjects()
+	obj.Spec.Template.Spec.Region = RegionRma
+	obj.Spec.Template.Spec.Networks = routerNetworks("10.0.0.0/24")
+	obj.Spec.Template.Spec.Routers = routerWith(routerIface(""))
+
+	g.Expect(defaulter.Default(ctx, obj)).To(Succeed())
+	g.Expect(obj.Spec.Template.Spec.Routers[0].Interfaces[0].Address).To(BeEmpty())
+}
+
 func TestClusterTemplateDefaulting_LBEnabledToTrue(t *testing.T) {
 	g := NewWithT(t)
 	obj, _, _, defaulter := newClusterTemplateWebhookTestObjects()
@@ -388,7 +400,7 @@ func TestClusterTemplateValidateCreate_PublicLBWithMultipleNetworksRequiresExpli
 
 	_, err := validator.ValidateCreate(ctx, obj)
 	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("controlPlaneLoadBalancer.network"))
+	g.Expect(err.Error()).To(ContainSubstring("controlPlaneLoadBalancer"))
 }
 
 func TestClusterTemplateValidateCreate_LBNetworkReferenceInvalid(t *testing.T) {
@@ -508,6 +520,109 @@ func TestClusterTemplateValidateCreate_PreExistingFloatingIPWithoutLBAllowed(t *
 
 	_, err := validator.ValidateCreate(ctx, obj)
 	g.Expect(err).NotTo(HaveOccurred())
+}
+
+// A template's router interface addresses are derived per cluster, not here, so leaving
+// one empty is what the ClusterClass flow relies on: a topology patch may replace the
+// network's CIDR and the address follows it.
+func TestClusterTemplateValidateCreate_RouterInterfaceAddressDeferred(t *testing.T) {
+	g := NewWithT(t)
+	obj, _, validator, defaulter := newClusterTemplateWebhookTestObjects()
+	obj.Spec.Template.Spec.Region = RegionRma
+	obj.Spec.Template.Spec.Networks = routerNetworks("10.10.0.0/24")
+	obj.Spec.Template.Spec.Routers = routerWith(routerIface(""))
+
+	g.Expect(defaulter.Default(ctx, obj)).To(Succeed())
+
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).NotTo(HaveOccurred())
+}
+
+// A uuid network never gains a CIDR, so no later defaulting could derive an address for it
+// either.
+func TestClusterTemplateValidateCreate_RouterInterfaceOnUUIDNetworkStillRequiresAddress(t *testing.T) {
+	g := NewWithT(t)
+	obj, _, validator, _ := newClusterTemplateWebhookTestObjects()
+	obj.Spec.Template.Spec.Region = RegionRma
+	obj.Spec.Template.Spec.Networks = []infrastructurev1beta2.NetworkSpec{{Name: "main", UUID: "net-uuid"}}
+	obj.Spec.Template.Spec.Routers = routerWith(routerIface(""))
+
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("must be set explicitly"))
+	g.Expect(err.Error()).To(ContainSubstring("referenced by uuid"))
+}
+
+func TestClusterTemplateValidateCreate_RouterInterfaceAddressOutsideCIDRRejected(t *testing.T) {
+	g := NewWithT(t)
+	obj, _, validator, _ := newClusterTemplateWebhookTestObjects()
+	obj.Spec.Template.Spec.Region = RegionRma
+	obj.Spec.Template.Spec.Networks = routerNetworks("10.10.0.0/24")
+	obj.Spec.Template.Spec.Routers = routerWith(routerIface("10.20.0.1"))
+
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("must be within CIDR 10.10.0.0/24"))
+}
+
+func TestClusterTemplateValidateCreate_RouterInterfaceAddressInDHCPPoolRejected(t *testing.T) {
+	g := NewWithT(t)
+	obj, _, validator, _ := newClusterTemplateWebhookTestObjects()
+	obj.Spec.Template.Spec.Region = RegionRma
+	obj.Spec.Template.Spec.Networks = routerNetworks("10.10.0.0/24")
+	obj.Spec.Template.Spec.Routers = routerWith(routerIface("10.10.0.150"))
+
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("DHCP pool"))
+}
+
+func TestClusterTemplateValidateCreate_RouterInterfaceUnknownNetworkRejected(t *testing.T) {
+	g := NewWithT(t)
+	obj, _, validator, _ := newClusterTemplateWebhookTestObjects()
+	obj.Spec.Template.Spec.Region = RegionRma
+	obj.Spec.Template.Spec.Networks = []infrastructurev1beta2.NetworkSpec{{Name: "other", CIDR: "10.10.0.0/24"}}
+	obj.Spec.Template.Spec.Routers = routerWith(routerIface(""))
+
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("Not found"))
+}
+
+func TestClusterTemplateThenClusterDefaulting_DerivesRouterAddress(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		patchedCIDR string
+		wantAddress string
+	}{
+		{name: "template CIDR untouched", patchedCIDR: "10.10.0.0/24", wantAddress: "10.10.0.1"},
+		{name: "CIDR replaced by a topology patch", patchedCIDR: "10.20.0.0/24", wantAddress: "10.20.0.1"},
+		{name: "CIDR narrowed by a topology patch", patchedCIDR: "172.16.5.0/25", wantAddress: "172.16.5.1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			tmpl, _, tmplValidator, tmplDefaulter := newClusterTemplateWebhookTestObjects()
+			tmpl.Spec.Template.Spec.Region = RegionRma
+			tmpl.Spec.Template.Spec.Networks = routerNetworks("10.10.0.0/24")
+			tmpl.Spec.Template.Spec.Routers = routerWith(routerIface(""))
+
+			g.Expect(tmplDefaulter.Default(ctx, tmpl)).To(Succeed())
+			_, err := tmplValidator.ValidateCreate(ctx, tmpl)
+			g.Expect(err).NotTo(HaveOccurred())
+
+			// What the topology controller does: copy the template spec, apply the
+			// patches, then let the cluster webhooks run on the result.
+			cluster, _, validator, defaulter := newClusterWebhookTestObjects()
+			cluster.Name = "my-cluster-abcde"
+			cluster.Spec = *tmpl.Spec.Template.Spec.DeepCopy()
+			cluster.Spec.Networks[0].CIDR = tc.patchedCIDR
+
+			g.Expect(defaulter.Default(ctx, cluster)).To(Succeed())
+			_, err = validator.ValidateCreate(ctx, cluster)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(cluster.Spec.Routers[0].Interfaces[0].Address).To(Equal(tc.wantAddress))
+		})
+	}
 }
 
 // ============================================================================

@@ -85,6 +85,11 @@ func WithSubnetService(svc cloudscale.SubnetService) ClusterScopeOption {
 	return func(cs *scope.ClusterScope) { cs.CloudscaleClient.Subnets = svc }
 }
 
+// WithRouterService wires a custom Router service into the client.
+func WithRouterService(svc cloudscale.RouterService) ClusterScopeOption {
+	return func(cs *scope.ClusterScope) { cs.CloudscaleClient.Routers = svc }
+}
+
 // WithServerGroupService wires a custom ServerGroup service into the client.
 func WithServerGroupService(svc cloudscale.ServerGroupService) ClusterScopeOption {
 	return func(cs *scope.ClusterScope) { cs.CloudscaleClient.ServerGroups = svc }
@@ -135,7 +140,9 @@ func WithHealthMonitorParams(delayS, timeoutS, upThreshold, downThreshold int) C
 	}
 }
 
-// WithPreExistingNetwork adds a NetworkStatus entry so the scope thinks the network already exists.
+// WithPreExistingNetwork adds a NetworkStatus entry so the scope thinks the network
+// already exists. The network is CAPCS-managed, i.e. defined by cidr in spec.networks;
+// use WithAdoptedNetwork for one referenced by uuid.
 func WithPreExistingNetwork(name, netID, subnetID, cidr string) ClusterScopeOption {
 	return func(cs *scope.ClusterScope) {
 		cs.CloudscaleCluster.Status.Networks = append(cs.CloudscaleCluster.Status.Networks,
@@ -145,6 +152,46 @@ func WithPreExistingNetwork(name, netID, subnetID, cidr string) ClusterScopeOpti
 				SubnetID:  subnetID,
 				CIDR:      cidr,
 				Managed:   true,
+			},
+		)
+	}
+}
+
+// WithAdoptedNetwork adds a NetworkStatus entry for a network CAPCS does not own, the
+// shape spec.networks[].uuid produces. Deletion leaves such a network in place, so an
+// interface attached to it is never detached on CAPCS's account.
+func WithAdoptedNetwork(name, netID, subnetID, cidr string) ClusterScopeOption {
+	return func(cs *scope.ClusterScope) {
+		cs.CloudscaleCluster.Status.Networks = append(cs.CloudscaleCluster.Status.Networks,
+			infrastructurev1beta2.NetworkStatus{
+				Name:      name,
+				NetworkID: netID,
+				SubnetID:  subnetID,
+				CIDR:      cidr,
+				Managed:   false,
+			},
+		)
+	}
+}
+
+// WithRouter appends a router to the spec.
+func WithRouter(routerSpec infrastructurev1beta2.RouterSpec) ClusterScopeOption {
+	return func(cs *scope.ClusterScope) {
+		cs.CloudscaleCluster.Spec.Routers = append(cs.CloudscaleCluster.Spec.Routers, routerSpec)
+	}
+}
+
+// WithRouterStatus appends a RouterStatus entry so the scope thinks the router already
+// exists. interfaces lists the router's recorded interfaces on spec networks; pass nil
+// for a router with no recorded interfaces.
+func WithRouterStatus(name, routerID string, managed bool, interfaces []infrastructurev1beta2.RouterInterfaceStatus) ClusterScopeOption {
+	return func(cs *scope.ClusterScope) {
+		cs.CloudscaleCluster.Status.Routers = append(cs.CloudscaleCluster.Status.Routers,
+			infrastructurev1beta2.RouterStatus{
+				Name:       name,
+				RouterID:   routerID,
+				Managed:    managed,
+				Interfaces: interfaces,
 			},
 		)
 	}

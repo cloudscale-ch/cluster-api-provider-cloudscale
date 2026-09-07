@@ -75,7 +75,7 @@ type CloudscaleClusterTemplateCustomValidator struct {
 func (v *CloudscaleClusterTemplateCustomValidator) ValidateCreate(_ context.Context, clusterTemplate *infrastructurev1beta2.CloudscaleClusterTemplate) (admission.Warnings, error) {
 	cloudscaleclustertemplatelog.Info("Validation for CloudscaleClusterTemplate upon creation", "name", clusterTemplate.GetName())
 
-	allErrs := clusterSpecValidateCreate(clusterTemplate.Spec.Template.Spec, v.RegionInfo, field.NewPath("spec", "template", "spec"))
+	allErrs := clusterSpecValidateCreate(clusterTemplate.Spec.Template.Spec, v.RegionInfo, modeTemplate, field.NewPath("spec", "template", "spec"))
 
 	if len(allErrs) > 0 {
 		return nil, apierrors.NewInvalid(

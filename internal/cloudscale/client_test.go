@@ -22,7 +22,7 @@ import (
 	"os"
 	"testing"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v10"
 	. "github.com/onsi/gomega"
 )
 

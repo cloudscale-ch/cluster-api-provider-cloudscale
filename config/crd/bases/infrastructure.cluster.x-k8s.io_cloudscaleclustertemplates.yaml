@@ -184,8 +184,15 @@ spec:
                             description: |-
                               Network places the LB VIP on a private network (internal LB).
                               References spec.networks[].name. Omit for a public LB.
-                              When multiple networks are defined this field is required so the LB
-                              pool members can be registered against a specific subnet.
+                              When multiple networks are defined, either this field or PoolMemberNetwork
+                              is required so the LB pool members can be registered against a specific subnet.
+                            type: string
+                          poolMemberNetwork:
+                            description: |-
+                              PoolMemberNetwork selects the network whose subnet the LB pool members are registered on (i.e. the network the control-plane machines attach to).
+                              References spec.networks[].name. Set when control-plane nodes live on a different network than the VIP (Network).
+                              When unset, the controller resolves the member subnet from Network or the first network.
+                              Strictly immutable: it cannot be changed, nor set after creation.
                             type: string
                         type: object
                       credentialsRef:
@@ -253,11 +260,11 @@ spec:
                             gatewayAddress:
                               description: |-
                                 GatewayAddress is the gateway IP address for the subnet.
-                                Only applicable when CIDR is set (managed network).
-                                By default, no gateway is configured on the subnet. This ensures
+                                Only applicable when CIDR is set (managed network). Immutable after creation.
+                                When no router interface references this network: By default, no gateway is configured on the subnet. This ensures
                                 that outbound internet traffic uses the public network interface.
-                                Set this to a specific IP address (e.g., "10.0.0.1") only if you have configured
-                                a NAT gateway or similar infrastructure on the private network.
+                                When a router interface references this network: the value is requested as the router interface's IP on the subnet.
+                                If empty, the webhook defaults this to a valid address.
                               type: string
                             name:
                               description: |-
@@ -288,6 +295,82 @@ spec:
                         - rma
                         - lpg
                         type: string
+                      routers:
+                        description: |-
+                          Routers define routers for this cluster.
+                          Each router can be attached to one or more networks via its interfaces.
+                          If empty, no router is provisioned.
+                        items:
+                          description: |-
+                            RouterSpec defines a router managed or adopted for this cluster.
+                            Set UUID to adopt a pre-existing router; leave it empty to have CAPCS create one.
+                          properties:
+                            interfaces:
+                              description: |-
+                                Interfaces lists the networks this router is attached to.
+                                A router attaches to any given network at most once.
+                              items:
+                                description: RouterInterfaceSpec defines a single
+                                  network attachment for a router.
+                                properties:
+                                  address:
+                                    description: |-
+                                      Address is the IP requested for this router interface within the referenced network's subnet.
+                                      The admission webhook defaults it based on configureSubnetGateway and network settings.
+                                      Must be set when the network is referenced by UUID (subnet unknown at admission time).
+                                      Must be empty when this interface is adopted by UUID.
+                                      Immutable after creation.
+                                    type: string
+                                  configureSubnetGateway:
+                                    default: true
+                                    description: |-
+                                      ConfigureSubnetGateway, when true (default), sets the subnet's gatewayAddress
+                                      to this router interface's assigned IP, making the router the default route.
+                                      Set to false for transit/backbone networks where another router owns the subnet gateway.
+                                      Immutable after creation.
+                                    type: boolean
+                                  network:
+                                    description: Network references spec.networks[].name.
+                                    type: string
+                                  uuid:
+                                    description: |-
+                                      UUID adopts a pre-existing interface of the router instead of attaching a new one.
+                                      CAPCS reads its address but never creates or detaches it.
+                                      Only valid on an adopted router. Mutually exclusive with Address.
+                                      Immutable after creation.
+                                    type: string
+                                required:
+                                - network
+                                type: object
+                              type: array
+                              x-kubernetes-list-map-keys:
+                              - network
+                              x-kubernetes-list-type: map
+                            internetGateway:
+                              description: |-
+                                InternetGateway enables SNAT for outbound internet access on a managed router.
+                                Only valid when UUID is not set. Immutable after creation.
+                              type: boolean
+                            name:
+                              description: Name identifies this router within the
+                                cluster.
+                              maxLength: 63
+                              pattern: ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$
+                              type: string
+                            uuid:
+                              description: |-
+                                UUID references a pre-existing router by UUID.
+                                CAPCS attaches/detaches its interfaces but does not manage the router lifecycle.
+                                Interfaces already attached to the router must be adopted explicitly via interfaces[].uuid.
+                                Mutually exclusive with InternetGateway. Immutable after creation.
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - name
+                        x-kubernetes-list-type: map
                       zone:
                         description: |-
                           Zone is the cloudscale.ch zone within Region.

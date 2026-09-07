@@ -55,8 +55,11 @@ providers:
           - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-md-remediation.yaml"
           - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-pre-existing-network.yaml"
           - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-public-lb-private-nodes.yaml"
+          - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-router-nat.yaml"
           - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-topology.yaml"
+          - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-topology-router-nat.yaml"
           - sourcePath: "../data/infrastructure-cloudscale/main/clusterclass-quick-start.yaml"
+          - sourcePath: "../data/infrastructure-cloudscale/main/clusterclass-router-nat.yaml"
           - sourcePath: "../data/infrastructure-cloudscale/main/cluster-template-upgrades.yaml"
           - sourcePath: "../data/infrastructure-cloudscale/main/metadata.yaml"
             targetName: metadata.yaml

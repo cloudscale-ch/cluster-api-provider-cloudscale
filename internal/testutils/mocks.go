@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v10"
 )
 
 // --- Network Service Mock ---
@@ -51,6 +51,7 @@ type MockSubnetService struct {
 	GetFn    func(ctx context.Context, id string) (*cloudscalesdk.Subnet, error)
 	ListFn   func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Subnet, error)
 	DeleteFn func(ctx context.Context, id string) error
+	UpdateFn func(ctx context.Context, id string, req *cloudscalesdk.SubnetUpdateRequest) error
 }
 
 func (m *MockSubnetService) Create(ctx context.Context, req *cloudscalesdk.SubnetCreateRequest) (*cloudscalesdk.Subnet, error) {
@@ -79,6 +80,66 @@ func (m *MockSubnetService) Delete(ctx context.Context, id string) error {
 		return m.DeleteFn(ctx, id)
 	}
 	return errors.New("mock(Delete) not configured")
+}
+
+func (m *MockSubnetService) Update(ctx context.Context, id string, req *cloudscalesdk.SubnetUpdateRequest) error {
+	if m.UpdateFn != nil {
+		return m.UpdateFn(ctx, id, req)
+	}
+	return errors.New("mock(Update) not configured")
+}
+
+// --- Router Service Mock ---
+
+type MockRouterService struct {
+	CreateFn          func(ctx context.Context, req *cloudscalesdk.RouterCreateRequest) (*cloudscalesdk.Router, error)
+	GetFn             func(ctx context.Context, id string) (*cloudscalesdk.Router, error)
+	ListFn            func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Router, error)
+	DeleteFn          func(ctx context.Context, id string) error
+	CreateInterfaceFn func(ctx context.Context, routerUUID string, req cloudscalesdk.CreateInterfaceRequest) (*cloudscalesdk.RouterInterface, error)
+	DeleteInterfaceFn func(ctx context.Context, routerUUID, interfaceUUID string) error
+}
+
+func (m *MockRouterService) Create(ctx context.Context, req *cloudscalesdk.RouterCreateRequest) (*cloudscalesdk.Router, error) {
+	if m.CreateFn != nil {
+		return m.CreateFn(ctx, req)
+	}
+	return nil, errors.New("mock(Create) not configured")
+}
+
+func (m *MockRouterService) Get(ctx context.Context, id string) (*cloudscalesdk.Router, error) {
+	if m.GetFn != nil {
+		return m.GetFn(ctx, id)
+	}
+	return nil, errors.New("mock(Get) not configured")
+}
+
+func (m *MockRouterService) List(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Router, error) {
+	if m.ListFn != nil {
+		return m.ListFn(ctx, modifiers...)
+	}
+	return nil, errors.New("mock(List) not configured")
+}
+
+func (m *MockRouterService) Delete(ctx context.Context, id string) error {
+	if m.DeleteFn != nil {
+		return m.DeleteFn(ctx, id)
+	}
+	return errors.New("mock(Delete) not configured")
+}
+
+func (m *MockRouterService) CreateInterface(ctx context.Context, routerUUID string, req cloudscalesdk.CreateInterfaceRequest) (*cloudscalesdk.RouterInterface, error) {
+	if m.CreateInterfaceFn != nil {
+		return m.CreateInterfaceFn(ctx, routerUUID, req)
+	}
+	return nil, errors.New("mock(CreateInterface) not configured")
+}
+
+func (m *MockRouterService) DeleteInterface(ctx context.Context, routerUUID, interfaceUUID string) error {
+	if m.DeleteInterfaceFn != nil {
+		return m.DeleteInterfaceFn(ctx, routerUUID, interfaceUUID)
+	}
+	return errors.New("mock(DeleteInterface) not configured")
 }
 
 // --- FloatingIP Service Mock ---

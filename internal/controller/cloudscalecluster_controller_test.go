@@ -148,10 +148,20 @@ func TestReconcileControlPlaneEndpoint_ExternalControlPlaneNoSource(t *testing.T
 // TestIsInfrastructureProvisioned exercises the readiness predicate used by
 // reconcileNormal to decide when to flip Status.Initialization.Provisioned.
 func TestIsInfrastructureProvisioned(t *testing.T) {
+	// routerSpec is a single router "r" attached to the given network.
+	routerSpec := func(network string) []infrastructurev1beta2.RouterSpec {
+		return []infrastructurev1beta2.RouterSpec{{
+			Name:       "r",
+			Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{{Network: network}},
+		}}
+	}
+
 	cases := []struct {
 		name             string
 		lbEnabled        bool
 		networks         []infrastructurev1beta2.NetworkStatus
+		routerSpecs      []infrastructurev1beta2.RouterSpec
+		routerStatuses   []infrastructurev1beta2.RouterStatus
 		endpointHost     string
 		endpointPort     int32
 		lbID             string
@@ -193,6 +203,41 @@ func TestIsInfrastructureProvisioned(t *testing.T) {
 			networks:  []infrastructurev1beta2.NetworkStatus{{Name: "test", NetworkID: "network-123", SubnetID: "subnet-123", Managed: true}},
 		},
 		{
+			// A router with no status at all: it has not even been resolved yet.
+			name:         "router not yet provisioned",
+			lbEnabled:    false,
+			networks:     []infrastructurev1beta2.NetworkStatus{{Name: "test", NetworkID: "network-123", SubnetID: "subnet-123", Managed: true}},
+			endpointHost: "1.2.3.4",
+			endpointPort: 6443,
+			routerSpecs:  routerSpec("test"),
+		},
+		{
+			// The router exists, but the interface the spec asks for is not attached, so
+			// nodes on that subnet still have no route out.
+			name:           "router provisioned but interface not attached",
+			lbEnabled:      false,
+			networks:       []infrastructurev1beta2.NetworkStatus{{Name: "test", NetworkID: "network-123", SubnetID: "subnet-123", Managed: true}},
+			endpointHost:   "1.2.3.4",
+			endpointPort:   6443,
+			routerSpecs:    routerSpec("test"),
+			routerStatuses: []infrastructurev1beta2.RouterStatus{{Name: "r", RouterID: "router-123", Managed: true}},
+		},
+		{
+			name:         "router provisioned with its interface attached",
+			lbEnabled:    false,
+			networks:     []infrastructurev1beta2.NetworkStatus{{Name: "test", NetworkID: "network-123", SubnetID: "subnet-123", Managed: true}},
+			endpointHost: "1.2.3.4",
+			endpointPort: 6443,
+			routerSpecs:  routerSpec("test"),
+			routerStatuses: []infrastructurev1beta2.RouterStatus{{
+				Name: "r", RouterID: "router-123", Managed: true,
+				Interfaces: []infrastructurev1beta2.RouterInterfaceStatus{
+					{Network: "test", InterfaceID: "iface-123", Managed: true},
+				},
+			}},
+			wantProvisioned: true,
+		},
+		{
 			name:             "Floating IP requested but status floating IP empty",
 			lbEnabled:        false,
 			networks:         []infrastructurev1beta2.NetworkStatus{{Name: "test", NetworkID: "network-123", SubnetID: "subnet-123", Managed: true}},
@@ -225,9 +270,11 @@ func TestIsInfrastructureProvisioned(t *testing.T) {
 							Enabled: new(tc.lbEnabled),
 						},
 						FloatingIP: tc.floatingIP,
+						Routers:    tc.routerSpecs,
 					},
 					Status: infrastructurev1beta2.CloudscaleClusterStatus{
 						Networks:               tc.networks,
+						Routers:                tc.routerStatuses,
 						LoadBalancerID:         tc.lbID,
 						LoadBalancerPoolID:     tc.lbPoolID,
 						LoadBalancerListenerID: tc.lbListenerID,
@@ -255,6 +302,7 @@ func TestSetReadyCondition(t *testing.T) {
 			name: "all sub-conditions True yields Ready=True",
 			subConditions: []metav1.Condition{
 				{Type: infrastructurev1beta2.NetworkReadyCondition, Status: metav1.ConditionTrue, Reason: "Provisioned", ObservedGeneration: 1},
+				{Type: infrastructurev1beta2.RouterReadyCondition, Status: metav1.ConditionTrue, Reason: "Provisioned", ObservedGeneration: 1},
 				{Type: infrastructurev1beta2.LoadBalancerReadyCondition, Status: metav1.ConditionTrue, Reason: "Provisioned", ObservedGeneration: 1},
 				{Type: infrastructurev1beta2.FloatingIPReadyCondition, Status: metav1.ConditionTrue, Reason: "Provisioned", ObservedGeneration: 1},
 			},
@@ -275,11 +323,22 @@ func TestSetReadyCondition(t *testing.T) {
 			name: "LoadBalancer=False propagates reason and message",
 			subConditions: []metav1.Condition{
 				{Type: infrastructurev1beta2.NetworkReadyCondition, Status: metav1.ConditionTrue, Reason: "Provisioned", ObservedGeneration: 1},
+				{Type: infrastructurev1beta2.RouterReadyCondition, Status: metav1.ConditionTrue, Reason: "Provisioned", ObservedGeneration: 1},
 				{Type: infrastructurev1beta2.LoadBalancerReadyCondition, Status: metav1.ConditionFalse, Reason: infrastructurev1beta2.LoadBalancerNotReadyReason, Message: "Load balancer is not running", ObservedGeneration: 1},
 			},
 			expectStatus:      metav1.ConditionFalse,
 			expectReason:      infrastructurev1beta2.LoadBalancerNotReadyReason,
 			expectMsgContains: "Load balancer is not running",
+		},
+		{
+			name: "Router=False propagates reason and message",
+			subConditions: []metav1.Condition{
+				{Type: infrastructurev1beta2.NetworkReadyCondition, Status: metav1.ConditionTrue, Reason: "Provisioned", ObservedGeneration: 1},
+				{Type: infrastructurev1beta2.RouterReadyCondition, Status: metav1.ConditionFalse, Reason: infrastructurev1beta2.RouterNotReadyReason, Message: "Waiting for routers to become available", ObservedGeneration: 1},
+			},
+			expectStatus:      metav1.ConditionFalse,
+			expectReason:      infrastructurev1beta2.RouterNotReadyReason,
+			expectMsgContains: "Waiting for routers to become available",
 		},
 		{
 			name:              "no sub-conditions yields Ready=False/NotReady",

@@ -1,19 +1,19 @@
 apiVersion: cluster.x-k8s.io/v1beta2
 kind: ClusterClass
 metadata:
-  name: quick-start
+  name: router-nat
   namespace: "${NAMESPACE}"
 spec:
   controlPlane:
     templateRef:
       apiVersion: controlplane.cluster.x-k8s.io/v1beta2
       kind: KubeadmControlPlaneTemplate
-      name: quick-start-control-plane
+      name: router-nat-control-plane
     machineInfrastructure:
       templateRef:
         apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
         kind: CloudscaleMachineTemplate
-        name: quick-start-machinetemplate
+        name: router-nat-machinetemplate
     healthCheck:
       checks:
         nodeStartupTimeoutSeconds: 900
@@ -31,7 +31,7 @@ spec:
     templateRef:
       apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
       kind: CloudscaleClusterTemplate
-      name: quick-start-cluster
+      name: router-nat-cluster
   workers:
     machineDeployments:
       - class: worker
@@ -39,12 +39,12 @@ spec:
           templateRef:
             apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
             kind: KubeadmConfigTemplate
-            name: quick-start-worker
+            name: router-nat-worker
         infrastructure:
           templateRef:
             apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
             kind: CloudscaleMachineTemplate
-            name: quick-start-machinetemplate
+            name: router-nat-machinetemplate
         healthCheck:
           checks:
             nodeStartupTimeoutSeconds: 600
@@ -73,6 +73,24 @@ spec:
       schema:
         openAPIV3Schema:
           type: string
+    - name: networkName
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: node-net
+    - name: networkCIDR
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: 10.10.0.0/24
+    - name: routerName
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: router
     - name: cloudscaleControlPlaneMachineFlavor
       required: true
       schema:
@@ -143,6 +161,22 @@ spec:
               path: "/spec/template/spec/credentialsRef/name"
               valueFrom:
                 variable: credentialsRefName
+            # The whole list is replaced rather than its individual members, so networkName
+            # stays a single source of truth instead of a literal repeated per index.
+            - op: replace
+              path: "/spec/template/spec/networks"
+              valueFrom:
+                template: |
+                  - name: {{ .networkName }}
+                    cidr: {{ .networkCIDR }}
+            - op: replace
+              path: "/spec/template/spec/routers"
+              valueFrom:
+                template: |
+                  - name: {{ .routerName }}
+                    internetGateway: true
+                    interfaces:
+                      - network: {{ .networkName }}
     - name: CloudscaleMachineTemplateControlPlane
       definitions:
         - selector:
@@ -163,6 +197,13 @@ spec:
               path: "/spec/template/spec/rootVolumeSize"
               valueFrom:
                 variable: cloudscaleControlPlaneMachineRootVolumeSize
+            # Private only: no {type: public} entry, so the nodes reach the internet
+            # exclusively through the router's SNAT.
+            - op: replace
+              path: "/spec/template/spec/interfaces"
+              valueFrom:
+                template: |
+                  - network: {{ .networkName }}
             - op: add
               path: "/spec/template/spec/serverGroup"
               valueFrom:
@@ -190,6 +231,11 @@ spec:
               path: "/spec/template/spec/rootVolumeSize"
               valueFrom:
                 variable: cloudscaleWorkerMachineRootVolumeSize
+            - op: replace
+              path: "/spec/template/spec/interfaces"
+              valueFrom:
+                template: |
+                  - network: {{ .networkName }}
             - op: add
               path: "/spec/template/spec/serverGroup"
               valueFrom:
@@ -235,21 +281,31 @@ spec:
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
 kind: CloudscaleClusterTemplate
 metadata:
-  name: quick-start-cluster
+  name: router-nat-cluster
   namespace: "${NAMESPACE}"
 spec:
   template:
     metadata:
       labels: {}
     spec:
+      # Every field below is overwritten by the CloudscaleClusterTemplate patches above, so
+      # nothing here reaches a cluster.
       region: lpg
       credentialsRef:
-        name: "quick-start-credentials"
+        name: "router-nat-credentials"
+      networks:
+        - name: node-net
+          cidr: 10.10.0.0/24
+      routers:
+        - name: router
+          internetGateway: true
+          interfaces:
+            - network: node-net
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
 kind: CloudscaleMachineTemplate
 metadata:
-  name: quick-start-machinetemplate
+  name: router-nat-machinetemplate
   namespace: "${NAMESPACE}"
 spec:
   template:
@@ -257,11 +313,13 @@ spec:
       flavor: flex-4-2
       image: custom:ubuntu-2404-kube-v1.36.0
       rootVolumeSize: 20
+      interfaces:
+        - network: node-net
 ---
 apiVersion: controlplane.cluster.x-k8s.io/v1beta2
 kind: KubeadmControlPlaneTemplate
 metadata:
-  name: quick-start-control-plane
+  name: router-nat-control-plane
   namespace: "${NAMESPACE}"
 spec:
   template:
@@ -287,7 +345,7 @@ spec:
 apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
 kind: KubeadmConfigTemplate
 metadata:
-  name: quick-start-worker
+  name: router-nat-worker
   namespace: "${NAMESPACE}"
 spec:
   template:
