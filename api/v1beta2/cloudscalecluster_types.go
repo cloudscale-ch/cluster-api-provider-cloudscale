@@ -155,9 +155,8 @@ type RouterSpec struct {
 	Name string `json:"name"`
 
 	// UUID references a pre-existing router by UUID.
-	// CAPCS attaches and detaches the interfaces it created but does not create or delete
-	// the router, and leaves interfaces it did not create alone. Interfaces the router
-	// already carries must be adopted explicitly via interfaces[].uuid.
+	// CAPCS attaches/detaches its interfaces but does not manage the router lifecycle.
+	// Interfaces already attached to the router must be adopted explicitly via interfaces[].uuid.
 	// Mutually exclusive with InternetGateway. Immutable after creation.
 	// +optional
 	UUID string `json:"uuid,omitempty"`
@@ -182,31 +181,23 @@ type RouterInterfaceSpec struct {
 	Network string `json:"network"`
 
 	// UUID adopts a pre-existing interface of the router instead of attaching a new one.
-	// The interface must already be attached to the referenced network. CAPCS reads its
-	// address but never creates or detaches it.
-	// Only valid on an adopted router (spec.routers[].uuid set), since a router CAPCS
-	// creates has no pre-existing interfaces. Mutually exclusive with Address.
+	// CAPCS reads its address but never creates or detaches it.
+	// Only valid on an adopted router. Mutually exclusive with Address.
 	// Immutable after creation.
 	// +optional
 	UUID string `json:"uuid,omitempty"`
 
-	// Address is the IP requested for this router interface within the referenced
-	// network's subnet. The API requires an explicit address per interface, so the
-	// admission webhook defaults it: the interface with configureSubnetGateway=true gets
-	// the network's gatewayAddress, or the first free address in the network's CIDR if
-	// that is unset. Must be set explicitly when the network is referenced by uuid — its
-	// subnet is not known at admission time. Must be left empty when this interface is
-	// adopted by uuid: its address is whatever the pre-existing interface holds.
-	// If configureSubnetGateway=true, the controller writes the resulting value to status.networks[].gatewayAddress once
-	// the subnet gateway is configured. Immutable after creation.
+	// Address is the IP requested for this router interface within the referenced network's subnet.
+	// The admission webhook defaults it based on configureSubnetGateway and network settings.
+	// Must be set when the network is referenced by UUID (subnet unknown at admission time).
+	// Must be empty when this interface is adopted by UUID.
+	// Immutable after creation.
 	// +optional
 	Address string `json:"address,omitempty"`
 
 	// ConfigureSubnetGateway, when true (default), sets the subnet's gatewayAddress
-	// to this router interface's assigned IP, making the router the default route for
-	// servers on that subnet.
-	// Set to false for transit/backbone networks where a different router (e.g. the
-	// internet-gateway router) owns the subnet gateway.
+	// to this router interface's assigned IP, making the router the default route.
+	// Set to false for transit/backbone networks where another router owns the subnet gateway.
 	// Immutable after creation.
 	// +kubebuilder:default=true
 	// +optional
@@ -253,13 +244,9 @@ type LoadBalancerSpec struct {
 	// +optional
 	Network string `json:"network,omitempty"`
 
-	// PoolMemberNetwork selects the network whose subnet the LB pool members are
-	// registered on (i.e. the network the control-plane machines attach to).
-	// References spec.networks[].name. When unset, the controller resolves the member
-	// subnet from Network, or from the first network if that is unset too; the field
-	// itself is left empty rather than defaulted. Set it when the control-plane nodes
-	// live on a different network than the VIP (Network), e.g. a public VIP with
-	// private control-plane nodes, or a private VIP on a dedicated access network.
+	// PoolMemberNetwork selects the network whose subnet the LB pool members are registered on (i.e. the network the control-plane machines attach to).
+	// References spec.networks[].name. Set when control-plane nodes live on a different network than the VIP (Network).
+	// When unset, the controller resolves the member subnet from Network or the first network.
 	// Strictly immutable: it cannot be changed, nor set after creation.
 	// +optional
 	PoolMemberNetwork string `json:"poolMemberNetwork,omitempty"`
@@ -426,13 +413,10 @@ type RouterInterfaceStatus struct {
 	Network string `json:"network"`
 
 	// InterfaceID is the router interface UUID.
-	// Empty only while an attach is in flight: the entry is written before the create call,
-	// so an attach whose response was lost to a timeout is still recognized as CAPCS-created.
 	// +optional
 	InterfaceID string `json:"interfaceID,omitempty"`
 
-	// Managed indicates whether CAPCS created this interface, i.e. whether the spec entry
-	// left uuid empty. Interfaces adopted by uuid are never detached on teardown.
+	// Managed indicates whether CAPCS created this interface (spec.uuid was empty).
 	Managed bool `json:"managed"`
 }
 
