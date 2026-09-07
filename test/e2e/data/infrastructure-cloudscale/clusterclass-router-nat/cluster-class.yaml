@@ -73,7 +73,6 @@ spec:
       schema:
         openAPIV3Schema:
           type: string
-          default: "${CLUSTER_NAME}-credentials"
     - name: networkName
       required: true
       schema:
@@ -293,7 +292,7 @@ spec:
       # nothing here reaches a cluster.
       region: lpg
       credentialsRef:
-        name: "${CLUSTER_NAME}-credentials"
+        name: "router-nat-credentials"
       networks:
         - name: node-net
           cidr: 10.10.0.0/24

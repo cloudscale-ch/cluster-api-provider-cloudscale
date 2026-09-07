@@ -73,7 +73,6 @@ spec:
       schema:
         openAPIV3Schema:
           type: string
-          default: "${CLUSTER_NAME}-credentials"
     # networkName is the logical name of the cluster's private network. It is referenced
     # from the router interface and from every machine's interface list, so it is patched
     # into all three templates from this single variable. Give each cluster its own value
@@ -301,7 +300,7 @@ spec:
       # paths resolve.
       region: lpg
       credentialsRef:
-        name: "${CLUSTER_NAME}-credentials"
+        name: "router-nat-credentials"
       networks:
         - name: node-net
           cidr: 10.10.0.0/24
