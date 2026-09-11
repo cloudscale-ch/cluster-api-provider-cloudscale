@@ -225,7 +225,7 @@ func TestIsInfrastructureProvisioned(t *testing.T) {
 		{
 			name:         "router provisioned with its interface attached",
 			lbEnabled:    false,
-			networks:     []infrastructurev1beta2.NetworkStatus{{Name: "test", NetworkID: "network-123", SubnetID: "subnet-123", Managed: true}},
+			networks:     []infrastructurev1beta2.NetworkStatus{{Name: "test", NetworkID: "network-123", SubnetID: "subnet-123", Managed: true, GatewayAddress: "10.0.0.1"}},
 			endpointHost: "1.2.3.4",
 			endpointPort: 6443,
 			routerSpecs:  routerSpec("test"),

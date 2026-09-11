@@ -135,12 +135,15 @@ type NetworkSpec struct {
 	// +optional
 	CIDR string `json:"cidr,omitempty"`
 
+	// MTU defines the MTU size for this network.
+	// Immutable after creation
+	// +kubebuilder:validation:Minimum=1400
+	// +kubebuilder:validation:Maximum=9000
+	// +optional
+	MTU int `json:"mtu,omitempty"`
+
 	// GatewayAddress is the gateway IP address for the subnet.
 	// Only applicable when CIDR is set (managed network). Immutable after creation.
-	// When no router interface references this network: By default, no gateway is configured on the subnet. This ensures
-	// that outbound internet traffic uses the public network interface.
-	// When a router interface references this network: the value is requested as the router interface's IP on the subnet.
-	// If empty, the webhook defaults this to a valid address.
 	// +optional
 	GatewayAddress string `json:"gatewayAddress,omitempty"`
 }
@@ -376,6 +379,10 @@ type NetworkStatus struct {
 	// Set from spec for managed networks or discovered from the API for pre-existing networks.
 	// +optional
 	CIDR string `json:"cidr,omitempty"`
+
+	// MTU is the MTU of this network.
+	// +optional
+	MTU int `json:"mtu,omitempty"`
 
 	// Managed indicates whether CAPCS manages this network's lifecycle.
 	// false for pre-existing networks (referenced by UUID), true for CAPCS-created networks (defined by CIDR).

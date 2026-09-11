@@ -329,8 +329,23 @@ func (r *CloudscaleClusterReconciler) isInfrastructureProvisioned(clusterScope *
 			return false
 		}
 		for _, ifaceSpec := range routerSpec.Interfaces {
-			if rs.GetInterfaceStatus(ifaceSpec.Network) == nil {
+			iface := rs.GetInterfaceStatus(ifaceSpec.Network)
+			// interfaces are first created with an empty interfaceID in the status (see createRouterInterface)
+			// to avoid potential issues with timeouts during interface creation. An interface in status is only fully set up
+			// if there's an interfaceID set.
+			if iface == nil || iface.InterfaceID == "" {
 				return false
+			}
+			// When ConfigureSubnetGateway is true, the subnet gateway must be configured
+			if ptr.Deref(ifaceSpec.ConfigureSubnetGateway, true) {
+				ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus(ifaceSpec.Network)
+				if ns == nil || ns.GatewayAddress == "" {
+					return false
+				}
+				// If the spec has an address, verify the gateway matches it
+				if ifaceSpec.Address != "" && ns.GatewayAddress != ifaceSpec.Address {
+					return false
+				}
 			}
 		}
 	}

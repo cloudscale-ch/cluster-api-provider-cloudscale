@@ -261,11 +261,14 @@ spec:
                               description: |-
                                 GatewayAddress is the gateway IP address for the subnet.
                                 Only applicable when CIDR is set (managed network). Immutable after creation.
-                                When no router interface references this network: By default, no gateway is configured on the subnet. This ensures
-                                that outbound internet traffic uses the public network interface.
-                                When a router interface references this network: the value is requested as the router interface's IP on the subnet.
-                                If empty, the webhook defaults this to a valid address.
                               type: string
+                            mtu:
+                              description: |-
+                                MTU defines the MTU size for this network.
+                                Immutable after creation
+                              maximum: 9000
+                              minimum: 1400
+                              type: integer
                             name:
                               description: |-
                                 Name identifies this network within the cluster.

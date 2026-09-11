@@ -1034,9 +1034,22 @@ func TestClusterValidateUpdate(t *testing.T) {
 			mutate: func(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
 				oldObj.Spec.ControlPlaneLoadBalancer.Network = "main"
 				obj.Spec.ControlPlaneLoadBalancer.Network = "other"
+				otherNet := infrastructurev1beta2.NetworkSpec{Name: "other", CIDR: "10.1.0.0/24"}
+				obj.Spec.Networks = append(obj.Spec.Networks, otherNet)
 			},
 			wantErr:        true,
-			wantSubstrings: []string{"controlPlaneLoadBalancer.network"},
+			wantSubstrings: []string{"controlPlaneLoadBalancer.network", "immutable"},
+		},
+		{
+			name: "LB.Network change rejected",
+			mutate: func(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
+				oldObj.Spec.ControlPlaneLoadBalancer.Network = ""
+				obj.Spec.ControlPlaneLoadBalancer.Network = "other"
+				otherNet := infrastructurev1beta2.NetworkSpec{Name: "other", CIDR: "10.1.0.0/24"}
+				obj.Spec.Networks = append(obj.Spec.Networks, otherNet)
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"controlPlaneLoadBalancer.network", "immutable"},
 		},
 		{
 			name: "ControlPlaneEndpoint host change rejected",

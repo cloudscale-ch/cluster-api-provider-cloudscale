@@ -134,6 +134,34 @@ func TestReconcileNetwork_CreatesResources(t *testing.T) {
 				g.Expect(capturedSubReq.GatewayAddress).To(Equal("10.0.0.254"))
 			},
 		},
+		{
+			name: "explicit mtu",
+			spec: func() (*testutils.MockNetworkService, *testutils.MockSubnetService, *scope.ClusterScope) {
+				networkService := &testutils.MockNetworkService{
+					ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Network, error) {
+						return nil, nil
+					},
+					CreateFn: func(ctx context.Context, req *cloudscalesdk.NetworkCreateRequest) (*cloudscalesdk.Network, error) {
+						return &cloudscalesdk.Network{UUID: netUUID, Name: req.Name}, nil
+					},
+				}
+				subnetService := &testutils.MockSubnetService{
+					ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Subnet, error) {
+						return nil, nil
+					},
+					CreateFn: func(ctx context.Context, req *cloudscalesdk.SubnetCreateRequest) (*cloudscalesdk.Subnet, error) {
+						return &cloudscalesdk.Subnet{UUID: "subnet-uuid-123", CIDR: req.CIDR}, nil
+					},
+				}
+
+				clusterScope := testutils.NewClusterScopeOpts(testutils.WithNetworkService(networkService), testutils.WithSubnetService(subnetService))
+				clusterScope.CloudscaleCluster.Spec.Networks[0].MTU = 1500
+				return networkService, subnetService, clusterScope
+			},
+			want: func(g *WithT, capturedNetReq *cloudscalesdk.NetworkCreateRequest, capturedSubReq *cloudscalesdk.SubnetCreateRequest, clusterScope *scope.ClusterScope) {
+				g.Expect(capturedNetReq.MTU).To(Equal(1500))
+			},
+		},
 	}
 
 	for _, tc := range tests {

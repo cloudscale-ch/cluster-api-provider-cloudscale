@@ -40,8 +40,7 @@ spec:
   networks:
   - name: "${CLUSTER_NAME}"
     cidr: "10.10.0.0/24"
-    # gatewayAddress is auto-defaulted to 10.10.0.1 by the admission webhook
-    # when a router interface references this network
+    mtu: 1500
   routers:
   - name: "${CLUSTER_NAME}-router"
     internetGateway: true  # enables SNAT for outbound internet access

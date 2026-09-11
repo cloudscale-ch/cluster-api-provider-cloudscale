@@ -197,6 +197,18 @@ func WithRouterStatus(name, routerID string, managed bool, interfaces []infrastr
 	}
 }
 
+// WithControlPlaneEndpoint sets up load balancer status and control plane endpoint
+// for isInfrastructureProvisioned testing. Uses sensible defaults for test scenarios.
+func WithControlPlaneEndpoint(clusterScope *scope.ClusterScope) {
+	clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled = new(bool)
+	*clusterScope.CloudscaleCluster.Spec.ControlPlaneLoadBalancer.Enabled = true
+	clusterScope.CloudscaleCluster.Status.LoadBalancerID = "test-lb-id"
+	clusterScope.CloudscaleCluster.Status.LoadBalancerPoolID = "test-lb-pool-id"
+	clusterScope.CloudscaleCluster.Status.LoadBalancerListenerID = "test-lb-listener-id"
+	clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Host = "10.20.30.40"
+	clusterScope.CloudscaleCluster.Spec.ControlPlaneEndpoint.Port = 6443
+}
+
 // WithGeneration sets the generation (used for status conditions).
 func WithGeneration(gen int64) ClusterScopeOption {
 	return func(cs *scope.ClusterScope) {

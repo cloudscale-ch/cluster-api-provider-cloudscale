@@ -364,9 +364,8 @@ func (v *CloudscaleClusterCustomValidator) ValidateUpdate(_ context.Context, old
 			"field is immutable after cluster creation"))
 	}
 
-	// LB network is immutable once set
-	if oldClusterSpec.ControlPlaneLoadBalancer.Network != "" &&
-		newClusterSpec.ControlPlaneLoadBalancer.Network != oldClusterSpec.ControlPlaneLoadBalancer.Network {
+	// LB network is immutable
+	if newClusterSpec.ControlPlaneLoadBalancer.Network != oldClusterSpec.ControlPlaneLoadBalancer.Network {
 		allErrs = append(allErrs, field.Forbidden(
 			field.NewPath("spec", "controlPlaneLoadBalancer", "network"),
 			"field is immutable once set"))
@@ -534,6 +533,12 @@ func validateNetworkImmutability(oldNetworks, newNetworks []infrastructurev1beta
 		if newNet.UUID != oldNet.UUID {
 			allErrs = append(allErrs, field.Forbidden(
 				newPath.Child("uuid"),
+				"field is immutable after cluster creation"))
+		}
+
+		if newNet.MTU != oldNet.MTU {
+			allErrs = append(allErrs, field.Forbidden(
+				newPath.Child("mtu"),
 				"field is immutable after cluster creation"))
 		}
 

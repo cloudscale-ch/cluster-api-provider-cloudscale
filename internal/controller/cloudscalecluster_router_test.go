@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/cluster-api/util/conditions"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
+	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/scope"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/testutils"
 )
 
@@ -684,12 +685,14 @@ func TestReconcileRouters_TimeoutsRequeue(t *testing.T) {
 	}
 
 	tests := []struct {
-		name          string
-		routerService func() *testutils.MockRouterService
-		subnetService func() *testutils.MockSubnetService
-		seedStatus    bool
+		name              string
+		routerService     func() *testutils.MockRouterService
+		subnetService     func() *testutils.MockSubnetService
+		seedStatus        bool
+		setupClusterScope func(*scope.ClusterScope)
 		// wantInterfaces is the interface status the timed-out write must leave behind.
-		wantInterfaces []infrastructurev1beta2.RouterInterfaceStatus
+		wantInterfaces  []infrastructurev1beta2.RouterInterfaceStatus
+		wantProvisioned bool
 	}{
 		{
 			name: "router create",
@@ -703,6 +706,7 @@ func TestReconcileRouters_TimeoutsRequeue(t *testing.T) {
 					},
 				}
 			},
+			wantProvisioned: false,
 		},
 		{
 			name: "interface create",
@@ -721,7 +725,8 @@ func TestReconcileRouters_TimeoutsRequeue(t *testing.T) {
 			// entry recorded before the call has to survive the requeue. Without it
 			// the next reconcile cannot tell the interface from one the router
 			// already carried.
-			wantInterfaces: []infrastructurev1beta2.RouterInterfaceStatus{{Network: "test", Managed: true}},
+			wantInterfaces:  []infrastructurev1beta2.RouterInterfaceStatus{{Network: "test", Managed: true}},
+			wantProvisioned: false,
 		},
 		{
 			name: "subnet gateway update",
@@ -741,7 +746,28 @@ func TestReconcileRouters_TimeoutsRequeue(t *testing.T) {
 			},
 			seedStatus: true,
 			// The attach itself succeeded, so its interface is recorded in full.
-			wantInterfaces: managedInterfaces(),
+			wantInterfaces:  managedInterfaces(),
+			wantProvisioned: false,
+		},
+		{
+			name: "interface create succeeds",
+			routerService: func() *testutils.MockRouterService {
+				return &testutils.MockRouterService{
+					ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Router, error) {
+						return nil, nil
+					},
+					GetFn: func(ctx context.Context, id string) (*cloudscalesdk.Router, error) {
+						return activeRouter(id, routerInterface(ifaceUUID, routerAddress)), nil
+					},
+					CreateInterfaceFn: func(ctx context.Context, uuid string, req cloudscalesdk.CreateInterfaceRequest) (*cloudscalesdk.RouterInterface, error) {
+						return &cloudscalesdk.RouterInterface{UUID: ifaceUUID}, nil
+					},
+				}
+			},
+			seedStatus:        true,
+			setupClusterScope: testutils.WithControlPlaneEndpoint,
+			wantInterfaces:    managedInterfaces(),
+			wantProvisioned:   true,
 		},
 	}
 
@@ -766,21 +792,34 @@ func TestReconcileRouters_TimeoutsRequeue(t *testing.T) {
 				opts = append(opts, testutils.WithRouterStatus("test-router", routerUUID, true, nil))
 			}
 			clusterScope := testutils.NewClusterScopeOpts(opts...)
+
+			if tc.setupClusterScope != nil {
+				tc.setupClusterScope(clusterScope)
+			}
+
 			r := newTestReconciler()
 
 			result, err := r.reconcileRouters(context.Background(), clusterScope)
 
 			g.Expect(err).ToNot(HaveOccurred())
-			g.Expect(result.RequeueAfter).To(Equal(routerRequeueAfter))
-
-			cond := conditions.Get(clusterScope.CloudscaleCluster, infrastructurev1beta2.RouterReadyCondition)
-			g.Expect(cond).ToNot(BeNil())
-			g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
-			g.Expect(cond.Reason).To(Equal(infrastructurev1beta2.RouterNotReadyReason))
+			if tc.wantProvisioned {
+				g.Expect(result.IsZero()).To(BeTrue())
+				cond := conditions.Get(clusterScope.CloudscaleCluster, infrastructurev1beta2.RouterReadyCondition)
+				g.Expect(cond).ToNot(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+				g.Expect(cond.Reason).To(Equal(infrastructurev1beta2.RouterProvisionedReason))
+			} else {
+				g.Expect(result.RequeueAfter).To(Equal(routerRequeueAfter))
+				cond := conditions.Get(clusterScope.CloudscaleCluster, infrastructurev1beta2.RouterReadyCondition)
+				g.Expect(cond).ToNot(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(Equal(infrastructurev1beta2.RouterNotReadyReason))
+			}
 
 			if rs := clusterScope.CloudscaleCluster.Status.GetRouterStatus("test-router"); rs != nil {
 				g.Expect(rs.Interfaces).To(Equal(tc.wantInterfaces))
 			}
+			g.Expect(r.isInfrastructureProvisioned(clusterScope)).To(Equal(tc.wantProvisioned), "expected IsInfrastructureProvisioned to be %v", tc.wantProvisioned)
 		})
 	}
 }
