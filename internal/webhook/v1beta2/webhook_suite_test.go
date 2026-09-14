@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/testenv"
@@ -142,4 +143,14 @@ func TestMain(m *testing.M) {
 	cancel()
 	_ = testEnv.Stop()
 	os.Exit(code)
+}
+
+// newAdmissionContext returns a context containing an admission.Request with the given DryRun value.
+// Use this helper when unit-testing ValidateUpdate directly, because the webhook now expects
+// an admission.Request inside the context.
+func newAdmissionContext(dryRun bool) context.Context {
+	req := admission.Request{
+		DryRun: &dryRun,
+	}
+	return admission.NewContextWithRequest(ctx, req)
 }

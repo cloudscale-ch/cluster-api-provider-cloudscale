@@ -18,11 +18,13 @@ package v1beta2
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"sigs.k8s.io/cluster-api/util/topology"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -88,18 +90,26 @@ func (v *CloudscaleMachineTemplateCustomValidator) ValidateCreate(_ context.Cont
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type CloudscaleMachineTemplate.
-func (v *CloudscaleMachineTemplateCustomValidator) ValidateUpdate(_ context.Context, oldObj, newObj *infrastructurev1beta2.CloudscaleMachineTemplate) (admission.Warnings, error) {
+func (v *CloudscaleMachineTemplateCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj *infrastructurev1beta2.CloudscaleMachineTemplate) (admission.Warnings, error) {
 	cloudscalemachinetemplatelog.Info("Validation for CloudscaleMachineTemplate upon update", "name", newObj.GetName())
 
-	// MachineTemplate spec is fully immutable (CAPI convention).
-	if !reflect.DeepEqual(newObj.Spec.Template.Spec, oldObj.Spec.Template.Spec) {
-		var allErrs = make(field.ErrorList, 0, 1)
-		allErrs = append(allErrs, field.Forbidden(
-			field.NewPath("spec", "template", "spec"),
-			"field is immutable"))
-		return nil, apierrors.NewInvalid(
-			schema.GroupKind{Group: infrastructurev1beta2.SchemeGroupVersion.Group, Kind: "CloudscaleMachineTemplate"},
-			newObj.Name, allErrs)
+	req, err := admission.RequestFromContext(ctx)
+	if err != nil {
+		return nil, apierrors.NewBadRequest(
+			fmt.Sprintf("expected an admission.Request inside context: %v", err))
+	}
+
+	if !topology.IsDryRunRequest(req, newObj) {
+		// MachineTemplate spec is fully immutable (CAPI convention).
+		if !reflect.DeepEqual(newObj.Spec.Template.Spec, oldObj.Spec.Template.Spec) {
+			var allErrs = make(field.ErrorList, 0, 1)
+			allErrs = append(allErrs, field.Forbidden(
+				field.NewPath("spec", "template", "spec"),
+				"field is immutable"))
+			return nil, apierrors.NewInvalid(
+				schema.GroupKind{Group: infrastructurev1beta2.SchemeGroupVersion.Group, Kind: "CloudscaleMachineTemplate"},
+				newObj.Name, allErrs)
+		}
 	}
 
 	return nil, nil
