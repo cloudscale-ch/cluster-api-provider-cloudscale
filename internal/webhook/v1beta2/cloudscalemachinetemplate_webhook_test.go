@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
+	"sigs.k8s.io/cluster-api/api/core/v1beta2"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/testutils"
@@ -116,7 +117,7 @@ func TestMachineTemplateValidateUpdate_FlavorChange(t *testing.T) {
 	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: testutils.NewTestFlavorInfo()}
 	obj.Spec.Template.Spec.Flavor = "flex-16-8"
 
-	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+	_, err := validator.ValidateUpdate(newAdmissionContext(false), oldObj, obj)
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("spec.template.spec"))
 }
@@ -127,7 +128,7 @@ func TestMachineTemplateValidateUpdate_ImageChange(t *testing.T) {
 	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: testutils.NewTestFlavorInfo()}
 	obj.Spec.Template.Spec.Image = "ubuntu-22.04"
 
-	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+	_, err := validator.ValidateUpdate(newAdmissionContext(false), oldObj, obj)
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("spec.template.spec"))
 }
@@ -143,4 +144,55 @@ func TestMachineTemplateValidateDelete_AlwaysSucceeds(t *testing.T) {
 
 	_, err := validator.ValidateDelete(ctx, obj)
 	g.Expect(err).NotTo(HaveOccurred())
+}
+
+// ============================================================================
+// Tests for ClusterClass dry-run support
+// ============================================================================
+
+func TestMachineTemplateValidateUpdate_DryRunWithChangedSpec(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj := newMachineTemplateWebhookTestObjects()
+	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: testutils.NewTestFlavorInfo()}
+
+	// Simulate a topology-driven template rotation: the spec changed.
+	obj.Spec.Template.Spec.Flavor = "flex-16-8"
+
+	// Annotate the new object with the topology dry-run marker.
+	if obj.Annotations == nil {
+		obj.Annotations = map[string]string{}
+	}
+	obj.Annotations[v1beta2.TopologyDryRunAnnotation] = ""
+
+	_, err := validator.ValidateUpdate(newAdmissionContext(true), oldObj, obj)
+	g.Expect(err).NotTo(HaveOccurred())
+}
+
+func TestMachineTemplateValidateUpdate_DryRunWithoutAnnotationStillDenied(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj := newMachineTemplateWebhookTestObjects()
+	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: testutils.NewTestFlavorInfo()}
+	obj.Spec.Template.Spec.Flavor = "flex-16-8"
+
+	// No TopologyDryRunAnnotation on the object.
+	_, err := validator.ValidateUpdate(newAdmissionContext(true), oldObj, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("spec.template.spec"))
+}
+
+func TestMachineTemplateValidateUpdate_AnnotationWithoutDryRunStillDenied(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj := newMachineTemplateWebhookTestObjects()
+	validator := CloudscaleMachineTemplateCustomValidator{FlavorInfo: testutils.NewTestFlavorInfo()}
+	obj.Spec.Template.Spec.Flavor = "flex-16-8"
+
+	if obj.Annotations == nil {
+		obj.Annotations = map[string]string{}
+	}
+	obj.Annotations[v1beta2.TopologyDryRunAnnotation] = ""
+
+	// DryRun is false.
+	_, err := validator.ValidateUpdate(newAdmissionContext(false), oldObj, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("spec.template.spec"))
 }
