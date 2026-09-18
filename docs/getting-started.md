@@ -139,8 +139,35 @@ clusterctl generate yaml \
   | kubectl apply -f -
 ```
 
-Per-cluster overrides go under `spec.topology.variables`. See the file for the full
-variable list and defaults.
+Per-cluster overrides go under `spec.topology.variables`. The available variables depend on which ClusterClass flavor you use.
+
+**Common variables** (both `topology` and `topology-router-nat`):
+
+| Variable                                      | Type             | Required | Default                           | Description                                                                          |
+|-----------------------------------------------|------------------|----------|-----------------------------------|--------------------------------------------------------------------------------------|
+| `region`                                      | string           | yes      | `lpg`                             | cloudscale region (`lpg` or `rma`)                                                   |
+| `credentialsRefName`                          | string           | yes      | —                                 | Name of the Secret holding API credentials (must match the Secret created in step 7) |
+| `cloudscaleControlPlaneMachineFlavor`         | string           | yes      | `flex-4-2`                        | Flavor for control plane nodes                                                       |
+| `cloudscaleControlPlaneMachineImage`          | string           | yes      | `custom:ubuntu-2404-kube-v1.36.0` | Image for control plane nodes                                                        |
+| `cloudscaleControlPlaneMachineRootVolumeSize` | integer          | yes      | `20`                              | Root volume size in GB for control plane                                             |
+| `cloudscaleWorkerMachineFlavor`               | string           | yes      | `flex-4-2`                        | Flavor for worker nodes                                                              |
+| `cloudscaleWorkerMachineImage`                | string           | yes      | `custom:ubuntu-2404-kube-v1.36.0` | Image for worker nodes                                                               |
+| `cloudscaleWorkerMachineRootVolumeSize`       | integer          | yes      | `20`                              | Root volume size in GB for workers                                                   |
+| `cloudscaleSSHKeys`                           | array of strings | yes      | —                                 | SSH public keys for all nodes                                                        |
+| `cloudscaleControlPlaneServerGroupName`       | string           | yes      | —                                 | Server group name for control plane                                                  |
+| `cloudscaleWorkerServerGroupName`             | string           | yes      | —                                 | Server group name for workers                                                        |
+
+*(Source: [`templates/cluster-class.yaml`](../templates/cluster-class.yaml))*
+
+The `topology-router-nat` flavor adds these variables:
+
+| Variable      | Type   | Required | Default        | Description                                                                  |
+|---------------|--------|----------|----------------|------------------------------------------------------------------------------|
+| `networkName` | string | yes      | `node-net`     | Logical name for the private network                                         |
+| `networkCIDR` | string | yes      | `10.10.0.0/24` | CIDR for the private network (router interface address is derived from this) |
+| `routerName`  | string | yes      | `router`       | Name of the managed router                                                   |
+
+*(Source: [`templates/cluster-class-router-nat.yaml`](../templates/cluster-class-router-nat.yaml))*
 
 Use `--flavor topology` or `--flavor topology-router-nat` in the next step if you did use ClusterClass.
 
