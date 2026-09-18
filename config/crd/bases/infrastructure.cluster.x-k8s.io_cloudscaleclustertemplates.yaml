@@ -319,19 +319,9 @@ spec:
                                   address:
                                     description: |-
                                       Address is the IP requested for this router interface within the referenced network's subnet.
-                                      The admission webhook defaults it based on configureSubnetGateway and network settings.
-                                      Must be set when the network is referenced by UUID (subnet unknown at admission time).
-                                      Must be empty when this interface is adopted by UUID.
+                                      Must be set explicitly. Must be empty when this interface is adopted by UUID.
                                       Immutable after creation.
                                     type: string
-                                  configureSubnetGateway:
-                                    default: true
-                                    description: |-
-                                      ConfigureSubnetGateway, when true (default), sets the subnet's gatewayAddress
-                                      to this router interface's assigned IP, making the router the default route.
-                                      Set to false for transit/backbone networks where another router owns the subnet gateway.
-                                      Immutable after creation.
-                                    type: boolean
                                   network:
                                     description: Network references spec.networks[].name.
                                     type: string

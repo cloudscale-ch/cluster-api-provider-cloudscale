@@ -26,7 +26,6 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
@@ -225,34 +224,24 @@ func (r *CloudscaleClusterReconciler) reconcileRouterInterfaces(
 			return ctrl.Result{}, fmt.Errorf("network %q not found in status for router %q interface", ifaceSpec.Network, routerSpec.Name)
 		}
 
-		// We always attach at the address the spec asks for, unless the router turns out
-		// to already be attached to this network, in which case the interface keeps the
-		// address it has: an attachment cannot be moved.
-		address := ifaceSpec.Address
 		live, attached := liveByNetwork[ns.NetworkID]
 
 		switch {
 		case ifaceSpec.UUID != "":
-			adopted, err := r.adoptRouterInterface(clusterScope, logger, routerSpec, ifaceSpec, ns, liveByUUID)
+			_, err := r.adoptRouterInterface(clusterScope, logger, routerSpec, ifaceSpec, ns, liveByUUID)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
-			address = adopted
 		case attached:
-			claimed, err := r.claimRouterInterface(clusterScope, logger, routerSpec, rs, ifaceSpec, ns, live)
+			_, err := r.claimRouterInterface(clusterScope, logger, routerSpec, rs, ifaceSpec, ns, live)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
-			address = claimed
 		default:
 			result, err := r.createRouterInterface(ctx, clusterScope, logger, routerSpec, router, ifaceSpec, ns)
 			if err != nil || !result.IsZero() {
 				return result, err
 			}
-		}
-
-		if result, err := r.reconcileSubnetGateway(ctx, clusterScope, logger, routerSpec, ifaceSpec, ns, address); err != nil || !result.IsZero() {
-			return result, err
 		}
 	}
 
@@ -353,55 +342,6 @@ func (r *CloudscaleClusterReconciler) createRouterInterface(
 	logger.Info("Created interface for router", "interfaceID", createdIface.UUID)
 	r.recorder.Eventf(clusterScope.CloudscaleCluster, nil, corev1.EventTypeNormal, "RouterInterfaceCreated", "CreateRouterInterface",
 		"Attached router %s to network %s with address %s", routerSpec.Name, ifaceSpec.Network, ifaceSpec.Address)
-	return ctrl.Result{}, nil
-}
-
-// reconcileSubnetGateway points the subnet's gateway at the address the router interface
-// holds, making the router the default route for servers on that subnet.
-func (r *CloudscaleClusterReconciler) reconcileSubnetGateway(
-	ctx context.Context,
-	clusterScope *scope.ClusterScope,
-	logger logr.Logger,
-	routerSpec infrastructurev1beta2.RouterSpec,
-	ifaceSpec infrastructurev1beta2.RouterInterfaceSpec,
-	ns *infrastructurev1beta2.NetworkStatus,
-	address string,
-) (ctrl.Result, error) {
-	// no configuration of the subnet gateway requested
-	if !ptr.Deref(ifaceSpec.ConfigureSubnetGateway, true) {
-		return ctrl.Result{}, nil
-	}
-	// no address set
-	if address == "" {
-		// The API always returns the interface's address, so this cannot normally
-		// happen. Guard anyway: writing the empty address would strip the subnet's
-		// default route from every server on it.
-		logger.Info("Router interface holds no address on the tracked subnet, leaving the subnet gateway untouched", "subnetID", ns.SubnetID)
-		r.recorder.Eventf(clusterScope.CloudscaleCluster, nil, corev1.EventTypeWarning, "RouterInterfaceAddressUnknown", "ReconcileRouterInterface",
-			"Router %s is attached to network %s but holds no address on its subnet; the subnet gateway was left unchanged",
-			routerSpec.Name, ifaceSpec.Network)
-		return ctrl.Result{}, nil
-	}
-	// gateway address already correct
-	if ns.GatewayAddress == address {
-		return ctrl.Result{}, nil
-	}
-
-	logger.Info("Configuring subnet gateway", "address", address)
-	updateCtx, cancel := context.WithTimeout(ctx, cloudscale.WriteTimeout)
-	err := clusterScope.CloudscaleClient.Subnets.Update(updateCtx, ns.SubnetID, &cloudscalesdk.SubnetUpdateRequest{
-		GatewayAddress: address,
-	})
-	cancel()
-	if err != nil {
-		if result, timedOut := r.requeueOnTimeout(clusterScope, err, "Subnet gateway update"); timedOut {
-			return result, nil
-		}
-		return ctrl.Result{}, fmt.Errorf("updating subnet gateway for router %q network %q: %w", routerSpec.Name, ifaceSpec.Network, err)
-	}
-	r.setNetworkGatewayAddress(clusterScope, ifaceSpec.Network, address)
-	r.recorder.Eventf(clusterScope.CloudscaleCluster, nil, corev1.EventTypeNormal, "SubnetGatewayConfigured", "ConfigureSubnetGateway",
-		"Configured subnet %s gateway to router interface address %s", ifaceSpec.Network, address)
 	return ctrl.Result{}, nil
 }
 

@@ -336,17 +336,6 @@ func (r *CloudscaleClusterReconciler) isInfrastructureProvisioned(clusterScope *
 			if iface == nil || iface.InterfaceID == "" {
 				return false
 			}
-			// When ConfigureSubnetGateway is true, the subnet gateway must be configured
-			if ptr.Deref(ifaceSpec.ConfigureSubnetGateway, true) {
-				ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus(ifaceSpec.Network)
-				if ns == nil || ns.GatewayAddress == "" {
-					return false
-				}
-				// If the spec has an address, verify the gateway matches it
-				if ifaceSpec.Address != "" && ns.GatewayAddress != ifaceSpec.Address {
-					return false
-				}
-			}
 		}
 	}
 

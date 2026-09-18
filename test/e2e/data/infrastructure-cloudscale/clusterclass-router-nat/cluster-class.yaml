@@ -85,6 +85,12 @@ spec:
         openAPIV3Schema:
           type: string
           default: 10.10.0.0/24
+    - name: routerInterfaceAddress
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: "10.10.0.1"
     - name: routerName
       required: true
       schema:
@@ -169,6 +175,7 @@ spec:
                 template: |
                   - name: {{ .networkName }}
                     cidr: {{ .networkCIDR }}
+                    gatewayAddress: {{ .routerInterfaceAddress }}
             - op: replace
               path: "/spec/template/spec/routers"
               valueFrom:
@@ -177,6 +184,7 @@ spec:
                     internetGateway: true
                     interfaces:
                       - network: {{ .networkName }}
+                        address: {{ .routerInterfaceAddress }}
     - name: CloudscaleMachineTemplateControlPlane
       definitions:
         - selector:
