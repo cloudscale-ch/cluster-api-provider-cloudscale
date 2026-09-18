@@ -100,6 +100,18 @@ func TestClusterTemplateDefaulting_ExplicitNetworksNotOverridden(t *testing.T) {
 	g.Expect(obj.Spec.Template.Spec.Networks[0].CIDR).To(Equal("10.1.0.0/16"))
 }
 
+// Router interface addresses must not be defaulted on the template.
+func TestClusterTemplateDefaulting_RouterAddressesNotDefaulted(t *testing.T) {
+	g := NewWithT(t)
+	obj, _, _, defaulter := newClusterTemplateWebhookTestObjects()
+	obj.Spec.Template.Spec.Region = RegionRma
+	obj.Spec.Template.Spec.Networks = routerNetworks("10.0.0.0/24")
+	obj.Spec.Template.Spec.Routers = routerWith(routerIface(""))
+
+	g.Expect(defaulter.Default(ctx, obj)).To(Succeed())
+	g.Expect(obj.Spec.Template.Spec.Routers[0].Interfaces[0].Address).To(BeEmpty())
+}
+
 func TestClusterTemplateDefaulting_LBEnabledToTrue(t *testing.T) {
 	g := NewWithT(t)
 	obj, _, _, defaulter := newClusterTemplateWebhookTestObjects()
@@ -388,7 +400,7 @@ func TestClusterTemplateValidateCreate_PublicLBWithMultipleNetworksRequiresExpli
 
 	_, err := validator.ValidateCreate(ctx, obj)
 	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("controlPlaneLoadBalancer.network"))
+	g.Expect(err.Error()).To(ContainSubstring("controlPlaneLoadBalancer"))
 }
 
 func TestClusterTemplateValidateCreate_LBNetworkReferenceInvalid(t *testing.T) {
@@ -508,6 +520,30 @@ func TestClusterTemplateValidateCreate_PreExistingFloatingIPWithoutLBAllowed(t *
 
 	_, err := validator.ValidateCreate(ctx, obj)
 	g.Expect(err).NotTo(HaveOccurred())
+}
+
+func TestClusterTemplateValidateCreate_RouterInterfaceAddressOutsideCIDRRejected(t *testing.T) {
+	g := NewWithT(t)
+	obj, _, validator, _ := newClusterTemplateWebhookTestObjects()
+	obj.Spec.Template.Spec.Region = RegionRma
+	obj.Spec.Template.Spec.Networks = routerNetworks("10.10.0.0/24")
+	obj.Spec.Template.Spec.Routers = routerWith(routerIface("10.20.0.1"))
+
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("must be within CIDR 10.10.0.0/24"))
+}
+
+func TestClusterTemplateValidateCreate_RouterInterfaceUnknownNetworkRejected(t *testing.T) {
+	g := NewWithT(t)
+	obj, _, validator, _ := newClusterTemplateWebhookTestObjects()
+	obj.Spec.Template.Spec.Region = RegionRma
+	obj.Spec.Template.Spec.Networks = []infrastructurev1beta2.NetworkSpec{{Name: "other", CIDR: "10.10.0.0/24"}}
+	obj.Spec.Template.Spec.Routers = routerWith(routerIface(""))
+
+	_, err := validator.ValidateCreate(ctx, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("Not found"))
 }
 
 // ============================================================================

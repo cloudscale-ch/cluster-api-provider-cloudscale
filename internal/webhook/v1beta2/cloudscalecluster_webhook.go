@@ -19,7 +19,7 @@ package v1beta2
 import (
 	"context"
 	"fmt"
-	"net"
+	"net/netip"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -138,14 +138,15 @@ func (v *CloudscaleClusterCustomValidator) ValidateCreate(_ context.Context, clu
 	cloudscaleclusterlog.Info("Validation for CloudscaleCluster upon creation", "name", cluster.GetName())
 
 	allErrs := clusterSpecValidateCreate(cluster.Spec, v.RegionInfo, field.NewPath("spec"))
+	warnings := checkSNATConfiguration(cluster.Spec)
 
 	if len(allErrs) > 0 {
-		return nil, apierrors.NewInvalid(
+		return warnings, apierrors.NewInvalid(
 			schema.GroupKind{Group: infrastructurev1beta2.SchemeGroupVersion.Group, Kind: "CloudscaleCluster"},
 			cluster.Name, allErrs)
 	}
 
-	return nil, nil
+	return warnings, nil
 }
 
 func clusterSpecValidateCreate(spec infrastructurev1beta2.CloudscaleClusterSpec, regionInfo *cloudscale.RegionInfo, fldPath *field.Path) field.ErrorList {
@@ -164,12 +165,24 @@ func clusterSpecValidateCreate(spec infrastructurev1beta2.CloudscaleClusterSpec,
 	// Validate networks
 	allErrs = append(allErrs, validateNetworks(spec.Networks, fldPath.Child("networks"))...)
 
+	// Validate routers
+	allErrs = append(allErrs, validateRouters(spec.Routers, spec.Networks, fldPath.Child("routers"))...)
+
 	// Validate LB network reference
 	if spec.ControlPlaneLoadBalancer.Network != "" {
 		allErrs = append(allErrs, validateNetworkReference(
 			spec.ControlPlaneLoadBalancer.Network,
 			spec.Networks,
 			fldPath.Child("controlPlaneLoadBalancer", "network"),
+		)...)
+	}
+
+	// Validate LB pool member network reference
+	if spec.ControlPlaneLoadBalancer.PoolMemberNetwork != "" {
+		allErrs = append(allErrs, validateNetworkReference(
+			spec.ControlPlaneLoadBalancer.PoolMemberNetwork,
+			spec.Networks,
+			fldPath.Child("controlPlaneLoadBalancer", "poolMemberNetwork"),
 		)...)
 	}
 
@@ -189,6 +202,7 @@ func (v *CloudscaleClusterCustomValidator) ValidateUpdate(_ context.Context, old
 	cloudscaleclusterlog.Info("Validation for CloudscaleCluster upon update", "name", newCluster.GetName())
 
 	var allErrs field.ErrorList
+	warnings := checkSNATConfiguration(newCluster.Spec)
 
 	newClusterSpec := newCluster.Spec
 	oldClusterSpec := oldCluster.Spec
@@ -213,6 +227,12 @@ func (v *CloudscaleClusterCustomValidator) ValidateUpdate(_ context.Context, old
 	// Validate new networks (new entries must still pass creation validation)
 	allErrs = append(allErrs, validateNetworks(newClusterSpec.Networks, field.NewPath("spec", "networks"))...)
 
+	// The updated router set must satisfy the creation rules
+	routersPath := field.NewPath("spec", "routers")
+	allErrs = append(allErrs, validateRouters(newClusterSpec.Routers, newClusterSpec.Networks, routersPath)...)
+	// ...and on top of that, nothing already there may change or disappear.
+	allErrs = append(allErrs, validateRouterDiff(oldClusterSpec.Routers, newClusterSpec.Routers, routersPath)...)
+
 	// LoadBalancer Enabled is immutable
 	if ptr.Deref(newClusterSpec.ControlPlaneLoadBalancer.Enabled, true) != ptr.Deref(oldClusterSpec.ControlPlaneLoadBalancer.Enabled, true) {
 		allErrs = append(allErrs, field.Forbidden(
@@ -220,9 +240,8 @@ func (v *CloudscaleClusterCustomValidator) ValidateUpdate(_ context.Context, old
 			"field is immutable after cluster creation"))
 	}
 
-	// LB network is immutable once set
-	if oldClusterSpec.ControlPlaneLoadBalancer.Network != "" &&
-		newClusterSpec.ControlPlaneLoadBalancer.Network != oldClusterSpec.ControlPlaneLoadBalancer.Network {
+	// LB network is immutable
+	if newClusterSpec.ControlPlaneLoadBalancer.Network != oldClusterSpec.ControlPlaneLoadBalancer.Network {
 		allErrs = append(allErrs, field.Forbidden(
 			field.NewPath("spec", "controlPlaneLoadBalancer", "network"),
 			"field is immutable once set"))
@@ -242,6 +261,15 @@ func (v *CloudscaleClusterCustomValidator) ValidateUpdate(_ context.Context, old
 			newClusterSpec.ControlPlaneLoadBalancer.Network,
 			newClusterSpec.Networks,
 			field.NewPath("spec", "controlPlaneLoadBalancer", "network"),
+		)...)
+	}
+
+	// Validate LB pool member network reference (for new or existing)
+	if newClusterSpec.ControlPlaneLoadBalancer.PoolMemberNetwork != "" {
+		allErrs = append(allErrs, validateNetworkReference(
+			newClusterSpec.ControlPlaneLoadBalancer.PoolMemberNetwork,
+			newClusterSpec.Networks,
+			field.NewPath("spec", "controlPlaneLoadBalancer", "poolMemberNetwork"),
 		)...)
 	}
 
@@ -272,12 +300,12 @@ func (v *CloudscaleClusterCustomValidator) ValidateUpdate(_ context.Context, old
 	allErrs = append(allErrs, validateLBPoolMemberNetworkResolvable(newClusterSpec, field.NewPath("spec"))...)
 
 	if len(allErrs) > 0 {
-		return nil, apierrors.NewInvalid(
+		return warnings, apierrors.NewInvalid(
 			schema.GroupKind{Group: infrastructurev1beta2.SchemeGroupVersion.Group, Kind: "CloudscaleCluster"},
 			newCluster.Name, allErrs)
 	}
 
-	return nil, nil
+	return warnings, nil
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type CloudscaleCluster.
@@ -310,7 +338,7 @@ func validateNetworks(networks []infrastructurev1beta2.NetworkSpec, fldPath *fie
 
 		// Validate CIDR format
 		if hasCIDR {
-			if _, _, err := net.ParseCIDR(netSpec.CIDR); err != nil {
+			if _, err := netip.ParsePrefix(netSpec.CIDR); err != nil {
 				allErrs = append(allErrs, field.Invalid(netPath.Child("cidr"), netSpec.CIDR,
 					fmt.Sprintf("invalid CIDR: %v", err)))
 			}
@@ -324,7 +352,7 @@ func validateNetworks(networks []infrastructurev1beta2.NetworkSpec, fldPath *fie
 
 		// Validate gateway is within CIDR
 		if netSpec.GatewayAddress != "" && hasCIDR {
-			allErrs = append(allErrs, validateGatewayInCIDR(
+			allErrs = append(allErrs, validateAddressInCIDR(
 				netSpec.CIDR,
 				netSpec.GatewayAddress,
 				netPath.Child("gatewayAddress"),
@@ -384,10 +412,169 @@ func validateNetworkImmutability(oldNetworks, newNetworks []infrastructurev1beta
 				"field is immutable after cluster creation"))
 		}
 
+		if newNet.MTU != oldNet.MTU {
+			allErrs = append(allErrs, field.Forbidden(
+				newPath.Child("mtu"),
+				"field is immutable after cluster creation"))
+		}
+
 		if newNet.GatewayAddress != oldNet.GatewayAddress {
 			allErrs = append(allErrs, field.Forbidden(
 				newPath.Child("gatewayAddress"),
 				"field is immutable after cluster creation"))
+		}
+	}
+
+	return allErrs
+}
+
+// indexNetworks maps each network name to its spec, so router validation and defaulting
+// can resolve an interface's network reference in one place.
+func indexNetworks(networks []infrastructurev1beta2.NetworkSpec) map[string]infrastructurev1beta2.NetworkSpec {
+	byName := make(map[string]infrastructurev1beta2.NetworkSpec, len(networks))
+	for _, n := range networks {
+		byName[n.Name] = n
+	}
+	return byName
+}
+
+// validateRouters runs every rule that applies to a router set, whether it was declared
+// at creation or added later. ValidateUpdate calls it on the new set too, so additions
+// are held to the same standard as originals without restating the rules.
+func validateRouters(routers []infrastructurev1beta2.RouterSpec, networks []infrastructurev1beta2.NetworkSpec, fldPath *field.Path) field.ErrorList {
+	byName := indexNetworks(networks)
+	var allErrs field.ErrorList
+	for i, routerSpec := range routers {
+		allErrs = append(allErrs, validateSingleRouter(routerSpec, byName, fldPath.Index(i))...)
+	}
+	return allErrs
+}
+
+// validateSingleRouter validates one router spec against the network index, using
+// routerPath as the base field.Path for errors.
+//
+// Router names are not checked for uniqueness: spec.routers is a list-map keyed by name, so
+// the API server rejects duplicates during schema validation, which runs before validating
+// webhooks.
+func validateSingleRouter(
+	routerSpec infrastructurev1beta2.RouterSpec,
+	networks map[string]infrastructurev1beta2.NetworkSpec,
+	routerPath *field.Path,
+) field.ErrorList {
+	var allErrs field.ErrorList
+
+	if routerSpec.UUID != "" && routerSpec.InternetGateway {
+		allErrs = append(allErrs, field.Invalid(routerPath, routerSpec.Name,
+			"uuid and internetGateway are mutually exclusive"))
+	}
+
+	for j, ifaceSpec := range routerSpec.Interfaces {
+		allErrs = append(allErrs, validateRouterInterface(ifaceSpec, networks, routerSpec.UUID != "", routerPath.Child("interfaces").Index(j))...)
+	}
+
+	return allErrs
+}
+
+// validateRouterInterface validates one router interface against the network index.
+// An adopted interface (by UUID) carries its address from the pre-existing interface.
+// All other interfaces must have an explicit address set.
+func validateRouterInterface(
+	ifaceSpec infrastructurev1beta2.RouterInterfaceSpec,
+	networks map[string]infrastructurev1beta2.NetworkSpec,
+	routerAdopted bool,
+	ifacePath *field.Path,
+) field.ErrorList {
+	network, netExists := networks[ifaceSpec.Network]
+	if !netExists {
+		return field.ErrorList{field.NotFound(ifacePath.Child("network"), ifaceSpec.Network)}
+	}
+
+	if ifaceSpec.UUID != "" {
+		var allErrs field.ErrorList
+		if !routerAdopted {
+			allErrs = append(allErrs, field.Forbidden(ifacePath.Child("uuid"),
+				"only a router referenced by uuid carries pre-existing interfaces to adopt"))
+		}
+		if ifaceSpec.Address != "" {
+			allErrs = append(allErrs, field.Forbidden(ifacePath.Child("address"),
+				"the address of an adopted interface is read from the interface itself, so it cannot be requested"))
+		}
+		return allErrs
+	}
+
+	if ifaceSpec.Address == "" {
+		return field.ErrorList{field.Required(ifacePath.Child("address"),
+			"router interface address must be set explicitly")}
+	}
+
+	// Containment can only be checked for a managed network; an uuid network's subnet
+	// is resolved by the controller at runtime.
+	if network.CIDR == "" {
+		return nil
+	}
+
+	addrPath := ifacePath.Child("address")
+	if errs := validateAddressInCIDR(network.CIDR, ifaceSpec.Address, addrPath); len(errs) > 0 {
+		return errs
+	}
+
+	return nil
+}
+
+// validateRouterDiff enforces immutability for spec.routers on update: routers and their
+// interfaces may be added, but never removed or altered. Whether the additions themselves
+// are valid is validateRouters' job, which ValidateUpdate runs over the new set.
+func validateRouterDiff(oldRouters, newRouters []infrastructurev1beta2.RouterSpec, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+
+	newByName := make(map[string]infrastructurev1beta2.RouterSpec, len(newRouters))
+	newIndexByName := make(map[string]int, len(newRouters))
+	for i, newRouter := range newRouters {
+		newByName[newRouter.Name] = newRouter
+		newIndexByName[newRouter.Name] = i
+	}
+
+	for _, oldRouter := range oldRouters {
+		newRouter, exists := newByName[oldRouter.Name]
+		if !exists {
+			allErrs = append(allErrs, field.Forbidden(fldPath,
+				fmt.Sprintf("removing router %q is not allowed", oldRouter.Name)))
+			continue
+		}
+
+		newPath := fldPath.Index(newIndexByName[oldRouter.Name])
+
+		if newRouter.UUID != oldRouter.UUID {
+			allErrs = append(allErrs, field.Forbidden(newPath.Child("uuid"),
+				"field is immutable after cluster creation"))
+		}
+		if newRouter.InternetGateway != oldRouter.InternetGateway {
+			allErrs = append(allErrs, field.Forbidden(newPath.Child("internetGateway"),
+				"field is immutable after cluster creation"))
+		}
+
+		newIfaceByNetwork := make(map[string]infrastructurev1beta2.RouterInterfaceSpec, len(newRouter.Interfaces))
+		for _, iface := range newRouter.Interfaces {
+			newIfaceByNetwork[iface.Network] = iface
+		}
+
+		for _, oldIface := range oldRouter.Interfaces {
+			newIface, kept := newIfaceByNetwork[oldIface.Network]
+			if !kept {
+				allErrs = append(allErrs, field.Forbidden(newPath.Child("interfaces"),
+					fmt.Sprintf("removing interface for network %q is not allowed", oldIface.Network)))
+				continue
+			}
+			if newIface.Address != oldIface.Address {
+				allErrs = append(allErrs, field.Forbidden(newPath.Child("interfaces"),
+					fmt.Sprintf("address for network %q is immutable after cluster creation", newIface.Network)))
+			}
+			// Flipping uuid would hand ownership of a live interface over or away:
+			// CAPCS detaches what it created and leaves adopted interfaces in place.
+			if newIface.UUID != oldIface.UUID {
+				allErrs = append(allErrs, field.Forbidden(newPath.Child("interfaces"),
+					fmt.Sprintf("uuid for network %q is immutable after cluster creation", newIface.Network)))
+			}
 		}
 	}
 
@@ -418,6 +605,9 @@ func validateFloatingIPRequiresLBOrPreExisting(spec infrastructurev1beta2.Clouds
 // validateLBImmutability forbids changes to LB fields that are baked into the LB at creation.
 // Algorithm, Flavor, APIServerPort and the HealthMonitor settings cannot be reissued
 // to an existing cloudscale.ch LB, so changing them in spec would silently lie to the user.
+// PoolMemberNetwork is stricter than the sibling Network field (immutable *once set*):
+// even setting it on a cluster that left it empty is forbidden, because the controller
+// does not migrate live pool members from one subnet to another.
 func validateLBImmutability(oldLB, newLB *infrastructurev1beta2.LoadBalancerSpec, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 
@@ -432,6 +622,7 @@ func validateLBImmutability(oldLB, newLB *infrastructurev1beta2.LoadBalancerSpec
 	forbidIfChanged("algorithm", oldLB.Algorithm, newLB.Algorithm)
 	forbidIfChanged("flavor", oldLB.Flavor, newLB.Flavor)
 	forbidIfChanged("apiServerPort", oldLB.APIServerPort, newLB.APIServerPort)
+	forbidIfChanged("poolMemberNetwork", oldLB.PoolMemberNetwork, newLB.PoolMemberNetwork)
 
 	hmPath := fldPath.Child("healthMonitor")
 	hmForbid := func(child string, oldV, newV int) {
@@ -466,26 +657,28 @@ func validateFloatingIPRequiresPublicLB(spec infrastructurev1beta2.CloudscaleClu
 	return allErrs
 }
 
-// validateLBPoolMemberNetworkResolvable requires controlPlaneLoadBalancer.network to be set
-// when there are multiple networks and the LB is public. Without an explicit network the
-// controller would default the LB pool members' subnet to networks[0], which silently
-// breaks clusters whose machines join a different network.
+// validateLBPoolMemberNetworkResolvable requires either controlPlaneLoadBalancer.network
+// or controlPlaneLoadBalancer.poolMemberNetwork to be set when there are multiple networks
+// and the LB is public. With neither, the controller falls back to networks[0] for the pool
+// members' subnet, which silently breaks clusters whose machines join a different network.
 func validateLBPoolMemberNetworkResolvable(spec infrastructurev1beta2.CloudscaleClusterSpec, fldPath *field.Path) field.ErrorList {
 	var allErrs = make(field.ErrorList, 0, 1)
 
 	if !ptr.Deref(spec.ControlPlaneLoadBalancer.Enabled, true) {
 		return nil
 	}
-	if spec.ControlPlaneLoadBalancer.Network != "" {
+	if spec.ControlPlaneLoadBalancer.Network != "" || spec.ControlPlaneLoadBalancer.PoolMemberNetwork != "" {
 		return nil
 	}
 	if len(spec.Networks) <= 1 {
 		return nil
 	}
 
+	// Reported on the parent: either child field satisfies the requirement, so pinning
+	// the error on one of them would point the user at an arbitrary half of the fix.
 	allErrs = append(allErrs, field.Required(
-		fldPath.Child("controlPlaneLoadBalancer", "network"),
-		"must be set to one of spec.networks[].name when multiple networks are defined; the load balancer pool members need an explicit subnet to attach to"))
+		fldPath.Child("controlPlaneLoadBalancer"),
+		"controlPlaneLoadBalancer.network or controlPlaneLoadBalancer.poolMemberNetwork must be set to one of spec.networks[].name when multiple networks are defined; the load balancer pool members need an explicit subnet to attach to"))
 
 	return allErrs
 }
@@ -502,9 +695,9 @@ func validateFloatingIP(fip *infrastructurev1beta2.FloatingIPSpec, fldPath *fiel
 			"exactly one of ipFamily or ip must be specified"))
 	}
 
-	if hasIP && net.ParseIP(fip.Address) == nil {
+	if _, err := netip.ParseAddr(fip.Address); hasIP && err != nil {
 		allErrs = append(allErrs, field.Invalid(fldPath.Child("ip"), fip.Address,
-			"must be a valid IP address"))
+			fmt.Sprintf("must be a valid IP address: %s", err)))
 	}
 
 	return allErrs
@@ -544,26 +737,57 @@ func validateFloatingIPImmutability(oldFIP, newFIP *infrastructurev1beta2.Floati
 	return allErrs
 }
 
-// validateGatewayInCIDR validates that the gateway address is within the specified CIDR.
-func validateGatewayInCIDR(cidr, gateway string, fldPath *field.Path) field.ErrorList {
+// validateAddressInCIDR validates that an address is within the specified CIDR. Used
+// for both subnet gateways and router interface addresses.
+func validateAddressInCIDR(cidr, address string, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 
-	_, ipNet, err := net.ParseCIDR(cidr)
+	prefix, err := netip.ParsePrefix(cidr)
 	if err != nil {
 		// CIDR validation should have caught this earlier
 		return allErrs
 	}
 
-	gatewayIP := net.ParseIP(gateway)
-	if gatewayIP == nil {
-		allErrs = append(allErrs, field.Invalid(fldPath, gateway, "invalid IP address"))
+	ip, err := netip.ParseAddr(address)
+	if err != nil {
+		allErrs = append(allErrs, field.Invalid(fldPath, address, fmt.Sprintf("invalid IP address: %s", err)))
 		return allErrs
 	}
 
-	if !ipNet.Contains(gatewayIP) {
-		allErrs = append(allErrs, field.Invalid(fldPath, gateway,
-			fmt.Sprintf("gateway must be within CIDR %s", cidr)))
+	if !prefix.Contains(ip) {
+		allErrs = append(allErrs, field.Invalid(fldPath, address,
+			fmt.Sprintf("must be within CIDR %s", cidr)))
 	}
 
 	return allErrs
+}
+
+// checkSNATConfiguration returns warnings when a router with internetGateway enabled
+// does not have a gatewayAddress configured on its attached networks.
+func checkSNATConfiguration(spec infrastructurev1beta2.CloudscaleClusterSpec) admission.Warnings {
+	var warnings admission.Warnings
+	for _, router := range spec.Routers {
+		if !router.InternetGateway {
+			continue
+		}
+		hasGateway := false
+		for _, iface := range router.Interfaces {
+			for _, network := range spec.Networks {
+				if network.Name == iface.Network && network.GatewayAddress != "" {
+					hasGateway = true
+					break
+				}
+			}
+			if hasGateway {
+				break
+			}
+		}
+		if !hasGateway {
+			warnings = append(warnings, fmt.Sprintf(
+				"Router %q has internetGateway enabled but no gatewayAddress is set on its attached networks. "+
+					"Set networks[].gatewayAddress to enable SNAT for outbound internet access.",
+				router.Name))
+		}
+	}
+	return warnings
 }

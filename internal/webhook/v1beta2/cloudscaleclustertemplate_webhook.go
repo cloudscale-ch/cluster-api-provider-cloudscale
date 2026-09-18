@@ -76,14 +76,15 @@ func (v *CloudscaleClusterTemplateCustomValidator) ValidateCreate(_ context.Cont
 	cloudscaleclustertemplatelog.Info("Validation for CloudscaleClusterTemplate upon creation", "name", clusterTemplate.GetName())
 
 	allErrs := clusterSpecValidateCreate(clusterTemplate.Spec.Template.Spec, v.RegionInfo, field.NewPath("spec", "template", "spec"))
+	warnings := checkSNATConfiguration(clusterTemplate.Spec.Template.Spec)
 
 	if len(allErrs) > 0 {
-		return nil, apierrors.NewInvalid(
+		return warnings, apierrors.NewInvalid(
 			schema.GroupKind{Group: infrastructurev1beta2.SchemeGroupVersion.Group, Kind: "CloudscaleClusterTemplate"},
 			clusterTemplate.Name, allErrs)
 	}
 
-	return nil, nil
+	return warnings, nil
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type CloudscaleClusterTemplate.

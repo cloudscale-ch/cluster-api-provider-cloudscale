@@ -20,7 +20,7 @@ import (
 	"context"
 	"testing"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v10"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/events"
@@ -48,10 +48,10 @@ func TestReconcileServer_CreatesServer(t *testing.T) {
 				Name:   req.Name,
 				Status: "running",
 				Zone:   cloudscalesdk.ZoneStub{Slug: "rma1"},
-				Interfaces: []cloudscalesdk.Interface{
+				Interfaces: []cloudscalesdk.ServerInterface{
 					{
 						Type: "private",
-						Addresses: []cloudscalesdk.Address{
+						Addresses: []cloudscalesdk.ServerAddress{
 							{Address: "10.0.0.5", Version: 4},
 						},
 					},
@@ -122,16 +122,16 @@ func TestReconcileServer_SetsAddresses(t *testing.T) {
 				Name:   req.Name,
 				Status: "running",
 				Zone:   cloudscalesdk.ZoneStub{Slug: "rma1"},
-				Interfaces: []cloudscalesdk.Interface{
+				Interfaces: []cloudscalesdk.ServerInterface{
 					{
 						Type: "public",
-						Addresses: []cloudscalesdk.Address{
+						Addresses: []cloudscalesdk.ServerAddress{
 							{Address: "185.98.123.45", Version: 4},
 						},
 					},
 					{
 						Type: "private",
-						Addresses: []cloudscalesdk.Address{
+						Addresses: []cloudscalesdk.ServerAddress{
 							{Address: "10.0.0.10", Version: 4},
 						},
 					},

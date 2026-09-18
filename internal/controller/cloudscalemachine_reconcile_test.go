@@ -27,7 +27,7 @@ import (
 	"fmt"
 	"testing"
 
-	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v9"
+	cloudscalesdk "github.com/cloudscale-ch/cloudscale-go-sdk/v10"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/events"
@@ -60,10 +60,10 @@ func TestMachineReconcileNormal_ServerRunning_SetsProvisioned(t *testing.T) {
 				UUID:   id,
 				Status: "running",
 				Zone:   cloudscalesdk.ZoneStub{Slug: "rma1"},
-				Interfaces: []cloudscalesdk.Interface{
+				Interfaces: []cloudscalesdk.ServerInterface{
 					{
 						Type: "private",
-						Addresses: []cloudscalesdk.Address{
+						Addresses: []cloudscalesdk.ServerAddress{
 							{Address: "10.0.0.5", Version: 4},
 						},
 					},

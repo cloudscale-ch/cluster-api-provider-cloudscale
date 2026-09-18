@@ -53,6 +53,46 @@ func newClusterWebhookTestObjects() (
 // CloudscaleCluster Defaulting Webhook
 // ============================================================================
 
+// routerNetworks is the network set the router defaulting cases start from.
+func routerNetworks(cidr string) []infrastructurev1beta2.NetworkSpec {
+	return []infrastructurev1beta2.NetworkSpec{{Name: "main", CIDR: cidr}}
+}
+
+// routerWith builds a single router named "r" attached to the given interfaces.
+func routerWith(ifaces ...infrastructurev1beta2.RouterInterfaceSpec) []infrastructurev1beta2.RouterSpec {
+	return []infrastructurev1beta2.RouterSpec{{Name: "r", InternetGateway: true, Interfaces: ifaces}}
+}
+
+// routerIface builds an interface on network "main"; an empty address leaves it for the
+// defaulter to fill in.
+func routerIface(address string) infrastructurev1beta2.RouterInterfaceSpec {
+	return infrastructurev1beta2.RouterInterfaceSpec{Network: "main", Address: address}
+}
+
+// adoptedRouterWith builds a single router named "r" that adopts a pre-existing router by
+// uuid, which is the only kind that can carry interfaces to adopt.
+func adoptedRouterWith(ifaces ...infrastructurev1beta2.RouterInterfaceSpec) []infrastructurev1beta2.RouterSpec {
+	return []infrastructurev1beta2.RouterSpec{{Name: "r", UUID: "router-uuid", Interfaces: ifaces}}
+}
+
+// routerIfaceAdopted builds an interface on network "main" that adopts a pre-existing
+// interface, whose address is read off that interface rather than requested.
+func routerIfaceAdopted() infrastructurev1beta2.RouterInterfaceSpec {
+	iface := routerIface("")
+	iface.UUID = "iface-uuid"
+	return iface
+}
+
+// routersEach builds one router per interface, named r0, r1, ... Interfaces that share a
+// setupRouterCluster fills in the region/zone a valid cluster needs and attaches the
+// given networks and routers.
+func setupRouterCluster(c *infrastructurev1beta2.CloudscaleCluster, networks []infrastructurev1beta2.NetworkSpec, routers []infrastructurev1beta2.RouterSpec) {
+	c.Spec.Region = RegionRma
+	c.Spec.Zone = ZoneRma1
+	c.Spec.Networks = networks
+	c.Spec.Routers = routers
+}
+
 func TestClusterDefaulting(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -187,6 +227,30 @@ func TestClusterDefaulting(t *testing.T) {
 				g.Expect(c.Spec.FloatingIP.Address).To(Equal("1.2.3.4"))
 			},
 		},
+		{
+			name: "explicit address is preserved",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				c.Spec.Region = RegionRma
+				c.Spec.Networks = routerNetworks("10.0.0.0/24")
+				c.Spec.Routers = routerWith(routerIface("10.0.0.5"))
+			},
+			assert: func(g *WithT, c *infrastructurev1beta2.CloudscaleCluster) {
+				g.Expect(c.Spec.Routers[0].Interfaces[0].Address).To(Equal("10.0.0.5"))
+			},
+		},
+		{
+			// A network referenced by uuid has no CIDR here, so there is nothing to derive
+			// an address from. It must be left empty rather than filled with garbage.
+			name: "interface on a uuid network is left empty",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				c.Spec.Region = RegionRma
+				c.Spec.Networks = []infrastructurev1beta2.NetworkSpec{{Name: "main", UUID: "net-uuid"}}
+				c.Spec.Routers = routerWith(routerIface(""))
+			},
+			assert: func(g *WithT, c *infrastructurev1beta2.CloudscaleCluster) {
+				g.Expect(c.Spec.Routers[0].Interfaces[0].Address).To(BeEmpty())
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -222,6 +286,7 @@ func TestClusterDefaulting_AllDefaultsApplied(t *testing.T) {
 	g.Expect(obj.Spec.ControlPlaneLoadBalancer.HealthMonitor.TimeoutS).To(Equal(3))
 	g.Expect(obj.Spec.ControlPlaneLoadBalancer.HealthMonitor.UpThreshold).To(Equal(2))
 	g.Expect(obj.Spec.ControlPlaneLoadBalancer.HealthMonitor.DownThreshold).To(Equal(3))
+	g.Expect(obj.Spec.Routers).To(BeEmpty())
 }
 
 // ============================================================================
@@ -370,7 +435,31 @@ func TestClusterValidateCreate(t *testing.T) {
 				c.Spec.ControlPlaneLoadBalancer.Network = ""
 			},
 			wantErr:        true,
-			wantSubstrings: []string{"controlPlaneLoadBalancer.network"},
+			wantSubstrings: []string{"controlPlaneLoadBalancer.network", "controlPlaneLoadBalancer.poolMemberNetwork"},
+		},
+		{
+			name: "public LB with multiple networks accepts poolMemberNetwork instead",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				c.Spec.Region = RegionRma
+				c.Spec.Zone = ZoneRma1
+				c.Spec.Networks = []infrastructurev1beta2.NetworkSpec{
+					{Name: "main", CIDR: defaultSubnetCIDR},
+					{Name: "aux", CIDR: "10.1.0.0/24"},
+				}
+				c.Spec.ControlPlaneLoadBalancer.Network = ""
+				c.Spec.ControlPlaneLoadBalancer.PoolMemberNetwork = "aux"
+			},
+		},
+		{
+			name: "LB.PoolMemberNetwork references unknown network",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				c.Spec.Region = RegionRma
+				c.Spec.Zone = ZoneRma1
+				c.Spec.Networks = []infrastructurev1beta2.NetworkSpec{{Name: "main", CIDR: defaultSubnetCIDR}}
+				c.Spec.ControlPlaneLoadBalancer.PoolMemberNetwork = "nope"
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"controlPlaneLoadBalancer.poolMemberNetwork"},
 		},
 		{
 			name: "LB.Network references unknown network",
@@ -462,6 +551,99 @@ func TestClusterValidateCreate(t *testing.T) {
 				c.Spec.FloatingIP = &infrastructurev1beta2.FloatingIPSpec{Address: "1.2.3.4"}
 			},
 		},
+		{
+			name: "valid router",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				setupRouterCluster(c, routerNetworks("10.0.0.0/24"), routerWith(routerIface("10.0.0.1")))
+			},
+		},
+
+		{
+			name: "router interface address outside the network CIDR",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				setupRouterCluster(c, routerNetworks("10.0.0.0/24"), routerWith(routerIface("192.168.1.1")))
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"must be within CIDR"},
+		},
+		{
+			name: "router interface referencing an unknown network",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				iface := routerIface("10.0.0.1")
+				iface.Network = "nope"
+				setupRouterCluster(c, routerNetworks("10.0.0.0/24"), routerWith(iface))
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"routers[0].interfaces[0].network"},
+		},
+		{
+			name: "gateway owner address matching the network's gatewayAddress is valid",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				networks := routerNetworks("10.0.0.0/24")
+				networks[0].GatewayAddress = "10.0.0.5"
+				setupRouterCluster(c, networks, routerWith(routerIface("10.0.0.5")))
+			},
+		},
+		{
+			name: "uuid and internetGateway are mutually exclusive",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				routers := routerWith(routerIface("10.0.0.1"))
+				routers[0].UUID = "router-uuid"
+				setupRouterCluster(c, routerNetworks("10.0.0.0/24"), routers)
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"uuid and internetGateway are mutually exclusive"},
+		},
+		{
+			name: "adopted interface is accepted without an address",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				setupRouterCluster(c,
+					[]infrastructurev1beta2.NetworkSpec{{Name: "main", UUID: "net-uuid"}},
+					adoptedRouterWith(routerIfaceAdopted()))
+			},
+		},
+		{
+			name: "adopted interface with a requested address rejected",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				iface := routerIfaceAdopted()
+				iface.Address = "10.0.0.1"
+				setupRouterCluster(c, routerNetworks("10.0.0.0/24"), adoptedRouterWith(iface))
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"routers[0].interfaces[0].address", "cannot be requested"},
+		},
+		{
+			name: "adopted interface on a managed router rejected",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				setupRouterCluster(c, routerNetworks("10.0.0.0/24"), routerWith(routerIfaceAdopted()))
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"routers[0].interfaces[0].uuid", "referenced by uuid"},
+		},
+		{
+			name: "adopted gateway owner does not have to match the network's gatewayAddress",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				networks := routerNetworks("10.0.0.0/24")
+				networks[0].GatewayAddress = "10.0.0.5"
+				setupRouterCluster(c, networks, adoptedRouterWith(routerIfaceAdopted()))
+			},
+		},
+		{
+			name: "interface on a uuid network with an explicit address is accepted",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				setupRouterCluster(c,
+					[]infrastructurev1beta2.NetworkSpec{{Name: "main", UUID: "net-uuid"}},
+					routerWith(routerIface("192.168.77.1")))
+			},
+		},
+		{
+			name: "address-less interface rejected",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				setupRouterCluster(c, routerNetworks("10.0.0.0/24"), routerWith(routerIface("")))
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"must be set explicitly"},
+		},
 	}
 
 	for _, tc := range cases {
@@ -507,6 +689,20 @@ func setupUpdateTestObjects() (
 	obj.Spec.Networks = []infrastructurev1beta2.NetworkSpec{{Name: "main", CIDR: defaultSubnetCIDR}}
 	obj.Spec.ControlPlaneLoadBalancer.Enabled = new(true)
 	return
+}
+
+// seedRouter puts the same valid router on both sides of an update, so cases only need
+// to express the change they are testing. The address sits inside defaultSubnetCIDR.
+func seedRouter(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
+	router := infrastructurev1beta2.RouterSpec{
+		Name:            "r",
+		InternetGateway: true,
+		Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{
+			{Network: "main", Address: "172.18.0.1"},
+		},
+	}
+	oldObj.Spec.Routers = []infrastructurev1beta2.RouterSpec{*router.DeepCopy()}
+	obj.Spec.Routers = []infrastructurev1beta2.RouterSpec{*router.DeepCopy()}
 }
 
 func TestClusterValidateUpdate(t *testing.T) {
@@ -575,9 +771,22 @@ func TestClusterValidateUpdate(t *testing.T) {
 			mutate: func(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
 				oldObj.Spec.ControlPlaneLoadBalancer.Network = "main"
 				obj.Spec.ControlPlaneLoadBalancer.Network = "other"
+				otherNet := infrastructurev1beta2.NetworkSpec{Name: "other", CIDR: "10.1.0.0/24"}
+				obj.Spec.Networks = append(obj.Spec.Networks, otherNet)
 			},
 			wantErr:        true,
-			wantSubstrings: []string{"controlPlaneLoadBalancer.network"},
+			wantSubstrings: []string{"controlPlaneLoadBalancer.network", "immutable"},
+		},
+		{
+			name: "LB.Network change rejected",
+			mutate: func(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
+				oldObj.Spec.ControlPlaneLoadBalancer.Network = ""
+				obj.Spec.ControlPlaneLoadBalancer.Network = "other"
+				otherNet := infrastructurev1beta2.NetworkSpec{Name: "other", CIDR: "10.1.0.0/24"}
+				obj.Spec.Networks = append(obj.Spec.Networks, otherNet)
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"controlPlaneLoadBalancer.network", "immutable"},
 		},
 		{
 			name: "ControlPlaneEndpoint host change rejected",
@@ -634,6 +843,81 @@ func TestClusterValidateUpdate(t *testing.T) {
 			},
 			wantErr:        true,
 			wantSubstrings: []string{"spec.region", "spec.zone", "cidr"},
+		},
+		{
+			name: "router unchanged",
+			mutate: func(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
+				seedRouter(oldObj, obj)
+			},
+		},
+		{
+			name: "router uuid change rejected",
+			mutate: func(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
+				seedRouter(oldObj, obj)
+				obj.Spec.Routers[0].UUID = "other-uuid"
+				obj.Spec.Routers[0].InternetGateway = false
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"routers[0].uuid", "immutable"},
+		},
+		{
+			name: "router internetGateway change rejected",
+			mutate: func(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
+				seedRouter(oldObj, obj)
+				obj.Spec.Routers[0].InternetGateway = false
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"routers[0].internetGateway", "immutable"},
+		},
+		{
+			name: "router interface address change rejected",
+			mutate: func(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
+				seedRouter(oldObj, obj)
+				obj.Spec.Routers[0].Interfaces[0].Address = "172.18.0.9"
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"address for network", "immutable"},
+		},
+		{
+			name: "router interface uuid change rejected",
+			mutate: func(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
+				seedRouter(oldObj, obj)
+				obj.Spec.Routers[0].Interfaces[0].UUID = "iface-uuid"
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"uuid for network", "immutable"},
+		},
+		{
+			name: "router interface removal rejected",
+			mutate: func(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
+				seedRouter(oldObj, obj)
+				obj.Spec.Routers[0].Interfaces = nil
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"removing interface for network"},
+		},
+		{
+			name: "router removal rejected",
+			mutate: func(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
+				seedRouter(oldObj, obj)
+				obj.Spec.Routers = nil
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"removing router"},
+		},
+		{
+			name: "router added on update is validated",
+			mutate: func(oldObj, obj *infrastructurev1beta2.CloudscaleCluster) {
+				seedRouter(oldObj, obj)
+				obj.Spec.Routers = append(obj.Spec.Routers, infrastructurev1beta2.RouterSpec{
+					Name: "second",
+					Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{
+						{Network: "main", Address: "192.168.1.1"},
+					},
+				})
+			},
+			wantErr:        true,
+			wantSubstrings: []string{"routers[1].interfaces[0].address", "must be within CIDR"},
 		},
 	}
 
@@ -703,6 +987,13 @@ func TestClusterValidateUpdate_LBFieldsImmutable(t *testing.T) {
 			errPath: "controlPlaneLoadBalancer.apiServerPort",
 		},
 		{
+			name: "PoolMemberNetwork",
+			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
+				c.Spec.ControlPlaneLoadBalancer.PoolMemberNetwork = "aux"
+			},
+			errPath: "controlPlaneLoadBalancer.poolMemberNetwork",
+		},
+		{
 			name: "HealthMonitor.DelayS",
 			mutate: func(c *infrastructurev1beta2.CloudscaleCluster) {
 				c.Spec.ControlPlaneLoadBalancer.HealthMonitor.DelayS = 10
@@ -752,6 +1043,22 @@ func TestClusterValidateUpdate_LBFieldsImmutable(t *testing.T) {
 	}
 }
 
+// TestClusterValidateUpdate_PoolMemberNetworkStrictlyImmutable pins the stricter rule
+// for poolMemberNetwork: unlike the sibling network field (immutable *once set*), even
+// setting it on a cluster that left it empty is rejected. The controller does not move
+// live pool members between subnets.
+func TestClusterValidateUpdate_PoolMemberNetworkStrictlyImmutable(t *testing.T) {
+	g := NewWithT(t)
+	obj, oldObj, validator := setupUpdateTestObjects()
+	oldObj.Spec.ControlPlaneLoadBalancer.PoolMemberNetwork = ""
+	obj.Spec.ControlPlaneLoadBalancer = *oldObj.Spec.ControlPlaneLoadBalancer.DeepCopy()
+	obj.Spec.ControlPlaneLoadBalancer.PoolMemberNetwork = "main"
+
+	_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("controlPlaneLoadBalancer.poolMemberNetwork"))
+}
+
 // ============================================================================
 // CloudscaleCluster Validating Webhook - Delete
 // ============================================================================
@@ -765,10 +1072,10 @@ func TestClusterValidateDelete_AlwaysSucceeds(t *testing.T) {
 }
 
 // ============================================================================
-// Unit tests for validateGatewayInCIDR
+// Unit tests for validateAddressInCIDR
 // ============================================================================
 
-func TestValidateGatewayInCIDR(t *testing.T) {
+func TestValidateAddressInCIDR(t *testing.T) {
 	path := field.NewPath("spec", "networks", "gatewayAddress")
 	cases := []struct {
 		name       string
@@ -787,7 +1094,7 @@ func TestValidateGatewayInCIDR(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			g := NewWithT(t)
-			errs := validateGatewayInCIDR(tc.cidr, tc.gateway, path)
+			errs := validateAddressInCIDR(tc.cidr, tc.gateway, path)
 			g.Expect(errs).To(HaveLen(tc.wantErrs))
 			if tc.wantDetail != "" {
 				g.Expect(errs[0].Detail).To(ContainSubstring(tc.wantDetail))
