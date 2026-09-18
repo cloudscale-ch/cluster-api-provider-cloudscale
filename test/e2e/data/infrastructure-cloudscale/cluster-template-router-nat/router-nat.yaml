@@ -8,11 +8,13 @@ spec:
   networks:
   - name: "${CLUSTER_NAME}"
     cidr: "${CLOUDSCALE_NETWORK_CIDR}"
+    gatewayAddress: "${CLOUDSCALE_ROUTER_INTERFACE_ADDRESS}"
   routers:
   - name: "${CLUSTER_NAME}-router"
     internetGateway: true
     interfaces:
     - network: "${CLUSTER_NAME}"
+      address: "${CLOUDSCALE_ROUTER_INTERFACE_ADDRESS}"
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
 kind: CloudscaleMachineTemplate

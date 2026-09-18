@@ -19,9 +19,7 @@ package v1beta2
 import (
 	"context"
 	"fmt"
-	"maps"
 	"net/netip"
-	"slices"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -87,10 +85,6 @@ func (d *CloudscaleClusterCustomDefaulter) Default(_ context.Context, cluster *i
 
 	clusterSpecDefault(&cluster.Spec)
 
-	// Router interface addresses are derived from the networks' CIDRs and are immutable
-	// once set, so they are defaulted here rather than in the shared defaulter.
-	defaultRouterInterfaceAddresses(&cluster.Spec)
-
 	return nil
 }
 
@@ -128,108 +122,6 @@ func clusterSpecDefault(spec *infrastructurev1beta2.CloudscaleClusterSpec) {
 	}
 }
 
-// defaultRouterInterfaceAddresses assigns an address to every router interface that
-// does not declare one.
-// Interfaces on a network referenced by uuid are left untouched: that subnet is only
-// known at runtime, so the address cannot be derived here.
-func defaultRouterInterfaceAddresses(spec *infrastructurev1beta2.CloudscaleClusterSpec) {
-	networks := indexNetworks(spec.Networks)
-
-	usedByNetwork := make(map[string]map[string]struct{})
-	for ri := range spec.Routers {
-		for ii := range spec.Routers[ri].Interfaces {
-			ifaceSpec := &spec.Routers[ri].Interfaces[ii]
-			if usedByNetwork[ifaceSpec.Network] == nil {
-				usedByNetwork[ifaceSpec.Network] = make(map[string]struct{})
-			}
-			if ifaceSpec.Address != "" {
-				usedByNetwork[ifaceSpec.Network][ifaceSpec.Address] = struct{}{}
-			}
-		}
-	}
-
-	for ri := range spec.Routers {
-		for ii := range spec.Routers[ri].Interfaces {
-			ifaceSpec := &spec.Routers[ri].Interfaces[ii]
-
-			// Normalise here rather than relying on the CRD default, so the value is
-			// set no matter which path reached this defaulter.
-			if ifaceSpec.ConfigureSubnetGateway == nil {
-				ifaceSpec.ConfigureSubnetGateway = new(true)
-			}
-			// An adopted interface keeps the address it already holds, which is only
-			// known once the controller reads the router.
-			if ifaceSpec.Address != "" || ifaceSpec.UUID != "" {
-				continue
-			}
-
-			used := usedByNetwork[ifaceSpec.Network]
-
-			// The gateway owner takes the address the subnet already advertises. If
-			// another interface has claimed it, fall through and allocate instead.
-			gateway := networks[ifaceSpec.Network].GatewayAddress
-			if gateway != "" && *ifaceSpec.ConfigureSubnetGateway {
-				if _, taken := used[gateway]; !taken {
-					ifaceSpec.Address = gateway
-					used[gateway] = struct{}{}
-					continue
-				}
-			}
-
-			// err is ignored: an unparseable CIDR leaves the zero Prefix, which
-			// nextFreeAddress skips. validateNetworks reports the malformed value.
-			prefix, _ := netip.ParsePrefix(networks[ifaceSpec.Network].CIDR)
-			if addr, ok := nextFreeAddress(prefix, used); ok {
-				ifaceSpec.Address = addr
-				used[addr] = struct{}{}
-			}
-		}
-	}
-}
-
-// .101-.254 of every subnet is DHCP.
-const (
-	dhcpPoolFirstOctet = 101
-	dhcpPoolLastOctet  = 254
-)
-
-// unassignableReason says why addr cannot be given to a router interface inside prefix, or
-// "" when it can. An address in the DHCP pool may later be handed to a node, and the
-// network and broadcast addresses cannot be held by an interface at all.
-func unassignableReason(prefix netip.Prefix, addr netip.Addr) string {
-	if !addr.Is4() {
-		return ""
-	}
-	switch lastOctet := addr.As4()[3]; {
-	case addr == prefix.Masked().Addr():
-		return "it is the network address"
-	case !prefix.Contains(addr.Next()):
-		return "it is the broadcast address"
-	case lastOctet >= dhcpPoolFirstOctet && lastOctet <= dhcpPoolLastOctet:
-		return fmt.Sprintf("it is inside the DHCP pool .%d-.%d", dhcpPoolFirstOctet, dhcpPoolLastOctet)
-	}
-	return ""
-}
-
-// nextFreeAddress returns the first assignable address inside prefix that is not already
-// used. It reports false for an invalid prefix or an exhausted range.
-func nextFreeAddress(prefix netip.Prefix, used map[string]struct{}) (string, bool) {
-	if !prefix.IsValid() {
-		return "", false
-	}
-	for addr := prefix.Masked().Addr().Next(); prefix.Contains(addr); addr = addr.Next() {
-		// Step over rather than stop: on a prefix wider than a /24 the DHCP pool recurs
-		// inside the range, so there can be assignable addresses above it.
-		if unassignableReason(prefix, addr) != "" {
-			continue
-		}
-		if _, taken := used[addr.String()]; !taken {
-			return addr.String(), true
-		}
-	}
-	return "", false
-}
-
 // +kubebuilder:webhook:path=/validate-infrastructure-cluster-x-k8s-io-v1beta2-cloudscalecluster,mutating=false,failurePolicy=fail,sideEffects=None,groups=infrastructure.cluster.x-k8s.io,resources=cloudscaleclusters,verbs=create;update,versions=v1beta2,name=vcloudscalecluster-v1beta2.kb.io,admissionReviewVersions=v1
 
 // CloudscaleClusterCustomValidator struct is responsible for validating the CloudscaleCluster resource
@@ -245,36 +137,19 @@ type CloudscaleClusterCustomValidator struct {
 func (v *CloudscaleClusterCustomValidator) ValidateCreate(_ context.Context, cluster *infrastructurev1beta2.CloudscaleCluster) (admission.Warnings, error) {
 	cloudscaleclusterlog.Info("Validation for CloudscaleCluster upon creation", "name", cluster.GetName())
 
-	allErrs := clusterSpecValidateCreate(cluster.Spec, v.RegionInfo, modeCluster, field.NewPath("spec"))
+	allErrs := clusterSpecValidateCreate(cluster.Spec, v.RegionInfo, field.NewPath("spec"))
+	warnings := checkSNATConfiguration(cluster.Spec)
 
 	if len(allErrs) > 0 {
-		return nil, apierrors.NewInvalid(
+		return warnings, apierrors.NewInvalid(
 			schema.GroupKind{Group: infrastructurev1beta2.SchemeGroupVersion.Group, Kind: "CloudscaleCluster"},
 			cluster.Name, allErrs)
 	}
 
-	return nil, nil
+	return warnings, nil
 }
 
-// validationMode captures what a spec has already been through by the time it reaches the
-// validator. A CloudscaleCluster arrives defaulted; a CloudscaleClusterTemplate does not,
-// because defaultRouterInterfaceAddresses only runs on the cluster (see Default).
-type validationMode struct {
-	// routerAddressesDefaulted is true when defaultRouterInterfaceAddresses has already run,
-	// so an empty router interface address means "could not be derived" rather than "will be
-	// derived when a cluster is stamped from this template".
-	routerAddressesDefaulted bool
-}
-
-var (
-	// modeCluster validates a CloudscaleCluster, i.e. a fully defaulted spec.
-	modeCluster = validationMode{routerAddressesDefaulted: true}
-	// modeTemplate validates a CloudscaleClusterTemplate, whose router interface addresses
-	// are only derived once the topology controller stamps out a CloudscaleCluster.
-	modeTemplate = validationMode{}
-)
-
-func clusterSpecValidateCreate(spec infrastructurev1beta2.CloudscaleClusterSpec, regionInfo *cloudscale.RegionInfo, mode validationMode, fldPath *field.Path) field.ErrorList {
+func clusterSpecValidateCreate(spec infrastructurev1beta2.CloudscaleClusterSpec, regionInfo *cloudscale.RegionInfo, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 
 	// Validate zone belongs to region
@@ -291,7 +166,7 @@ func clusterSpecValidateCreate(spec infrastructurev1beta2.CloudscaleClusterSpec,
 	allErrs = append(allErrs, validateNetworks(spec.Networks, fldPath.Child("networks"))...)
 
 	// Validate routers
-	allErrs = append(allErrs, validateRouters(spec.Routers, spec.Networks, mode, fldPath.Child("routers"))...)
+	allErrs = append(allErrs, validateRouters(spec.Routers, spec.Networks, fldPath.Child("routers"))...)
 
 	// Validate LB network reference
 	if spec.ControlPlaneLoadBalancer.Network != "" {
@@ -327,6 +202,7 @@ func (v *CloudscaleClusterCustomValidator) ValidateUpdate(_ context.Context, old
 	cloudscaleclusterlog.Info("Validation for CloudscaleCluster upon update", "name", newCluster.GetName())
 
 	var allErrs field.ErrorList
+	warnings := checkSNATConfiguration(newCluster.Spec)
 
 	newClusterSpec := newCluster.Spec
 	oldClusterSpec := oldCluster.Spec
@@ -353,7 +229,7 @@ func (v *CloudscaleClusterCustomValidator) ValidateUpdate(_ context.Context, old
 
 	// The updated router set must satisfy the creation rules
 	routersPath := field.NewPath("spec", "routers")
-	allErrs = append(allErrs, validateRouters(newClusterSpec.Routers, newClusterSpec.Networks, modeCluster, routersPath)...)
+	allErrs = append(allErrs, validateRouters(newClusterSpec.Routers, newClusterSpec.Networks, routersPath)...)
 	// ...and on top of that, nothing already there may change or disappear.
 	allErrs = append(allErrs, validateRouterDiff(oldClusterSpec.Routers, newClusterSpec.Routers, routersPath)...)
 
@@ -424,12 +300,12 @@ func (v *CloudscaleClusterCustomValidator) ValidateUpdate(_ context.Context, old
 	allErrs = append(allErrs, validateLBPoolMemberNetworkResolvable(newClusterSpec, field.NewPath("spec"))...)
 
 	if len(allErrs) > 0 {
-		return nil, apierrors.NewInvalid(
+		return warnings, apierrors.NewInvalid(
 			schema.GroupKind{Group: infrastructurev1beta2.SchemeGroupVersion.Group, Kind: "CloudscaleCluster"},
 			newCluster.Name, allErrs)
 	}
 
-	return nil, nil
+	return warnings, nil
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type CloudscaleCluster.
@@ -565,13 +441,12 @@ func indexNetworks(networks []infrastructurev1beta2.NetworkSpec) map[string]infr
 // validateRouters runs every rule that applies to a router set, whether it was declared
 // at creation or added later. ValidateUpdate calls it on the new set too, so additions
 // are held to the same standard as originals without restating the rules.
-func validateRouters(routers []infrastructurev1beta2.RouterSpec, networks []infrastructurev1beta2.NetworkSpec, mode validationMode, fldPath *field.Path) field.ErrorList {
+func validateRouters(routers []infrastructurev1beta2.RouterSpec, networks []infrastructurev1beta2.NetworkSpec, fldPath *field.Path) field.ErrorList {
 	byName := indexNetworks(networks)
 	var allErrs field.ErrorList
 	for i, routerSpec := range routers {
-		allErrs = append(allErrs, validateSingleRouter(routerSpec, byName, mode, fldPath.Index(i))...)
+		allErrs = append(allErrs, validateSingleRouter(routerSpec, byName, fldPath.Index(i))...)
 	}
-	allErrs = append(allErrs, validateRouterNetworkAddressing(routers, byName, fldPath)...)
 	return allErrs
 }
 
@@ -584,7 +459,6 @@ func validateRouters(routers []infrastructurev1beta2.RouterSpec, networks []infr
 func validateSingleRouter(
 	routerSpec infrastructurev1beta2.RouterSpec,
 	networks map[string]infrastructurev1beta2.NetworkSpec,
-	mode validationMode,
 	routerPath *field.Path,
 ) field.ErrorList {
 	var allErrs field.ErrorList
@@ -595,28 +469,19 @@ func validateSingleRouter(
 	}
 
 	for j, ifaceSpec := range routerSpec.Interfaces {
-		allErrs = append(allErrs, validateRouterInterface(ifaceSpec, networks, routerSpec.UUID != "", mode, routerPath.Child("interfaces").Index(j))...)
+		allErrs = append(allErrs, validateRouterInterface(ifaceSpec, networks, routerSpec.UUID != "", routerPath.Child("interfaces").Index(j))...)
 	}
 
 	return allErrs
 }
 
-// validateRouterInterface validates one router interface against the network index. On a
-// CloudscaleCluster the defaulter has already filled in every address it could derive, so an
-// empty address means it could not — either because the network is referenced by uuid (no
-// CIDR at admission time) or because the CIDR is exhausted. Both need the user to be
-// explicit. An interface adopted by uuid is the exception: its address is whatever the
-// pre-existing interface already holds.
-//
-// On a CloudscaleClusterTemplate (mode.routerAddressesDefaulted false) an empty address on a
-// network that has a CIDR is fine: it is derived per cluster, so a topology patch may change
-// the CIDR and have the address follow. Only the uuid-network case still errors, since such
-// a network never gains a CIDR and so could not be derived later either.
+// validateRouterInterface validates one router interface against the network index.
+// An adopted interface (by UUID) carries its address from the pre-existing interface.
+// All other interfaces must have an explicit address set.
 func validateRouterInterface(
 	ifaceSpec infrastructurev1beta2.RouterInterfaceSpec,
 	networks map[string]infrastructurev1beta2.NetworkSpec,
 	routerAdopted bool,
-	mode validationMode,
 	ifacePath *field.Path,
 ) field.ErrorList {
 	network, netExists := networks[ifaceSpec.Network]
@@ -638,17 +503,8 @@ func validateRouterInterface(
 	}
 
 	if ifaceSpec.Address == "" {
-		if network.CIDR == "" {
-			return field.ErrorList{field.Required(ifacePath.Child("address"), fmt.Sprintf(
-				"must be set explicitly: network %q is referenced by uuid, so its subnet is not known yet",
-				ifaceSpec.Network))}
-		}
-		if !mode.routerAddressesDefaulted {
-			// Derived from the network's CIDR when a cluster is stamped out of this template.
-			return nil
-		}
-		return field.ErrorList{field.Required(ifacePath.Child("address"), fmt.Sprintf(
-			"no free address left in %s for network %q", network.CIDR, ifaceSpec.Network))}
+		return field.ErrorList{field.Required(ifacePath.Child("address"),
+			"router interface address must be set explicitly")}
 	}
 
 	// Containment can only be checked for a managed network; an uuid network's subnet
@@ -662,67 +518,7 @@ func validateRouterInterface(
 		return errs
 	}
 
-	prefix, _ := netip.ParsePrefix(network.CIDR)
-	ip, _ := netip.ParseAddr(ifaceSpec.Address)
-	if reason := unassignableReason(prefix, ip); reason != "" {
-		return field.ErrorList{field.Invalid(addrPath, ifaceSpec.Address,
-			fmt.Sprintf("cannot be assigned to a router interface: %s of %s", reason, network.CIDR))}
-	}
 	return nil
-}
-
-// validateRouterNetworkAddressing enforces the rules that only make sense when all
-// interfaces on a network are considered together: at most one interface may set the
-// subnet gateway, explicit addresses must be unique per network, and the gateway owner's
-// address must equal the network's declared gatewayAddress.
-func validateRouterNetworkAddressing(routers []infrastructurev1beta2.RouterSpec, networks map[string]infrastructurev1beta2.NetworkSpec, fldPath *field.Path) field.ErrorList {
-	var allErrs field.ErrorList
-
-	subnetGateways := make(map[string][]*field.Path)
-	addrSeen := make(map[string]map[string]bool)
-
-	for i, router := range routers {
-		for j, iface := range router.Interfaces {
-			ifacePath := fldPath.Index(i).Child("interfaces").Index(j)
-
-			if ptr.Deref(iface.ConfigureSubnetGateway, true) {
-				subnetGateways[iface.Network] = append(subnetGateways[iface.Network], ifacePath.Child("configureSubnetGateway"))
-
-				// The controller points the subnet's gateway at this interface's
-				// address, so a differing gatewayAddress would silently never take
-				// effect. An address is only empty on an adopted interface, whose
-				// address is not known until the controller reads it.
-				if gateway := networks[iface.Network].GatewayAddress; gateway != "" && iface.Address != "" && iface.Address != gateway {
-					allErrs = append(allErrs, field.Invalid(ifacePath.Child("address"), iface.Address,
-						fmt.Sprintf("interface configures the subnet gateway of network %q, so its address must equal the network's gatewayAddress %q", iface.Network, gateway)))
-				}
-			}
-			if iface.Address != "" {
-				if addrSeen[iface.Network] == nil {
-					addrSeen[iface.Network] = make(map[string]bool)
-				}
-				if addrSeen[iface.Network][iface.Address] {
-					allErrs = append(allErrs, field.Duplicate(ifacePath.Child("address"), iface.Address))
-				} else {
-					addrSeen[iface.Network][iface.Address] = true
-				}
-			}
-		}
-	}
-
-	// Report networks with more than one gateway, in a stable order.
-	for _, network := range slices.Sorted(maps.Keys(subnetGateways)) {
-		paths := subnetGateways[network]
-		if len(paths) <= 1 {
-			continue
-		}
-		for _, p := range paths {
-			allErrs = append(allErrs, field.Invalid(p, true,
-				fmt.Sprintf("network %q has multiple router interfaces configuring the subnet gateway; only one interface may set configureSubnetGateway=true", network)))
-		}
-	}
-
-	return allErrs
 }
 
 // validateRouterDiff enforces immutability for spec.routers on update: routers and their
@@ -768,10 +564,6 @@ func validateRouterDiff(oldRouters, newRouters []infrastructurev1beta2.RouterSpe
 				allErrs = append(allErrs, field.Forbidden(newPath.Child("interfaces"),
 					fmt.Sprintf("removing interface for network %q is not allowed", oldIface.Network)))
 				continue
-			}
-			if ptr.Deref(newIface.ConfigureSubnetGateway, true) != ptr.Deref(oldIface.ConfigureSubnetGateway, true) {
-				allErrs = append(allErrs, field.Forbidden(newPath.Child("interfaces"),
-					fmt.Sprintf("configureSubnetGateway for network %q is immutable after cluster creation", newIface.Network)))
 			}
 			if newIface.Address != oldIface.Address {
 				allErrs = append(allErrs, field.Forbidden(newPath.Child("interfaces"),
@@ -968,4 +760,34 @@ func validateAddressInCIDR(cidr, address string, fldPath *field.Path) field.Erro
 	}
 
 	return allErrs
+}
+
+// checkSNATConfiguration returns warnings when a router with internetGateway enabled
+// does not have a gatewayAddress configured on its attached networks.
+func checkSNATConfiguration(spec infrastructurev1beta2.CloudscaleClusterSpec) admission.Warnings {
+	var warnings admission.Warnings
+	for _, router := range spec.Routers {
+		if !router.InternetGateway {
+			continue
+		}
+		hasGateway := false
+		for _, iface := range router.Interfaces {
+			for _, network := range spec.Networks {
+				if network.Name == iface.Network && network.GatewayAddress != "" {
+					hasGateway = true
+					break
+				}
+			}
+			if hasGateway {
+				break
+			}
+		}
+		if !hasGateway {
+			warnings = append(warnings, fmt.Sprintf(
+				"Router %q has internetGateway enabled but no gatewayAddress is set on its attached networks. "+
+					"Set networks[].gatewayAddress to enable SNAT for outbound internet access.",
+				router.Name))
+		}
+	}
+	return warnings
 }

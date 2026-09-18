@@ -44,6 +44,8 @@ spec:
         value: "${CLUSTER_NAME}"
       - name: networkCIDR
         value: "${CLOUDSCALE_NETWORK_CIDR}"
+      - name: routerInterfaceAddress
+        value: "${CLOUDSCALE_ROUTER_INTERFACE_ADDRESS}"
       - name: routerName
         value: "${CLUSTER_NAME}-router"
       - name: cloudscaleControlPlaneMachineFlavor

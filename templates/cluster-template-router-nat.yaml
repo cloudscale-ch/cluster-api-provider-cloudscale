@@ -40,12 +40,14 @@ spec:
   networks:
   - name: "${CLUSTER_NAME}"
     cidr: "10.10.0.0/24"
+    gatewayAddress: "10.10.0.1"
     mtu: 1500
   routers:
   - name: "${CLUSTER_NAME}-router"
     internetGateway: true  # enables SNAT for outbound internet access
     interfaces:
     - network: "${CLUSTER_NAME}"
+      address: "10.10.0.1"
   credentialsRef:
     name: "${CLUSTER_NAME}-credentials"
 ---
