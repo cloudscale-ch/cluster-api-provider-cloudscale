@@ -69,7 +69,7 @@ func routerSpec() infrastructurev1beta2.RouterSpec {
 		Name:            "test-router",
 		InternetGateway: true,
 		Interfaces: []infrastructurev1beta2.RouterInterfaceSpec{
-			{Network: "test", Address: routerAddress, ConfigureSubnetGateway: new(true)},
+			{Network: "test", Address: routerAddress},
 		},
 	}
 }
@@ -103,7 +103,6 @@ func TestReconcileRouters_CreatesRouterAndInterface(t *testing.T) {
 	var interfaceRouterID string
 	var capturedCreateReq *cloudscalesdk.RouterCreateRequest
 	var capturedIfaceReq cloudscalesdk.CreateInterfaceRequest
-	var capturedSubnetUpdateReq *cloudscalesdk.SubnetUpdateRequest
 	routerService := &testutils.MockRouterService{
 		ListFn: func(ctx context.Context, modifiers ...cloudscalesdk.ListRequestModifier) ([]cloudscalesdk.Router, error) {
 			return nil, nil
@@ -118,12 +117,7 @@ func TestReconcileRouters_CreatesRouterAndInterface(t *testing.T) {
 			return &cloudscalesdk.RouterInterface{UUID: ifaceUUID}, nil
 		},
 	}
-	subnetService := &testutils.MockSubnetService{
-		UpdateFn: func(ctx context.Context, id string, req *cloudscalesdk.SubnetUpdateRequest) error {
-			capturedSubnetUpdateReq = req
-			return nil
-		},
-	}
+	subnetService := &testutils.MockSubnetService{}
 
 	clusterScope := testutils.NewClusterScopeOpts(
 		testutils.WithRouterService(routerService),
@@ -151,10 +145,6 @@ func TestReconcileRouters_CreatesRouterAndInterface(t *testing.T) {
 	g.Expect(capturedIfaceReq.Addresses[0].Subnet).To(Equal(subnetUUID))
 	g.Expect(capturedIfaceReq.Addresses[0].Address).To(Equal("10.0.0.1"))
 
-	g.Expect(capturedSubnetUpdateReq).ToNot(BeNil())
-	g.Expect(capturedSubnetUpdateReq.GatewayAddress).To(Equal(capturedIfaceReq.Addresses[0].Address))
-	g.Expect(capturedSubnetUpdateReq.DNSServers).To(BeNil())
-
 	rs := clusterScope.CloudscaleCluster.Status.GetRouterStatus("test-router")
 	g.Expect(rs).ToNot(BeNil())
 	g.Expect(rs.RouterID).To(Equal(routerUUID))
@@ -162,89 +152,11 @@ func TestReconcileRouters_CreatesRouterAndInterface(t *testing.T) {
 	// Keyed by the CAPCS network name, holding the interface UUID (not the network's).
 	g.Expect(rs.Interfaces).To(Equal(managedInterfaces()))
 
-	// The exact, ordered events for the whole managed path. Order is what pins the
-	// create-then-configure sequencing, which presence checks alone would not catch.
+	// The exact, ordered events for the managed path.
 	g.Expect(recordedEvents(r)).To(Equal([]string{
 		"Normal RouterCreated Created router test-router (router-uuid-123) in zone rma1",
 		"Normal RouterInterfaceCreated Attached router test-router to network test with address 10.0.0.1",
-		"Normal SubnetGatewayConfigured Configured subnet test gateway to router interface address 10.0.0.1",
 	}))
-}
-
-func TestReconcileRouters_ConfiguresSubnetGateway(t *testing.T) {
-	g := NewWithT(t)
-
-	var updatedSubnetID string
-	var capturedUpdate *cloudscalesdk.SubnetUpdateRequest
-	updateCalls := 0
-	routerService := &testutils.MockRouterService{
-		GetFn: func(ctx context.Context, id string) (*cloudscalesdk.Router, error) {
-			return activeRouter(id, routerInterface(ifaceUUID, routerAddress)), nil
-		},
-	}
-	subnetService := &testutils.MockSubnetService{
-		UpdateFn: func(ctx context.Context, id string, req *cloudscalesdk.SubnetUpdateRequest) error {
-			updateCalls++
-			updatedSubnetID = id
-			capturedUpdate = req
-			return nil
-		},
-	}
-
-	clusterScope := testutils.NewClusterScopeOpts(
-		testutils.WithRouterService(routerService),
-		testutils.WithSubnetService(subnetService),
-		testutils.WithPreExistingNetwork("test", netUUID, subnetUUID, "10.0.0.0/24"),
-		testutils.WithRouter(routerSpec()),
-		testutils.WithRouterStatus("test-router", routerUUID, true, managedInterfaces()),
-	)
-	r := newTestReconciler()
-
-	_, err := r.reconcileRouters(context.Background(), clusterScope)
-
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(updateCalls).To(Equal(1))
-	g.Expect(updatedSubnetID).To(Equal(subnetUUID))
-	g.Expect(capturedUpdate.GatewayAddress).To(Equal("10.0.0.1"))
-	// Recorded in status so the next reconcile skips the update.
-	ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus("test")
-	g.Expect(ns.GatewayAddress).To(Equal("10.0.0.1"))
-
-	_, err = r.reconcileRouters(context.Background(), clusterScope)
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(updateCalls).To(Equal(1))
-}
-
-func TestReconcileRouters_SkipsSubnetGatewayWhenNotOwner(t *testing.T) {
-	g := NewWithT(t)
-
-	routerService := &testutils.MockRouterService{
-		GetFn: func(ctx context.Context, id string) (*cloudscalesdk.Router, error) {
-			return activeRouter(id, routerInterface(ifaceUUID, routerAddress)), nil
-		},
-	}
-	subnetService := &testutils.MockSubnetService{
-		UpdateFn: func(ctx context.Context, id string, req *cloudscalesdk.SubnetUpdateRequest) error {
-			g.Fail("Subnets.Update should not be called when configureSubnetGateway is false")
-			return nil
-		},
-	}
-
-	spec := routerSpec()
-	spec.Interfaces[0].ConfigureSubnetGateway = new(false)
-
-	clusterScope := testutils.NewClusterScopeOpts(
-		testutils.WithRouterService(routerService),
-		testutils.WithSubnetService(subnetService),
-		testutils.WithPreExistingNetwork("test", netUUID, subnetUUID, "10.0.0.0/24"),
-		testutils.WithRouter(spec),
-		testutils.WithRouterStatus("test-router", routerUUID, true, managedInterfaces()),
-	)
-	r := newTestReconciler()
-
-	_, err := r.reconcileRouters(context.Background(), clusterScope)
-
-	g.Expect(err).ToNot(HaveOccurred())
 }
 
 // --- Pre-existing (adopted) routers ---
@@ -269,9 +181,6 @@ func TestReconcileRouters_AdoptedInterfaceOwnership(t *testing.T) {
 		mismatchEvent     = `Warning RouterInterfaceAddressMismatch Router test-router is attached to network test at "10.0.0.42", not at the requested "10.0.0.1", which therefore has no effect`
 		ifaceCreatedEvent = "Normal RouterInterfaceCreated Attached router test-router to network test with address 10.0.0.1"
 	)
-	gatewaySetEvent := func(address string) string {
-		return "Normal SubnetGatewayConfigured Configured subnet test gateway to router interface address " + address
-	}
 
 	tests := []struct {
 		name string
@@ -281,15 +190,12 @@ func TestReconcileRouters_AdoptedInterfaceOwnership(t *testing.T) {
 		adopt string
 		// status is the interface status
 		status []infrastructurev1beta2.RouterInterfaceStatus
-		// networkGateway is the gateway address.
-		networkGateway string
 
 		// wantErr is a substring of the error the reconcile has to fail with. The
 		// reconcile is run twice either way: a collision must stay a collision.
 		wantErr        string
 		wantInterfaces []infrastructurev1beta2.RouterInterfaceStatus
 		wantCreate     bool
-		wantGatewaySet string
 		// wantEvents is the exact, ordered set of events the reconcile must emit.
 		wantEvents []string
 	}{
@@ -300,28 +206,23 @@ func TestReconcileRouters_AdoptedInterfaceOwnership(t *testing.T) {
 			live:           []cloudscalesdk.RouterInterface{foreign},
 			wantInterfaces: managedInterfaces(),
 			wantCreate:     true,
-			wantGatewaySet: routerAddress,
-			wantEvents:     []string{ifaceCreatedEvent, gatewaySetEvent(routerAddress)},
+			wantEvents:     []string{ifaceCreatedEvent},
 		},
 		{
-			name:           "pre-existing attachment at the spec address is a collision",
-			live:           []cloudscalesdk.RouterInterface{routerInterface(preAttachedUUID, routerAddress)},
-			networkGateway: routerAddress,
-			wantErr:        "set spec.routers[].interfaces[].uuid to adopt that interface",
+			name:    "pre-existing attachment at the spec address is a collision",
+			live:    []cloudscalesdk.RouterInterface{routerInterface(preAttachedUUID, routerAddress)},
+			wantErr: "set spec.routers[].interfaces[].uuid to adopt that interface",
 		},
 		{
-			name:           "pre-existing attachment at another address is a collision",
-			live:           []cloudscalesdk.RouterInterface{routerInterface(preAttachedUUID, "10.0.0.42")},
-			networkGateway: "10.0.0.42",
-			wantErr:        "set spec.routers[].interfaces[].uuid to adopt that interface",
+			name:    "pre-existing attachment at another address is a collision",
+			live:    []cloudscalesdk.RouterInterface{routerInterface(preAttachedUUID, "10.0.0.42")},
+			wantErr: "set spec.routers[].interfaces[].uuid to adopt that interface",
 		},
 		{
 			name:           "adopted by uuid is used and left alone",
 			live:           []cloudscalesdk.RouterInterface{routerInterface(preAttachedUUID, "10.0.0.42")},
 			adopt:          preAttachedUUID,
 			wantInterfaces: interfaceStatus(preAttachedUUID, false),
-			wantGatewaySet: "10.0.0.42",
-			wantEvents:     []string{gatewaySetEvent("10.0.0.42")},
 		},
 		{
 			name:    "adopted uuid the router does not carry",
@@ -342,14 +243,12 @@ func TestReconcileRouters_AdoptedInterfaceOwnership(t *testing.T) {
 			name:           "attachment recorded before its response arrived",
 			live:           []cloudscalesdk.RouterInterface{routerInterface(ifaceUUID, routerAddress)},
 			status:         []infrastructurev1beta2.RouterInterfaceStatus{{Network: "test", Managed: true}},
-			networkGateway: routerAddress,
 			wantInterfaces: managedInterfaces(),
 		},
 		{
 			name:           "replaced interface stays managed",
 			live:           []cloudscalesdk.RouterInterface{routerInterface("replacement-iface-uuid", "10.0.0.42")},
 			status:         managedInterfaces(),
-			networkGateway: "10.0.0.42",
 			wantInterfaces: interfaceStatus("replacement-iface-uuid", true),
 			wantEvents:     []string{mismatchEvent},
 		},
@@ -376,16 +275,7 @@ func TestReconcileRouters_AdoptedInterfaceOwnership(t *testing.T) {
 				},
 			}
 
-			var gatewaySet string
-			subnetService := &testutils.MockSubnetService{
-				UpdateFn: func(ctx context.Context, id string, req *cloudscalesdk.SubnetUpdateRequest) error {
-					g.Expect(tc.wantGatewaySet).ToNot(BeEmpty(),
-						"Subnets.Update must not be called; the gateway is already correct or the address is unknown")
-					g.Expect(id).To(Equal(subnetUUID))
-					gatewaySet = req.GatewayAddress
-					return nil
-				},
-			}
+			subnetService := &testutils.MockSubnetService{}
 
 			spec := routerSpec()
 			spec.UUID = routerUUID
@@ -406,7 +296,6 @@ func TestReconcileRouters_AdoptedInterfaceOwnership(t *testing.T) {
 				opts = append(opts, testutils.WithRouterStatus("test-router", routerUUID, false, tc.status))
 			}
 			clusterScope := testutils.NewClusterScopeOpts(opts...)
-			clusterScope.CloudscaleCluster.Status.Networks[0].GatewayAddress = tc.networkGateway
 			r := newTestReconciler()
 
 			_, err := r.reconcileRouters(context.Background(), clusterScope)
@@ -417,20 +306,11 @@ func TestReconcileRouters_AdoptedInterfaceOwnership(t *testing.T) {
 				g.Expect(err).ToNot(HaveOccurred())
 			}
 			g.Expect(created).To(Equal(tc.wantCreate))
-			g.Expect(gatewaySet).To(Equal(tc.wantGatewaySet))
 
 			rs := clusterScope.CloudscaleCluster.Status.GetRouterStatus("test-router")
 			g.Expect(rs).ToNot(BeNil())
 			g.Expect(rs.Managed).To(BeFalse(), "an adopted router is never CAPCS-managed")
 			g.Expect(rs.Interfaces).To(Equal(tc.wantInterfaces))
-
-			// The recorded gateway tracks whatever was actually written, so the next
-			// reconcile knows whether there is anything left to do.
-			wantRecorded := tc.networkGateway
-			if tc.wantGatewaySet != "" {
-				wantRecorded = tc.wantGatewaySet
-			}
-			g.Expect(clusterScope.CloudscaleCluster.Status.GetNetworkStatus("test").GatewayAddress).To(Equal(wantRecorded))
 
 			g.Expect(recordedEvents(r)).To(Equal(tc.wantEvents))
 
@@ -518,7 +398,7 @@ func TestReconcileRouters_AttachesMultipleInterfaces(t *testing.T) {
 
 	spec := routerSpec()
 	spec.Interfaces = append(spec.Interfaces, infrastructurev1beta2.RouterInterfaceSpec{
-		Network: "transit", Address: "10.9.0.2", ConfigureSubnetGateway: new(false),
+		Network: "transit", Address: "10.9.0.2",
 	})
 
 	clusterScope := testutils.NewClusterScopeOpts(
@@ -537,9 +417,6 @@ func TestReconcileRouters_AttachesMultipleInterfaces(t *testing.T) {
 		netUUID:        {Subnet: subnetUUID, Address: routerAddress},
 		transitNetUUID: {Subnet: transitSubnetUUID, Address: "10.9.0.2"},
 	}))
-	// Only the gateway-owning interface rewrites a subnet; the transit subnet keeps
-	// whatever gateway its own router set.
-	g.Expect(gatewayUpdates).To(Equal(map[string]string{subnetUUID: routerAddress}))
 
 	rs := clusterScope.CloudscaleCluster.Status.GetRouterStatus("test-router")
 	g.Expect(rs).ToNot(BeNil())
@@ -728,27 +605,7 @@ func TestReconcileRouters_TimeoutsRequeue(t *testing.T) {
 			wantInterfaces:  []infrastructurev1beta2.RouterInterfaceStatus{{Network: "test", Managed: true}},
 			wantProvisioned: false,
 		},
-		{
-			name: "subnet gateway update",
-			routerService: func() *testutils.MockRouterService {
-				return &testutils.MockRouterService{
-					GetFn: func(ctx context.Context, id string) (*cloudscalesdk.Router, error) {
-						return activeRouter(id, routerInterface(ifaceUUID, routerAddress)), nil
-					},
-				}
-			},
-			subnetService: func() *testutils.MockSubnetService {
-				return &testutils.MockSubnetService{
-					UpdateFn: func(ctx context.Context, id string, req *cloudscalesdk.SubnetUpdateRequest) error {
-						return timeout("Patch", "subnets/"+id)
-					},
-				}
-			},
-			seedStatus: true,
-			// The attach itself succeeded, so its interface is recorded in full.
-			wantInterfaces:  managedInterfaces(),
-			wantProvisioned: false,
-		},
+
 		{
 			name: "interface create succeeds",
 			routerService: func() *testutils.MockRouterService {

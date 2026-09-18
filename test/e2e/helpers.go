@@ -81,24 +81,6 @@ func validateCloudscaleResources(proxy framework.ClusterProxy, namespace, cluste
 			Expect(ifaceStatus.Managed).To(Equal(ifaceSpec.UUID == ""),
 				"Router %s interface on network %s managed flag should reflect whether it was adopted by uuid",
 				routerSpec.Name, ifaceSpec.Network)
-
-			if !ptr.Deref(ifaceSpec.ConfigureSubnetGateway, true) {
-				continue
-			}
-			ns := cloudscaleCluster.Status.GetNetworkStatus(ifaceSpec.Network)
-			Expect(ns).NotTo(BeNil(), "Network %s should be tracked in status", ifaceSpec.Network)
-			if ifaceSpec.Address != "" {
-				// The address the webhook derived is the one the subnet gateway must end up
-				// pointing at. Checking only for non-emptiness would let a gateway pointed at
-				// the wrong host in the subnet pass.
-				Expect(ns.GatewayAddress).To(Equal(ifaceSpec.Address),
-					"Network %s subnet gateway should be router %s's interface address", ifaceSpec.Network, routerSpec.Name)
-			} else {
-				// Adopted interfaces and interfaces on uuid-referenced networks carry no
-				// spec address: it is only known once the controller reads the router.
-				Expect(ns.GatewayAddress).NotTo(BeEmpty(),
-					"Network %s should have its subnet gateway pointed at router %s", ifaceSpec.Network, routerSpec.Name)
-			}
 		}
 	}
 

@@ -111,9 +111,8 @@ var _ = Describe("Managed router NAT", Label("router-nat"), func() {
 		})
 	})
 
-	// Same topology via the router-nat ClusterClass. This additionally covers the
-	// CloudscaleClusterTemplate leaving the router interface address open for the
-	// CloudscaleCluster webhook to derive from the patched network CIDR.
+	// Same topology via the router-nat ClusterClass. This additionally covers patching the
+	// network gateway and router interface address from the ClusterClass variable.
 	Context("With managed router providing NAT via ClusterClass", func() {
 		capi_e2e.QuickStartSpec(ctx, func() capi_e2e.QuickStartSpecInput {
 			return capi_e2e.QuickStartSpecInput{

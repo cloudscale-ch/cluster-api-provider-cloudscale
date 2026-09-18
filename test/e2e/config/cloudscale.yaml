@@ -79,6 +79,7 @@ variables:
   # CLOUDSCALE_SSH_PUBLIC_KEY: Set via environment variable
   CLOUDSCALE_ROOT_VOLUME_SIZE: "20"
   CLOUDSCALE_NETWORK_CIDR: "172.18.0.0/24"
+  CLOUDSCALE_ROUTER_INTERFACE_ADDRESS: "172.18.0.1"
 
   # Machine template names for upgrade tests
   CONTROL_PLANE_MACHINE_TEMPLATE_UPGRADE_TO: "k8s-upgrade-control-plane"

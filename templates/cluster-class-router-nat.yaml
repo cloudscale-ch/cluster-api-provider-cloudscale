@@ -83,15 +83,18 @@ spec:
         openAPIV3Schema:
           type: string
           default: node-net
-    # The router interface address is deliberately not part of the templates: the
-    # CloudscaleCluster admission webhook derives it from this CIDR when the topology
-    # controller stamps out the cluster, so changing the CIDR moves the address with it.
     - name: networkCIDR
       required: true
       schema:
         openAPIV3Schema:
           type: string
           default: 10.10.0.0/24
+    - name: routerInterfaceAddress
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: "10.10.0.1"
     - name: routerName
       required: true
       schema:
@@ -176,6 +179,7 @@ spec:
                 template: |
                   - name: {{ .networkName }}
                     cidr: {{ .networkCIDR }}
+                    gatewayAddress: {{ .routerInterfaceAddress }}
             - op: replace
               path: "/spec/template/spec/routers"
               valueFrom:
@@ -184,6 +188,7 @@ spec:
                     internetGateway: true
                     interfaces:
                       - network: {{ .networkName }}
+                        address: {{ .routerInterfaceAddress }}
     - name: CloudscaleMachineTemplateControlPlane
       definitions:
         - selector:
@@ -304,11 +309,13 @@ spec:
       networks:
         - name: node-net
           cidr: 10.10.0.0/24
+          gatewayAddress: 10.10.0.1
       routers:
         - name: router
           internetGateway: true
           interfaces:
             - network: node-net
+              address: 10.10.0.1
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
 kind: CloudscaleMachineTemplate

@@ -301,13 +301,6 @@ func (r *CloudscaleClusterReconciler) setNetworkStatus(clusterScope *scope.Clust
 	})
 }
 
-// setNetworkGatewayAddress records the configured subnet gateway IP in the network status entry.
-func (r *CloudscaleClusterReconciler) setNetworkGatewayAddress(clusterScope *scope.ClusterScope, networkName, gatewayAddress string) {
-	if ns := clusterScope.CloudscaleCluster.Status.GetNetworkStatus(networkName); ns != nil {
-		ns.GatewayAddress = gatewayAddress
-	}
-}
-
 // networkTags returns the tags for a specific named network, combining cluster ownership with network name.
 func (r *CloudscaleClusterReconciler) networkTags(clusterScope *scope.ClusterScope, networkName string) cloudscalesdk.TagMap {
 	tags := cloudscalesdk.TagMap{
