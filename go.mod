@@ -1,6 +1,6 @@
 module github.com/cloudscale-ch/cluster-api-provider-cloudscale
 
-go 1.27.0
+go 1.27.1
 
 require (
 	github.com/cloudscale-ch/cloudscale-go-sdk/v10 v10.0.0
