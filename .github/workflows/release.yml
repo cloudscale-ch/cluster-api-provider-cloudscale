@@ -41,6 +41,9 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      - name: Verify release metadata
+        run: make verify-release-metadata
+
       # Gate the release on reachable vulnerabilities (incl. stdlib/toolchain)
       # before we build or push anything.
       - name: Run govulncheck
