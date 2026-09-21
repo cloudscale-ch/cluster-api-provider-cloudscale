@@ -7,6 +7,7 @@ This document describes how to create a new release of the Cluster API Provider 
 Releases follow [Semantic Versioning](https://semver.org/). The current release series is defined in `metadata.yaml`:
 
 - **1.0.x** — initial stable release series with `v1beta2` API contract
+- **1.1.x** — current stable release series with `v1beta2` API contract
 
 When introducing a new API version or breaking changes, add a new release series to `metadata.yaml`.
 

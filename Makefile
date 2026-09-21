@@ -97,6 +97,10 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 govulncheck: govulncheck-tool ## Run govulncheck to scan for known, reachable vulnerabilities (incl. stdlib/toolchain).
 	"$(GOVULNCHECK)" ./...
 
+.PHONY: verify-release-metadata
+verify-release-metadata: ## Verify metadata.yaml contains the release series required by TAG.
+	go run ./hack/verify-release-metadata --tag "$(TAG)" --metadata metadata.yaml
+
 ##@ Dependencies
 
 ## Tool Binaries
@@ -114,8 +118,8 @@ CLUSTERCTL ?= clusterctl
 DEV_KIND_CLUSTER ?= capcs-mgmt
 # example.invalid never resolves, so imagePullPolicy: IfNotPresent can only use the kind-loaded image.
 DEV_IMG ?= example.invalid/capcs/manager:dev
-# Must match a release series in metadata.yaml (currently 1.0 / v1beta2).
-DEV_PROVIDER_VERSION ?= v1.0.99
+# Must match a release series in metadata.yaml (currently 1.1 / v1beta2).
+DEV_PROVIDER_VERSION ?= v1.1.99
 # clusterctl reads its overrides layer from $$XDG_CONFIG_HOME/cluster-api/overrides and falls back
 # to ~/.cluster-api/overrides when that directory does not exist. Careful: the XDG library clusterctl
 # uses resolves $$XDG_CONFIG_HOME to ~/Library/Application Support on macOS (NOT ~/.config), so the
