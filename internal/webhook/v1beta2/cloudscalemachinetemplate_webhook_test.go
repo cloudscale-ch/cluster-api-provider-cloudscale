@@ -20,7 +20,7 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-	"sigs.k8s.io/cluster-api/api/core/v1beta2"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
 	infrastructurev1beta2 "github.com/cloudscale-ch/cluster-api-provider-cloudscale/api/v1beta2"
 	"github.com/cloudscale-ch/cluster-api-provider-cloudscale/internal/testutils"
@@ -162,7 +162,7 @@ func TestMachineTemplateValidateUpdate_DryRunWithChangedSpec(t *testing.T) {
 	if obj.Annotations == nil {
 		obj.Annotations = map[string]string{}
 	}
-	obj.Annotations[v1beta2.TopologyDryRunAnnotation] = ""
+	obj.Annotations[clusterv1.TopologyDryRunAnnotation] = ""
 
 	_, err := validator.ValidateUpdate(newAdmissionContext(true), oldObj, obj)
 	g.Expect(err).NotTo(HaveOccurred())
@@ -189,7 +189,7 @@ func TestMachineTemplateValidateUpdate_AnnotationWithoutDryRunStillDenied(t *tes
 	if obj.Annotations == nil {
 		obj.Annotations = map[string]string{}
 	}
-	obj.Annotations[v1beta2.TopologyDryRunAnnotation] = ""
+	obj.Annotations[clusterv1.TopologyDryRunAnnotation] = ""
 
 	// DryRun is false.
 	_, err := validator.ValidateUpdate(newAdmissionContext(false), oldObj, obj)
